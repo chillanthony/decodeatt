@@ -1,0 +1,23 @@
+# RescueKV 默认配置（Step 0 诊断阶段）
+
+# ---- 模型 ----
+model: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+dtype: bfloat16              # 模型计算精度
+device: cuda
+
+# ---- KV 分页 ----
+page_size: 16               # 每 page 含的 token 数；统计/淘汰/豁免的最小单位（对齐 Quest）
+
+# ---- 生成 ----
+max_new_tokens: 8192        # 单条 CoT 生成上限（长推理需要大）
+temperature: 0.6            # R1-Distill 推荐采样温度
+top_p: 0.95
+
+# ---- 诊断超参 ----
+mri_topk: 32                # 算 MRI 时，判定某 page 在该步"算重要"的 top-k 阈值
+receiver_topk: 8            # reflection 步反查 R_t 时，取注意力最高的前 k 个 page
+
+# ---- 路径 ----
+data_dir: data              # 数据集缓存
+trace_dir: data/traces      # CoT trace 落盘
+results_dir: results        # 诊断指标/图/表
