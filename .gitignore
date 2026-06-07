@@ -1,6 +1,6 @@
 rescuekv
 rescuekv/
-.claude/settings.local.json
+.claude/
 
 # Python / uv
 .venv/
