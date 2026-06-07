@@ -5,7 +5,7 @@ description = "RescueKV: training-free self-correction protection primitive over
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    "torch>=2.3",
+    "torch>=2.3,<2.7",
     "transformers>=4.44",
     "accelerate>=0.33",
     "datasets>=2.20",
@@ -31,5 +31,16 @@ build-backend = "hatchling.build"
 packages = ["rkv"]
 
 [tool.uv]
-# torch 在 Linux 默认 PyPI wheel 即含 CUDA，无需额外 index；如需指定见 README
 package = true
+
+# Linux 锁到 CUDA 12.4 的 torch（匹配 a100 驱动 550/CUDA12.4），避免拉到 cu130 带不动；
+# macOS 用默认 PyPI 源（CPU/mps）。
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu124", marker = "sys_platform == 'linux'" },
+]
