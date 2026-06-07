@@ -1,3 +1,14 @@
 rescuekv
 rescuekv/
 .claude/settings.local.json
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+
+# data & results
+data/
+results/
+*.pt
+*.safetensors
