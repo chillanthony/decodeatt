@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "torch>=2.3,<2.7",
-    "transformers>=4.44",
+    "transformers>=4.44,<5",
     "accelerate>=0.33",
     "datasets>=2.20",
     "numpy>=1.26",
