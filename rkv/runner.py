@@ -3,5 +3,30 @@
 Step 0：黑盒 generate 即可（见 scripts/gen_traces.py）。
 Step 1：在此实现自写解码循环 + KV 淘汰拦截 + 注意力探针。
 """
-# TODO(step1): def load_model(cfg): ...
-# TODO(step1): class Runner: generate(prompt, backend, rescue=None) -> TraceResult
+from __future__ import annotations
+
+import torch
+
+_DTYPE = {
+    "bfloat16": torch.bfloat16,
+    "float16": torch.float16,
+    "float32": torch.float32,
+}
+
+
+def load_model(cfg: dict):
+    """按 config 加载 causal LM 与 tokenizer。返回 (model, tokenizer)。"""
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    name = cfg["model"]
+    dtype = _DTYPE[cfg.get("dtype", "bfloat16")]
+    device = cfg.get("device", "cuda")
+
+    tokenizer = AutoTokenizer.from_pretrained(name)
+    model = AutoModelForCausalLM.from_pretrained(
+        name,
+        torch_dtype=dtype,
+        device_map=device,
+    )
+    model.eval()
+    return model, tokenizer
