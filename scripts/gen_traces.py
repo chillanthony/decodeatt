@@ -56,17 +56,19 @@ def build_input_ids(tokenizer, question: str, device):
 
 
 @torch.no_grad()
-def step_entropy(scores) -> torch.Tensor:
-    """从 generate 的 per-step logits 算每步预测分布的熵（nats）。
+def step_entropy(logits_steps) -> torch.Tensor:
+    """从每步**原始** logits 算预测分布的熵（nats）。
 
-    scores: tuple[Tensor[batch, vocab]]，长度 = 生成 token 数。
-    返回 Tensor[num_steps]（batch=1）。
+    logits_steps: tuple[Tensor[batch, vocab]]（用 generate(output_logits=True)，
+    是未经 temperature/top_p 截断的原始 logits）。返回 Tensor[num_steps]（batch=1）。
     """
     ent = []
-    for logits in scores:
+    for logits in logits_steps:
         logp = torch.log_softmax(logits.float(), dim=-1)
         p = logp.exp()
-        ent.append(-(p * logp).sum(-1).squeeze(0))
+        # 防护：截断/数值导致的 0*-inf -> 用 0 替代该项
+        term = torch.where(p > 0, p * logp, torch.zeros_like(p))
+        ent.append(-term.sum(-1).squeeze(0))
     return torch.stack(ent) if ent else torch.empty(0)
 
 
@@ -74,21 +76,23 @@ def step_entropy(scores) -> torch.Tensor:
 def generate_trace(model, tokenizer, problem: dict, cfg: dict, max_new: int):
     device = next(model.parameters()).device
     input_ids = build_input_ids(tokenizer, problem["question"], device)
+    attention_mask = torch.ones_like(input_ids)
 
     out = model.generate(
         input_ids,
+        attention_mask=attention_mask,
         max_new_tokens=max_new,
         do_sample=cfg.get("temperature", 0.0) > 0,
         temperature=cfg.get("temperature", 0.6),
         top_p=cfg.get("top_p", 0.95),
         return_dict_in_generate=True,
-        output_scores=True,
+        output_logits=True,   # 原始 logits（未截断），用于算真实预测熵
         pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
     )
 
     prompt_len = input_ids.shape[1]
     gen_ids = out.sequences[0, prompt_len:].cpu()
-    ent = step_entropy(out.scores).cpu()
+    ent = step_entropy(out.logits).cpu()
     text = tokenizer.decode(gen_ids, skip_special_tokens=False)
 
     return {
