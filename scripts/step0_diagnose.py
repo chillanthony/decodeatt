@@ -81,10 +81,13 @@ def diagnose_trace(trace, tokenizer, model, cfg):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/default.yaml")
+    ap.add_argument("--model", default=None, help="覆盖 config 的模型路径（用本地权重）")
     ap.add_argument("--max-traces", type=int, default=None)
     args = ap.parse_args()
 
     cfg = load_config(args.config)
+    if args.model:
+        cfg["model"] = args.model
     results_dir = Path(cfg.get("results_dir", "results"))
     results_dir.mkdir(parents=True, exist_ok=True)
 
