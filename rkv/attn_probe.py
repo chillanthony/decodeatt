@@ -26,7 +26,12 @@ def probe_sequence(
     layers=None,
     max_len: int | None = None,
 ) -> torch.Tensor:
-    """返回 [L_query, num_pages]：第 q 行 = 查询步 q 对各 key-page 的注意力（选定层/全头平均）。"""
+    """返回 [L_query, num_pages]：第 q 行 = 查询步 q 对各 key-page 的注意力（选定层/全头平均）。
+
+    内存安全实现：用 forward hook 在**每层算完即把注意力聚合到 page**，并把模块输出的
+    attn_weights 置 None，阻止 transformers 累积所有层的 [H,L,L]（否则长序列必 OOM）。
+    显存峰值只占单层注意力。
+    """
     if input_ids.dim() == 1:
         input_ids = input_ids.unsqueeze(0)
     if max_len is not None and input_ids.shape[1] > max_len:
@@ -34,23 +39,39 @@ def probe_sequence(
     device = next(model.parameters()).device
     input_ids = input_ids.to(device)
     L = input_ids.shape[1]
-
-    out = model(input_ids, output_attentions=True, use_cache=False)
-    atts = out.attentions  # tuple[num_layers]，每个 [B, H, L, L]
-    if layers is None:
-        layers = list(range(len(atts)))
-
     num_pages = (L + page_size - 1) // page_size
-    acc = torch.zeros(L, L, dtype=torch.float32, device=atts[0].device)
-    for li in layers:
-        acc += atts[li][0].float().mean(0)  # 对 head 取平均 -> [L_query, L_key]
-    acc /= len(layers)
 
-    pad = num_pages * page_size - L
-    if pad:
-        acc = F.pad(acc, (0, pad))          # 在 key 维补齐到整 page
-    page_attn = acc.view(L, num_pages, page_size).sum(-1)  # [L_query, num_pages]
-    return page_attn
+    attn_mods = [m for n, m in model.named_modules() if n.endswith(".self_attn")]
+    sel = set(layers) if layers is not None else None
+    acc = torch.zeros(L, num_pages, dtype=torch.float32, device=device)
+    count = [0]
+    handles = []
+
+    def make_hook(idx):
+        def hook(module, inputs, output):
+            if not (isinstance(output, tuple) and len(output) >= 2 and output[1] is not None):
+                return output
+            if sel is not None and idx not in sel:
+                return (output[0], None) + tuple(output[2:])  # 不选的层也释放
+            aw = output[1]                       # [B, H, Lq, Lk]
+            a = aw[0].float().mean(0)            # 对 head 平均 -> [Lq, Lk]
+            pad = num_pages * page_size - a.shape[-1]
+            if pad > 0:
+                a = F.pad(a, (0, pad))
+            acc.add_(a.view(a.shape[0], num_pages, page_size).sum(-1))  # 聚合到 page
+            count[0] += 1
+            return (output[0], None) + tuple(output[2:])   # 置 None，阻止累积
+        return hook
+
+    for i, m in enumerate(attn_mods):
+        handles.append(m.register_forward_hook(make_hook(i)))
+    try:
+        model(input_ids, output_attentions=True, use_cache=False)
+    finally:
+        for h in handles:
+            h.remove()
+
+    return acc / max(count[0], 1)
 
 
 @torch.no_grad()
