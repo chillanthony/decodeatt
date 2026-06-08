@@ -66,7 +66,9 @@ def probe_sequence(
     for i, m in enumerate(attn_mods):
         handles.append(m.register_forward_hook(make_hook(i)))
     try:
-        model(input_ids, output_attentions=True, use_cache=False)
+        # 走 base model 跳过 LM head，省掉 [1, L, vocab] 的大 logits 张量
+        base = getattr(model, "model", model)
+        base(input_ids, output_attentions=True, use_cache=False)
     finally:
         for h in handles:
             h.remove()

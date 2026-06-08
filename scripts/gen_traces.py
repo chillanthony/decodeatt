@@ -18,7 +18,7 @@ import yaml
 
 from rkv.runner import load_model
 
-# 内置示例题（无需下载数据集即可跑通；正式实验从 datasets 加载 AIME/MATH500）
+# 内置示例题（仅作 --dataset sample 的兜底；正式实验用真 AIME/MATH）
 SAMPLE_PROBLEMS = [
     {
         "id": "sample-aime-1",
@@ -34,6 +34,45 @@ SAMPLE_PROBLEMS = [
         "answer": "9",
     },
 ]
+
+# 数据集源（经 hf-mirror）：HF 上稳定可用的 AIME24 / MATH500
+_DATASETS = {
+    "aime": ("Maxwell-Jia/AIME_2024", "train"),
+    "math500": ("HuggingFaceH4/MATH-500", "test"),
+}
+_Q_FIELDS = ["problem", "Problem", "question", "Question"]
+_A_FIELDS = ["answer", "Answer", "solution", "Solution"]
+
+
+def _pick(row: dict, fields: list[str]):
+    for f in fields:
+        if f in row and row[f] is not None:
+            return row[f]
+    raise KeyError(f"未找到字段 {fields}，实际列：{list(row.keys())}")
+
+
+def load_dataset_problems(name: str, n: int) -> list[dict]:
+    """从 HF（hf-mirror）加载真 AIME/MATH 题目；name=mix 则两者各半。"""
+    import os
+    os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+    from datasets import load_dataset
+
+    if name == "mix":
+        half = (n + 1) // 2
+        return (load_dataset_problems("aime", half)
+                + load_dataset_problems("math500", n - half))
+
+    repo, split = _DATASETS[name]
+    ds = load_dataset(repo, split=split)
+    out = []
+    for i in range(min(n, len(ds))):
+        row = ds[i]
+        out.append({
+            "id": f"{name}-{i}",
+            "question": str(_pick(row, _Q_FIELDS)),
+            "answer": str(_pick(row, _A_FIELDS)),
+        })
+    return out
 
 
 def load_config(path: str | None) -> dict:
@@ -113,6 +152,9 @@ def main():
     ap.add_argument("--model", default=None, help="覆盖 config 的模型（烟雾测试用小模型）")
     ap.add_argument("--max-new", type=int, default=None, help="覆盖 max_new_tokens")
     ap.add_argument("--n", type=int, default=1, help="生成几条 trace")
+    ap.add_argument("--dataset", default="sample",
+                    choices=["sample", "aime", "math500", "mix"],
+                    help="题目来源：sample=内置兜底；aime/math500/mix=真数据集")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
@@ -126,7 +168,11 @@ def main():
     print(f"[gen_traces] model={cfg['model']} max_new={max_new} n={args.n}")
     model, tokenizer = load_model(cfg)
 
-    problems = (SAMPLE_PROBLEMS * ((args.n // len(SAMPLE_PROBLEMS)) + 1))[: args.n]
+    if args.dataset == "sample":
+        problems = (SAMPLE_PROBLEMS * ((args.n // len(SAMPLE_PROBLEMS)) + 1))[: args.n]
+    else:
+        problems = load_dataset_problems(args.dataset, args.n)
+    print(f"[gen_traces] dataset={args.dataset} -> {len(problems)} problems")
     for i, prob in enumerate(problems):
         trace = generate_trace(model, tokenizer, prob, cfg, max_new)
         out_path = trace_dir / f"{prob['id']}-{i}.pt"
