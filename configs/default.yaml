@@ -17,6 +17,7 @@ top_p: 0.95
 mri_topk: 32                # 算 MRI 时，判定某 page 在该步"算重要"的 top-k 阈值
 receiver_topk: 8            # reflection 步反查 R_t 时，取注意力最高的前 k 个 page
 exclude_recent_pages: 4     # receiver 反查时屏蔽当前及最近 N 个 page（只看早期回指）
+keep_frac: 0.2              # 错杀率代理：通用淘汰器保留累计注意力 top 20% 的 page
 probe_max_len: 3072         # 探针前向的最大序列长度（控 output_attentions 显存）
 probe_layers: null          # 探针取哪些层（null=全层平均；可指定 receiver 层子集）
 attn_implementation: eager  # 探针须 eager 才返回 attentions；纯生成可改 sdpa 提速
