@@ -22,11 +22,18 @@ def load_model(cfg: dict):
     dtype = _DTYPE[cfg.get("dtype", "bfloat16")]
     device = cfg.get("device", "cuda")
 
+    kwargs = {}
+    # 探针阶段需 eager 才能拿到 attentions；生成阶段可用 sdpa/flash 提速
+    attn_impl = cfg.get("attn_implementation")
+    if attn_impl:
+        kwargs["attn_implementation"] = attn_impl
+
     tokenizer = AutoTokenizer.from_pretrained(name)
     model = AutoModelForCausalLM.from_pretrained(
         name,
         torch_dtype=dtype,
         device_map=device,
+        **kwargs,
     )
     model.eval()
     return model, tokenizer
