@@ -11,13 +11,15 @@ from __future__ import annotations
 import bisect
 import re
 
-# reflection / 回退标志词；英文用词边界，CJK 直接子串匹配
+# reflection / 回退标志词（收紧版）：只留强信号短语，去掉满天飞的单字 but/wait/hmm
+# 避免 R_t 退化成"几乎所有早期 page"。
 REFLECTION_PATTERNS = [
-    r"\bwait\b", r"\bbut\b", r"\bactually\b", r"\bhold on\b",
+    r"\bwait,", r"\bbut wait\b", r"\bhold on\b",
     r"\blet me (?:re)?check\b", r"\blet me reconsider\b",
-    r"\blet me re-?examine\b", r"\bon second thought\b",
-    r"\bhmm+\b", r"\bno,? wait\b", r"\blet me try again\b",
-    "重新", "等等", "再想想", "不对", "等一下", "仔细",
+    r"\blet me re-?examine\b", r"\blet me try again\b",
+    r"\bon second thought\b", r"\bthat'?s (?:wrong|not right)\b",
+    r"\bi made a mistake\b", r"\bactually,? wait\b",
+    "重新", "再想想", "不对", "等一下", "搞错",
 ]
 _REFLECTION_RE = re.compile("|".join(REFLECTION_PATTERNS), re.IGNORECASE)
 _BOXED_RE = re.compile(r"\\boxed\{([^{}]*)\}")
@@ -50,10 +52,24 @@ def _char_to_step(char_pos: int, offsets: list[int]) -> int:
     return max(0, i)
 
 
-def mark_reflection_steps(gen_ids, tokenizer) -> list[int]:
-    """返回命中 reflection 词的解码步下标（升序去重）。"""
+def mark_reflection_steps(
+    gen_ids, tokenizer, step_entropy=None, entropy_quantile: float | None = None
+) -> list[int]:
+    """返回命中 reflection 词的解码步下标（升序去重）。
+
+    若给 step_entropy + entropy_quantile，则再叠加"高熵步"过滤：只保留熵 >= 分位阈值的步
+    （纠错往往发生在高不确定的决策点，进一步收紧 R_t）。
+    """
     text, offsets, _ = _text_and_offsets(gen_ids, tokenizer)
     steps = {_char_to_step(m.start(), offsets) for m in _REFLECTION_RE.finditer(text)}
+
+    if step_entropy is not None and entropy_quantile is not None:
+        import torch
+
+        e = step_entropy if isinstance(step_entropy, torch.Tensor) else torch.tensor(step_entropy)
+        thr = torch.quantile(e.float(), entropy_quantile).item()
+        steps = {s for s in steps if s < e.numel() and float(e[s]) >= thr}
+
     return sorted(steps)
 
 

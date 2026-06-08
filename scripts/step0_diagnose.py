@@ -38,7 +38,11 @@ def diagnose_trace(trace, tokenizer, model, cfg):
     prompt_len = prompt_ids.shape[0]
     full = torch.cat([prompt_ids, gen_ids]).unsqueeze(0)
 
-    refl_gen = mark_reflection_steps(gen_ids, tokenizer)
+    refl_gen = mark_reflection_steps(
+        gen_ids, tokenizer,
+        step_entropy=trace.get("step_entropy"),
+        entropy_quantile=cfg.get("entropy_quantile"),
+    )
     if not refl_gen:
         return None
 

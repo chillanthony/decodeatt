@@ -47,7 +47,7 @@ def plot_mri_cdf(r_mri: list[int], g_mri: list[int], path: str):
     import numpy as np
 
     fig, ax = plt.subplots(figsize=(5, 4))
-    for data, label in [(r_mri, "R_t (纠错回指)"), (g_mri, "G (普通)")]:
+    for data, label in [(r_mri, "R_t (correction)"), (g_mri, "G (ordinary)")]:
         if not data:
             continue
         xs = np.sort(np.array(data, dtype=float))
