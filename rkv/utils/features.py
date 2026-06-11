@@ -29,12 +29,25 @@ def page_features(
     step_entropy: torch.Tensor | None,
     prompt_len: int,
     page_size: int = 16,
+    row_positions=None,
+    seq_len: int | None = None,
 ) -> torch.Tensor:
     """返回 [num_pages, 4] 的特征矩阵（列序 = FEATURE_NAMES）。
 
     纯 prompt page（无生成 token 落在该 page）的 entropy 列为 NaN。
+
+    两种输入模式：
+    - 全量（默认）：page_attn 为 [L, num_pages]，第 q 行 = 查询位置 q（probe_sequence 输出）。
+    - 采样行：page_attn 为 [n_rows, num_pages]，row_positions 给出各行的查询位置
+      （probe_rows 输出，长序列模式）；此时须给 seq_len = 全序列长度。
     """
-    L, num_pages = page_attn.shape
+    n_rows, num_pages = page_attn.shape
+    if row_positions is None:
+        row_positions = torch.arange(n_rows)
+    else:
+        row_positions = (row_positions if isinstance(row_positions, torch.Tensor)
+                         else torch.tensor(list(row_positions)))
+    L = seq_len if seq_len is not None else n_rows
     feats = torch.full((num_pages, len(FEATURE_NAMES)), float("nan"))
 
     ent = None
@@ -55,8 +68,8 @@ def page_features(
             if hi > lo:
                 feats[p, 0] = ent[lo:hi].mean()
 
-        # cum_attn / concentration：只看因果有效的查询步
-        col = page_attn[start:, p].float()
+        # cum_attn / concentration：只看因果有效的查询步（行位置 >= page 首 token）
+        col = page_attn[row_positions >= start, p].float()
         if col.numel() > 0:
             mean = col.mean()
             feats[p, 1] = mean

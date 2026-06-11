@@ -155,14 +155,19 @@ def main():
     ap.add_argument("--dataset", default="sample",
                     choices=["sample", "aime", "math500", "mix"],
                     help="题目来源：sample=内置兜底；aime/math500/mix=真数据集")
+    ap.add_argument("--trace-dir", default=None, help="覆盖 config 的 trace 输出目录")
+    ap.add_argument("--attn", default=None,
+                    help="覆盖 attn_implementation（纯生成用 sdpa 提速；探针才需要 eager）")
     args = ap.parse_args()
 
     cfg = load_config(args.config)
     if args.model:
         cfg["model"] = args.model
+    if args.attn:
+        cfg["attn_implementation"] = args.attn
     max_new = args.max_new or cfg.get("max_new_tokens", 8192)
 
-    trace_dir = Path(cfg.get("trace_dir", "data/traces"))
+    trace_dir = Path(args.trace_dir or cfg.get("trace_dir", "data/traces"))
     trace_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[gen_traces] model={cfg['model']} max_new={max_new} n={args.n}")
