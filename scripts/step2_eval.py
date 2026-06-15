@@ -148,8 +148,17 @@ def _summarize(records, arms):
                     if refl_rows else None)
         masses = [x["early_mass"] for x in rows if x["early_mass"] is not None]
         lens = [x["gen_len"] for x in rows]
+        # 抗截断的核心指标：与 full 臂答案一致率（淘汰是否改变了结论）
+        agree = [r["arms"][arm]["pred"] == r["arms"].get("full", {}).get("pred")
+                 for r in records if arm in r["arms"] and "full" in r["arms"]]
+        agree_refl = [r["arms"][arm]["pred"] == r["arms"]["full"]["pred"]
+                      for r in records if r["id"] in refl_ids
+                      and arm in r["arms"] and "full" in r["arms"]]
         summ[arm] = {
             "acc": acc, "acc_reflection": acc_refl,
+            "agree_full": sum(agree) / len(agree) if agree else None,
+            "agree_full_reflection": (sum(agree_refl) / len(agree_refl)
+                                      if agree_refl else None),
             "n": len(rows), "n_reflection": len(refl_rows),
             "mean_early_mass": sum(masses) / len(masses) if masses else None,
             "mean_gen_len": sum(lens) / len(lens) if lens else None,
@@ -167,14 +176,13 @@ def _dump(records, arms, args):
 def _report(records, arms):
     summ, n_refl = _summarize(records, arms)
     print(f"\n=== Phase 2 五臂评测（{len(records)} 题，含 reflection 子集 {n_refl} 题）===")
-    print("| arm | 整体精度 | 纠错子集精度 | 早期注意力质量 | 平均生成长度 |")
-    print("|-----|----------|--------------|----------------|--------------|")
+    print("| arm | 整体精度 | 纠错子集精度 | 与full一致 | 纠错子集一致 | 早期注意力质量 | 平均长度 |")
+    print("|-----|----------|--------------|-----------|--------------|----------------|----------|")
     for arm in arms:
         s = summ[arm]
-        ar = f"{s['acc_reflection']:.3f}" if s["acc_reflection"] is not None else "—"
-        em = f"{s['mean_early_mass']:.3f}" if s["mean_early_mass"] is not None else "—"
-        ml = f"{s['mean_gen_len']:.0f}" if s["mean_gen_len"] else "—"
-        print(f"| {arm} | {s['acc']:.3f} | {ar} | {em} | {ml} |")
+        f = lambda k: f"{s[k]:.3f}" if s[k] is not None else "—"
+        print(f"| {arm} | {s['acc']:.3f} | {f('acc_reflection')} | {f('agree_full')} "
+              f"| {f('agree_full_reflection')} | {f('mean_early_mass')} | {f('mean_gen_len')} |")
 
 
 if __name__ == "__main__":
