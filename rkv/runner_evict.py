@@ -137,6 +137,81 @@ def _entropy(logits: torch.Tensor) -> float:
     return float(-(torch.where(p > 0, p * logp, torch.zeros_like(p))).sum())
 
 
+@torch.no_grad()
+def score_trace_teacherforced(
+    model, tokenizer, full_ids, prompt_len, refl_steps, scorer, arm,
+    span_len: int = 32, page_size: int = 16, keep_frac: float = 0.2,
+    protect_recent: int = 24, exempt_frac: float = 0.05, evict_every: int = 32,
+    window: int = 8, backend: str = "window", seed: int = 0,
+):
+    """Teacher-forced 因果探针:喂**真** token 走淘汰循环,测各 token 的 NLL。
+
+    不自由生成 -> 无连贯性崩溃混淆;臂间唯一差异是缓存内容,故 NLL 差异纯由淘汰导致。
+    correction span = 每个 reflection 步起 span_len 个 token(gen 坐标),模型在此使用回查内容。
+    返回 dict(nll_all, nll_corr, nll_noncorr, n_corr, n_all)。
+    """
+    device = next(model.parameters()).device
+    rng = random.Random(seed)
+    full_ids = full_ids.to(device)
+    if full_ids.dim() == 1:
+        full_ids = full_ids.unsqueeze(0)
+    P = prompt_len
+    gen_ids = full_ids[0, P:]
+    Lgen = gen_ids.numel()
+    corr_mask = torch.zeros(Lgen, dtype=torch.bool)
+    for s in refl_steps:
+        corr_mask[s: min(s + span_len, Lgen)] = True
+
+    out = model(input_ids=full_ids[:, :P], use_cache=True, output_attentions=True)
+    cache = out.past_key_values
+    logits = out.logits[:, -1]
+    slot_pos = torch.arange(P, device=device)
+    recent_rows = []
+
+    def ingest(out, slot_pos, gen_token_pos):
+        if arm == "full" or scorer is None:
+            return
+        num_pages = int(slot_pos.max().item()) // page_size + 1
+        pages_row = _attn_row_to_pages(out.attentions, slot_pos, num_pages, page_size, device)
+        scorer.update(pages_row, _entropy(out.logits[:, -1]), token_pos=gen_token_pos)
+        recent_rows.append((slot_pos.max().item() // page_size, pages_row))
+        if len(recent_rows) > window:
+            recent_rows.pop(0)
+
+    ingest(out, slot_pos, gen_token_pos=P)
+    nll_corr, nll_non, n_corr, n_non = 0.0, 0.0, 0, 0
+    for t in range(Lgen):
+        real = int(gen_ids[t])
+        nll = -float(torch.log_softmax(logits.float(), -1)[0, real])
+        if corr_mask[t]:
+            nll_corr += nll; n_corr += 1
+        else:
+            nll_non += nll; n_non += 1
+        true_pos = P + t
+        cur = full_ids[:, P + t: P + t + 1]
+        cache_len = slot_pos.numel()
+        out = model(input_ids=cur, past_key_values=cache, use_cache=True,
+                    output_attentions=True,
+                    attention_mask=torch.ones(1, cache_len + 1, device=device, dtype=torch.long),
+                    position_ids=torch.tensor([[true_pos]], device=device),
+                    cache_position=torch.tensor([cache_len], device=device))
+        cache = out.past_key_values
+        logits = out.logits[:, -1]
+        slot_pos = torch.cat([slot_pos, torch.tensor([true_pos], device=device)])
+        ingest(out, slot_pos, gen_token_pos=true_pos + 1)
+        if arm != "full" and (t + 1) % evict_every == 0:
+            num_pages = (true_pos + 1) // page_size + 1
+            keep_pages = _select_pages(scorer, recent_rows, slot_pos, num_pages,
+                                       page_size, keep_frac, protect_recent,
+                                       exempt_frac, arm, backend, rng)
+            slot_pos = _compact(cache, slot_pos, keep_pages, page_size, device)
+    return {
+        "nll_corr": nll_corr / max(n_corr, 1), "n_corr": n_corr,
+        "nll_noncorr": nll_non / max(n_non, 1), "n_noncorr": n_non,
+        "nll_all": (nll_corr + nll_non) / max(n_corr + n_non, 1),
+    }
+
+
 def _early_attn_mass(attn_layers, slot_pos, q_true_pos, page_size, excl):
     """reflection 时刻：当前 token 注意力落在**早期存活页**上的质量占比。
 
