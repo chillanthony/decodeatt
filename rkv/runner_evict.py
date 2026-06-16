@@ -34,6 +34,8 @@ def _attn_row_to_pages(attn_layers, slot_pos: torch.Tensor, num_pages: int,
         row = a[0, :, -1, :].mean(0).float()        # [kv]
         acc = row if acc is None else acc + row
     acc = acc / len(attn_layers)
+    assert acc.numel() == slot_pos.numel(), \
+        f"attn kv_len {acc.numel()} != slot_pos {slot_pos.numel()}（淘汰后错配）"
     pages = torch.zeros(num_pages, device=device)
     slot_page = (slot_pos // page_size).to(device)
     pages.scatter_add_(0, slot_page, acc.to(device))
@@ -65,18 +67,24 @@ def generate_with_evict(
     n_evict, n_refl, rcv_hit, rcv_tot = 0, 0, 0, 0
     refl_re = _REFLECTION_RE
 
+    def ingest(out, slot_pos, gen_token_pos):
+        """前向紧后、压缩之前调用：此刻 out.attentions 的 kv_len 与 slot_pos 长度严格一致。
+        更新在线签名（当前 query 的页注意力行 + 即将生成 token 的熵）。"""
+        if arm == "full" or scorer is None:
+            return
+        num_pages = int(slot_pos.max().item()) // page_size + 1
+        pages_row = _attn_row_to_pages(out.attentions, slot_pos, num_pages,
+                                       page_size, device)
+        scorer.update(pages_row, _entropy(out.logits[:, -1]), token_pos=gen_token_pos)
+        recent_rows.append((slot_pos.max().item() // page_size, pages_row))
+        if len(recent_rows) > window:
+            recent_rows.pop(0)
+
+    # prefill 的 query 在 P-1，预测位置 P 的 token；此刻 slot_pos=arange(P) 与 kv_len 一致
+    ingest(out, slot_pos, gen_token_pos=P)
+
     for step in range(max_new):
         true_pos = P + step
-        num_pages = true_pos // page_size + 1
-        if arm != "full" and scorer is not None:
-            pages_row = _attn_row_to_pages(out.attentions, slot_pos, num_pages,
-                                           page_size, device)
-            ent = _entropy(logits)               # 即将生成的 token（位置 true_pos）的熵
-            scorer.update(pages_row, ent, token_pos=true_pos)
-            recent_rows.append(pages_row)
-            if len(recent_rows) > window:
-                recent_rows.pop(0)
-
         nxt = int(logits.argmax(-1))                    # 贪心（可复现，评测用）
         gen.append(nxt)
         if nxt == eos:
@@ -94,7 +102,10 @@ def generate_with_evict(
         logits = out.logits[:, -1]
         slot_pos = torch.cat([slot_pos, torch.tensor([true_pos], device=device)])
 
-        # reflection 在线检测（看最近一小段文本）→ receiver 命中率诊断
+        # 签名更新（此刻 slot_pos 与 out.attentions 长度一致；务必在淘汰压缩之前）
+        ingest(out, slot_pos, gen_token_pos=true_pos + 1)
+
+        # reflection 在线检测（看最近一小段文本）→ 早期注意力质量诊断
         if (step + 1) % 16 == 0:
             tail = tokenizer.decode(gen[-48:])
             if refl_re.search(tail):
@@ -105,7 +116,7 @@ def generate_with_evict(
                     rcv_hit += mass        # 累加早期注意力质量占比
                     rcv_tot += 1
 
-        # 周期性淘汰
+        # 周期性淘汰（在 ingest 之后）
         if arm != "full" and (step + 1) % evict_every == 0:
             num_pages = (true_pos + 1) // page_size + 1
             keep_pages = _select_pages(
@@ -157,14 +168,11 @@ def _select_pages(scorer, recent_rows, slot_pos, num_pages, page_size, keep_frac
     if backend == "h2o":
         cum = scorer.cum_sum[:num_pages] / scorer.cum_cnt[:num_pages].clamp(min=1)
         score = cum
-    else:  # window
-        if recent_rows:
-            score = torch.stack(recent_rows).sum(0)
-            if score.numel() < num_pages:
-                score = torch.cat([score, torch.zeros(num_pages - score.numel(),
-                                                       device=score.device)])
-        else:
-            score = torch.zeros(num_pages, device=slot_pos.device)
+    else:  # window：各行页数随时间增长，右侧补零到 num_pages 再叠加
+        score = torch.zeros(num_pages, device=slot_pos.device)
+        for _, row in recent_rows:
+            n = min(row.numel(), num_pages)
+            score[:n] += row[:n].to(score.device)
     cand = [p for p in alive_pages if p not in protected]
     cand.sort(key=lambda p: float(score[p]), reverse=True)
     keep = set(protected) | set(cand[: max(0, budget - len(protected))])

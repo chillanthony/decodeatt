@@ -57,7 +57,8 @@ class OnlineSignature:
         """吸收一个解码步：attn_row[num_pages] = 该 query 对各页注意力；
         step_entropy = 该步预测熵；token_pos = 新 token 的全序列位置。"""
         num_pages = attn_row.numel()
-        self._grow(num_pages)
+        p = token_pos // self.page_size
+        self._grow(max(num_pages, p + 1))
         a = attn_row.to(self.device, torch.float32)
         # cum_attn：只对因果有效页（页首 <= 当前 query 位置）计步——与离线一致
         valid = torch.arange(num_pages, device=self.device) * self.page_size <= token_pos
@@ -66,7 +67,6 @@ class OnlineSignature:
         self.cum_max[:num_pages] = torch.maximum(self.cum_max[:num_pages],
                                                  torch.where(valid, a, self.cum_max[:num_pages]))
         # entropy：新 token 落入的页
-        p = token_pos // self.page_size
         self.ent_sum[p] += step_entropy
         self.ent_cnt[p] += 1.0
 
