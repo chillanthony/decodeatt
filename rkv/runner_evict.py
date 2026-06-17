@@ -23,7 +23,23 @@ import torch
 from rkv.online_features import OnlineSignature
 from rkv.utils.reflection import _REFLECTION_RE
 
-ARMS = ["full", "evict", "rescue", "random", "gsig"]
+ARMS = ["full", "evict", "rescue", "random", "gsig", "rescue_buf"]
+
+
+def _sample(logits, do_sample, temperature, top_p):
+    """采样或贪心。logits: [1, vocab]。"""
+    if not do_sample:
+        return int(logits.argmax(-1))
+    lg = logits.float() / max(temperature, 1e-6)
+    probs = torch.softmax(lg, -1)[0]
+    if top_p < 1.0:
+        sp, si = torch.sort(probs, descending=True)
+        cdf = sp.cumsum(0)
+        keep = cdf <= top_p
+        keep[0] = True
+        probs = torch.zeros_like(probs).scatter_(0, si[keep], sp[keep])
+        probs = probs / probs.sum()
+    return int(torch.multinomial(probs, 1))
 
 
 def _attn_row_to_pages(attn_layers, slot_pos: torch.Tensor, num_pages: int,
@@ -49,13 +65,25 @@ def generate_with_evict(
     protect_recent: int = 4, exempt_frac: float = 0.05, evict_every: int = 32,
     window: int = 8, backend: str = "window", receiver_topk: int = 8,
     exclude_recent_pages: int = 4, seed: int = 0,
+    do_sample: bool = False, temperature: float = 0.6, top_p: float = 0.95,
+    buffer_cap: int = 48, recall_topk: int = 4,
 ):
-    """返回 dict(text, gen_ids, n_evict_rounds, n_reflection, receiver_hits, receiver_total)。"""
+    """返回 dict(text, gen_ids, n_evict_rounds, n_reflection, receiver_hits, receiver_total)。
+
+    arm=rescue_buf：可恢复缓冲——淘汰高签名页时 offload 到 CPU（不丢），reflection 触发
+    时召回 top-recall_topk 个 CPU 缓冲页回缓存。buffer_cap 限制 CPU 缓冲页数。
+    do_sample/temperature/top_p：采样解码（避免贪心退化）；seed 固定保证臂间可复现。
+    """
     assert arm in ARMS, arm
     device = next(model.parameters()).device
     rng = random.Random(seed)
+    if do_sample:
+        torch.manual_seed(seed)
     input_ids = input_ids.to(device)
     P = input_ids.shape[1]
+    store: dict[int, dict] = {}                  # page_idx -> {"pos":[...], "kv":[(k,v)..]}（CPU）
+    is_buf = arm == "rescue_buf"
+    evict_arm = "evict" if is_buf else arm       # 缓冲臂的淘汰用纯 evict 选页
 
     out = model(input_ids=input_ids, use_cache=True, output_attentions=True)
     cache = out.past_key_values
@@ -85,7 +113,7 @@ def generate_with_evict(
 
     for step in range(max_new):
         true_pos = P + step
-        nxt = int(logits.argmax(-1))                    # 贪心（可复现，评测用）
+        nxt = _sample(logits, do_sample, temperature, top_p)
         gen.append(nxt)
         if nxt == eos:
             break
@@ -105,7 +133,7 @@ def generate_with_evict(
         # 签名更新（此刻 slot_pos 与 out.attentions 长度一致；务必在淘汰压缩之前）
         ingest(out, slot_pos, gen_token_pos=true_pos + 1)
 
-        # reflection 在线检测（看最近一小段文本）→ 早期注意力质量诊断
+        # reflection 在线检测（看最近一小段文本）→ 早期注意力质量诊断 + 缓冲召回
         if (step + 1) % 16 == 0:
             tail = tokenizer.decode(gen[-48:])
             if refl_re.search(tail):
@@ -115,13 +143,26 @@ def generate_with_evict(
                 if mass is not None:
                     rcv_hit += mass        # 累加早期注意力质量占比
                     rcv_tot += 1
+                if is_buf and store:       # 纠错触发：召回 top 签名缓冲页回缓存
+                    num_pages = int(slot_pos.max().item()) // page_size + 1
+                    sig = scorer.scores(num_pages)
+                    cand = sorted(store, key=lambda p: float(sig[p]) if p < num_pages
+                                  else -1e9, reverse=True)[:recall_topk]
+                    slot_pos = _recall_pages(cache, slot_pos, store, cand, device)
 
         # 周期性淘汰（在 ingest 之后）
         if arm != "full" and (step + 1) % evict_every == 0:
             num_pages = (true_pos + 1) // page_size + 1
             keep_pages = _select_pages(
                 scorer, recent_rows, slot_pos, num_pages, page_size, keep_frac,
-                protect_recent, exempt_frac, arm, backend, rng)
+                protect_recent, exempt_frac, evict_arm, backend, rng)
+            if is_buf:                     # 把将被丢弃的高签名页 offload 到 CPU 缓冲
+                sig = scorer.scores(num_pages)
+                alive = set((slot_pos // page_size).tolist())
+                dropped = [p for p in alive if p not in keep_pages and p not in store]
+                dropped.sort(key=lambda p: float(sig[p]), reverse=True)
+                for p in dropped[: max(0, buffer_cap - len(store))]:
+                    _offload_page(cache, slot_pos, store, p, page_size)
             slot_pos = _compact(cache, slot_pos, keep_pages, page_size, device)
             n_evict += 1
 
@@ -277,6 +318,34 @@ def _compact(cache, slot_pos, keep_pages, page_size, device) -> torch.Tensor:
         layer.keys = layer.keys.index_select(2, idx).contiguous()
         layer.values = layer.values.index_select(2, idx).contiguous()
     return slot_pos.index_select(0, idx)
+
+
+def _offload_page(cache, slot_pos, store, page, page_size):
+    """把某页的每层 KV（post-RoPE）拷到 CPU 缓冲 store；不改缓存（随后由 _compact 丢弃）。"""
+    idx = ((slot_pos // page_size) == page).nonzero(as_tuple=True)[0]
+    if idx.numel() == 0:
+        return
+    kv = [(layer.keys.index_select(2, idx).to("cpu"),
+           layer.values.index_select(2, idx).to("cpu")) for layer in cache.layers]
+    store[int(page)] = {"pos": slot_pos.index_select(0, idx).to("cpu"), "kv": kv}
+
+
+@torch.no_grad()
+def _recall_pages(cache, slot_pos, store, pages, device):
+    """把 CPU 缓冲里的若干页 KV 拼回缓存末尾，扩展 slot_pos（注意力对槽序无关，
+    每个 key 自带原位 RoPE 相位）。从 store 移除已召回页。返回新 slot_pos。"""
+    add_pos = []
+    for p in pages:
+        ent = store.pop(int(p), None)
+        if ent is None:
+            continue
+        for layer, (k, v) in zip(cache.layers, ent["kv"]):
+            layer.keys = torch.cat([layer.keys, k.to(device)], dim=2).contiguous()
+            layer.values = torch.cat([layer.values, v.to(device)], dim=2).contiguous()
+        add_pos.append(ent["pos"].to(device))
+    if add_pos:
+        slot_pos = torch.cat([slot_pos] + add_pos)
+    return slot_pos
 
 
 def _smoke(model_path: str, max_new: int = 64):
