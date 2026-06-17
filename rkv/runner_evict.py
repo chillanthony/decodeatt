@@ -253,6 +253,120 @@ def score_trace_teacherforced(
     }
 
 
+def _patch_pages(cache, slot_pos, ref_kv, pages, page_size, L, device, already):
+    """把参考全量缓存里指定页的 KV(post-RoPE)concat 进当前 evict 缓存,扩展 slot_pos。
+    already=已注入页集合(防重复)。这是 T3 单点因果干预:只动这几页,其余不变。"""
+    add = []
+    for p in sorted(pages):
+        if p in already:
+            continue
+        lo, hi = p * page_size, min((p + 1) * page_size, L)
+        if hi <= lo:
+            continue
+        idx = torch.arange(lo, hi, device=device)
+        for layer, (k, v) in zip(cache.layers, ref_kv):
+            layer.keys = torch.cat([layer.keys, k[:, :, lo:hi, :].to(device)], dim=2).contiguous()
+            layer.values = torch.cat([layer.values, v[:, :, lo:hi, :].to(device)], dim=2).contiguous()
+        add.append(idx)
+        already.add(p)
+    if add:
+        slot_pos = torch.cat([slot_pos] + add)
+    return slot_pos
+
+
+@torch.no_grad()
+def score_trace_patch(
+    model, tokenizer, full_ids, prompt_len, refl_steps, refl_pages, scorer, mode,
+    ref_kv, span_len: int = 32, page_size: int = 16, keep_frac: float = 0.2,
+    protect_recent: int = 24, evict_every: int = 32, window: int = 8,
+    backend: str = "window", seed: int = 0,
+):
+    """T3 因果 patching:teacher-forced replay 下,reflection 时把锚点页 KV 从参考全量缓存
+    patch 回 evict 缓存,测纠错 span 的 NLL 是否恢复。单点干预 = 精确因果归因。
+
+    mode:
+      full          —— 不淘汰(下界 NLL)
+      evict         —— 纯淘汰(锚点被丢,NLL 应最高)
+      patch_anchor  —— 淘汰 + reflection 时把该 reflection 的 R_t 锚点页 patch 回(应恢复)
+      patch_random  —— 淘汰 + patch 同等数量的**随机已丢页**(null 对照:若也恢复,则非锚点特异)
+    refl_steps:gen 坐标的 reflection 步;refl_pages:{gen_step -> set(锚点页)}。
+    ref_kv:全量 prefill 的每层 (keys,values)[1,KV,L,D],用于 patch。
+    返回 dict(nll_corr, n_corr, nll_noncorr, n_noncorr)。
+    """
+    device = next(model.parameters()).device
+    rng = random.Random(seed)
+    full_ids = full_ids.to(device)
+    if full_ids.dim() == 1:
+        full_ids = full_ids.unsqueeze(0)
+    P = prompt_len
+    gen_ids = full_ids[0, P:]
+    Lgen = gen_ids.numel()
+    L = P + Lgen
+    do_evict = mode != "full"
+    do_patch = mode in ("patch_anchor", "patch_random")
+    corr_mask = torch.zeros(Lgen, dtype=torch.bool)
+    for s in refl_steps:
+        corr_mask[s: min(s + span_len, Lgen)] = True
+    refl_set = set(refl_steps)
+
+    out = model(input_ids=full_ids[:, :P], use_cache=True, output_attentions=True)
+    cache = out.past_key_values
+    logits = out.logits[:, -1]
+    slot_pos = torch.arange(P, device=device)
+    recent_rows, patched = [], set()
+
+    def ingest(out, slot_pos, gen_token_pos):
+        if not do_evict:
+            return
+        num_pages = int(slot_pos.max().item()) // page_size + 1
+        pages_row = _attn_row_to_pages(out.attentions, slot_pos, num_pages, page_size, device)
+        scorer.update(pages_row, _entropy(out.logits[:, -1]), token_pos=gen_token_pos)
+        recent_rows.append((slot_pos.max().item() // page_size, pages_row))
+        if len(recent_rows) > window:
+            recent_rows.pop(0)
+
+    ingest(out, slot_pos, gen_token_pos=P)
+    nll_c, nll_n, n_c, n_n = 0.0, 0.0, 0, 0
+    for t in range(Lgen):
+        # reflection 触发:进入纠错 span 前注入锚点/随机页(单点干预)
+        if do_patch and t in refl_set:
+            alive = set((slot_pos // page_size).tolist())
+            if mode == "patch_anchor":
+                want = refl_pages.get(t, set())
+            else:                                   # patch_random:同等数量的随机已丢页
+                cur_pg = (P + t) // page_size
+                dropped = [p for p in range(cur_pg) if p not in alive]
+                rng.shuffle(dropped)
+                want = set(dropped[: len(refl_pages.get(t, set()))])
+            slot_pos = _patch_pages(cache, slot_pos, ref_kv, want, page_size, L, device, patched)
+
+        real = int(gen_ids[t])
+        nll = -float(torch.log_softmax(logits.float(), -1)[0, real])
+        if corr_mask[t]:
+            nll_c += nll; n_c += 1
+        else:
+            nll_n += nll; n_n += 1
+        true_pos = P + t
+        cache_len = slot_pos.numel()
+        out = model(input_ids=full_ids[:, P + t: P + t + 1], past_key_values=cache,
+                    use_cache=True, output_attentions=True,
+                    attention_mask=torch.ones(1, cache_len + 1, device=device, dtype=torch.long),
+                    position_ids=torch.tensor([[true_pos]], device=device),
+                    cache_position=torch.tensor([cache_len], device=device))
+        cache = out.past_key_values
+        logits = out.logits[:, -1]
+        slot_pos = torch.cat([slot_pos, torch.tensor([true_pos], device=device)])
+        ingest(out, slot_pos, gen_token_pos=true_pos + 1)
+        if do_evict and (t + 1) % evict_every == 0:
+            num_pages = (true_pos + 1) // page_size + 1
+            keep_pages = _select_pages(scorer, recent_rows, slot_pos, num_pages,
+                                       page_size, keep_frac, protect_recent,
+                                       0.0, "evict", backend, rng)
+            slot_pos = _compact(cache, slot_pos, keep_pages, page_size, device)
+    return {"nll_corr": nll_c / max(n_c, 1), "n_corr": n_c,
+            "nll_noncorr": nll_n / max(n_n, 1), "n_noncorr": n_n}
+
+
 def _early_attn_mass(attn_layers, slot_pos, q_true_pos, page_size, excl):
     """reflection 时刻：当前 token 注意力落在**早期存活页**上的质量占比。
 
