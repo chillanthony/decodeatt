@@ -82,23 +82,24 @@ def main():
         if not refl_pages:
             print(f"  skip {Path(f).name}（无 receiver 页）"); continue
 
-        # 2) 全量参考 KV（CPU 暂存,patch 时按页取片）
-        ref_out = model(input_ids=full_ids, use_cache=True)
-        ref_kv = [(l.keys.cpu(), l.values.cpu()) for l in ref_out.past_key_values.layers]
-        del ref_out
-        torch.cuda.empty_cache()
-
         rec = {"id": tr.get("id", Path(f).stem), "n_refl_used": len(refl_pages),
                "gen_len": int(gen.numel()), "modes": {}}
-        for mode in MODES:
-            sig = OnlineSignature(args.scorer, ps, device) if mode != "full" else None
+        # 2) full mode 先跑,逐 token 末态缓存 = 全序列参考 KV(无 OOM,顺手拿)
+        full_res, ref_kv = score_trace_patch(
+            model, tokenizer, full_ids, P, list(refl_pages), refl_pages, None, "full",
+            span_len=args.span_len, page_size=ps, keep_frac=args.keep_frac,
+            protect_recent=args.protect_recent, return_ref=True)
+        rec["modes"]["full"] = full_res
+        print(f"  [{fi+1}/{len(files)}] {rec['id']} {'full':13s} nll_corr={full_res['nll_corr']:.4f}")
+        torch.cuda.empty_cache()
+        for mode in ["evict", "patch_anchor", "patch_random"]:
+            sig = OnlineSignature(args.scorer, ps, device)
             r = score_trace_patch(
                 model, tokenizer, full_ids, P, list(refl_pages), refl_pages, sig, mode,
-                ref_kv, span_len=args.span_len, page_size=ps,
+                ref_kv=ref_kv, span_len=args.span_len, page_size=ps,
                 keep_frac=args.keep_frac, protect_recent=args.protect_recent)
             rec["modes"][mode] = r
-            print(f"  [{fi+1}/{len(files)}] {rec['id']} {mode:13s} "
-                  f"nll_corr={r['nll_corr']:.4f}")
+            print(f"  [{fi+1}/{len(files)}] {rec['id']} {mode:13s} nll_corr={r['nll_corr']:.4f}")
         records.append(rec)
         del ref_kv; torch.cuda.empty_cache()
         _dump(records, args)

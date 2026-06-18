@@ -277,9 +277,9 @@ def _patch_pages(cache, slot_pos, ref_kv, pages, page_size, L, device, already):
 @torch.no_grad()
 def score_trace_patch(
     model, tokenizer, full_ids, prompt_len, refl_steps, refl_pages, scorer, mode,
-    ref_kv, span_len: int = 32, page_size: int = 16, keep_frac: float = 0.2,
+    ref_kv=None, span_len: int = 32, page_size: int = 16, keep_frac: float = 0.2,
     protect_recent: int = 24, evict_every: int = 32, window: int = 8,
-    backend: str = "window", seed: int = 0,
+    backend: str = "window", seed: int = 0, return_ref: bool = False,
 ):
     """T3 因果 patching:teacher-forced replay 下,reflection 时把锚点页 KV 从参考全量缓存
     patch 回 evict 缓存,测纠错 span 的 NLL 是否恢复。单点干预 = 精确因果归因。
@@ -363,8 +363,12 @@ def score_trace_patch(
                                        page_size, keep_frac, protect_recent,
                                        0.0, "evict", backend, rng)
             slot_pos = _compact(cache, slot_pos, keep_pages, page_size, device)
-    return {"nll_corr": nll_c / max(n_c, 1), "n_corr": n_c,
-            "nll_noncorr": nll_n / max(n_n, 1), "n_noncorr": n_n}
+    res = {"nll_corr": nll_c / max(n_c, 1), "n_corr": n_c,
+           "nll_noncorr": nll_n / max(n_n, 1), "n_noncorr": n_n}
+    if return_ref:        # full mode 末态缓存 = 全序列参考 KV(逐 token 累积,无 OOM)
+        ref = [(l.keys.detach().cpu(), l.values.detach().cpu()) for l in cache.layers]
+        return res, ref
+    return res
 
 
 def _early_attn_mass(attn_layers, slot_pos, q_true_pos, page_size, excl):
