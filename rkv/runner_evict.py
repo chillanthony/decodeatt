@@ -155,7 +155,7 @@ def generate_with_evict(
             num_pages = (true_pos + 1) // page_size + 1
             keep_pages = _select_pages(
                 scorer, recent_rows, slot_pos, num_pages, page_size, keep_frac,
-                protect_recent, exempt_frac, evict_arm, backend, rng)
+                protect_recent, exempt_frac, evict_arm, backend, rng, cache=cache)
             if is_buf:                     # 把将被丢弃的高签名页 offload 到 CPU 缓冲
                 sig = scorer.scores(num_pages)
                 alive = set((slot_pos // page_size).tolist())
@@ -390,26 +390,69 @@ def _early_attn_mass(attn_layers, slot_pos, q_true_pos, page_size, excl):
     return float(acc[early].sum() / (acc.sum() + 1e-9))
 
 
+def _page_key_reps(cache, slot_pos, num_pages, page_size, device):
+    """每页的代表 key 向量 [num_pages, D]（层/KV头平均、页内槽平均），供 R-KV 算冗余。"""
+    slot_page = (slot_pos // page_size).to(device)
+    D = cache.layers[0].keys.shape[-1]
+    acc = torch.zeros(num_pages, D, device=device)
+    for layer in cache.layers:
+        k = layer.keys[0].mean(0).float()                 # [cache_len, D]（KV 头平均）
+        acc.index_add_(0, slot_page, k)
+    cnt = torch.zeros(num_pages, device=device)
+    cnt.index_add_(0, slot_page, torch.ones(slot_page.numel(), device=device))
+    return acc / (cnt.unsqueeze(1) * len(cache.layers)).clamp(min=1)
+
+
 def _select_pages(scorer, recent_rows, slot_pos, num_pages, page_size, keep_frac,
-                  protect_recent, exempt_frac, arm, backend, rng) -> set[int]:
-    """返回应保留的页集合。预算 = keep_frac×页数；额外豁免 exempt_frac×页数。"""
+                  protect_recent, exempt_frac, arm, backend, rng, cache=None) -> set[int]:
+    """返回应保留的页集合。预算 = keep_frac×页数；额外豁免 exempt_frac×页数。
+
+    后端:h2o(累计注意力)/window(观察窗求和,strawman)/snapkv(观察窗 maxpool)/
+    rkv(重要性 - 冗余,贪心;需 cache 算页 key 余弦)。
+    """
     alive_pages = sorted(set((slot_pos // page_size).tolist()))
     budget = max(1, int(num_pages * keep_frac))
     cur_page = (slot_pos.max().item()) // page_size
     protected = {p for p in alive_pages if p > cur_page - protect_recent}
+    dev = slot_pos.device
 
-    # 后端打分（越高越保留）
+    # 重要性打分（越高越保留）
     if backend == "h2o":
-        cum = scorer.cum_sum[:num_pages] / scorer.cum_cnt[:num_pages].clamp(min=1)
-        score = cum
-    else:  # window：各行页数随时间增长，右侧补零到 num_pages 再叠加
-        score = torch.zeros(num_pages, device=slot_pos.device)
+        score = scorer.cum_sum[:num_pages] / scorer.cum_cnt[:num_pages].clamp(min=1)
+    elif backend == "snapkv":                 # 观察窗对各页注意力 maxpool（标准 SnapKV）
+        score = torch.zeros(num_pages, device=dev)
         for _, row in recent_rows:
             n = min(row.numel(), num_pages)
-            score[:n] += row[:n].to(score.device)
+            score[:n] = torch.maximum(score[:n], row[:n].to(dev))
+    else:                                     # window(strawman 求和) / rkv 的重要性项
+        score = torch.zeros(num_pages, device=dev)
+        for _, row in recent_rows:
+            n = min(row.numel(), num_pages)
+            score[:n] += row[:n].to(dev)
+
     cand = [p for p in alive_pages if p not in protected]
-    cand.sort(key=lambda p: float(score[p]), reverse=True)
-    keep = set(protected) | set(cand[: max(0, budget - len(protected))])
+    n_keep = max(0, budget - len(protected))
+    if backend == "rkv" and cache is not None and n_keep > 0 and cand:
+        # R-KV:贪心选「重要性高且与已选页不冗余」的页（冗余 = 页 key 余弦相似度）
+        reps = _page_key_reps(cache, slot_pos, num_pages, page_size, dev)
+        reps = torch.nn.functional.normalize(reps, dim=1)
+        lam = 0.5
+        sel, selrep = [], []
+        pool = sorted(cand, key=lambda p: float(score[p]), reverse=True)
+        # 先放分最高的，再贪心；冗余惩罚相对已选页的最大余弦
+        while pool and len(sel) < n_keep:
+            best_p, best_v = None, -1e9
+            for p in pool[:64]:               # 只在重要性前列里挑，省算力
+                red = 0.0 if not selrep else float(
+                    (reps[p:p + 1] @ torch.stack(selrep).T).max())
+                v = float(score[p]) - lam * red
+                if v > best_v:
+                    best_v, best_p = v, p
+            sel.append(best_p); selrep.append(reps[best_p]); pool.remove(best_p)
+        keep = set(protected) | set(sel)
+    else:
+        cand.sort(key=lambda p: float(score[p]), reverse=True)
+        keep = set(protected) | set(cand[:n_keep])
 
     # 额外豁免名额（在被淘汰的页里挑）
     n_exempt = max(0, int(num_pages * exempt_frac))
