@@ -32,21 +32,17 @@ def _select_tokens(imp, ent, key_rep, slot_pos, budget, recent, sink,
 
     order = free[torch.argsort(imp[free], descending=True)]
     if backend == "rkv" and key_rep is not None and n_pick > 0:
-        # 贪心:重要性 - λ·与已选最大余弦
-        reps = torch.nn.functional.normalize(key_rep, dim=1)
-        sel, selreps = [], []
+        # 向量化 R-KV:在重要性前列 pool 内,redundancy = 与**更重要** token 的最大余弦,
+        # score' = importance - λ·redundancy,一次性取 top（贪心的批量近似,无 Python 循环）。
         lam = 0.5
-        cand = order[: min(order.numel(), n_pick * 4 + 64)]  # 只在重要性前列里贪心
-        cand = cand.tolist()
-        while cand and len(sel) < n_pick:
-            best, bestv = None, -1e9
-            for s in cand[:96]:
-                red = 0.0 if not selreps else float((reps[s:s+1] @ torch.stack(selreps).T).max())
-                v = float(imp[s]) - lam * red
-                if v > bestv:
-                    bestv, best = v, s
-            sel.append(best); selreps.append(reps[best]); cand.remove(best)
-        picked = torch.tensor(sel, device=dev) if sel else order[:0]
+        pool = order[: min(order.numel(), n_pick * 3 + 128)]   # 限制 pool 省算力/显存
+        reps = torch.nn.functional.normalize(key_rep[pool], dim=1)   # [K,D]，已按重要性降序
+        K = pool.numel()
+        cos = reps @ reps.T                                   # [K,K]
+        higher = torch.tril(torch.ones(K, K, device=dev, dtype=torch.bool), -1)  # j<i=更重要
+        red = cos.masked_fill(~higher, -1e9).max(1).values.clamp(min=0)  # 第0个无更高者→0
+        score2 = imp[pool] - lam * red
+        picked = pool[torch.argsort(score2, descending=True)][:n_pick]
     else:                                    # snapkv:纯重要性 top
         picked = order[:n_pick]
     keep[picked] = True
