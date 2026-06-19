@@ -85,7 +85,9 @@ def generate_token_evict(
     P = input_ids.shape[1]
     anchor_k = int(anchor_frac * budget)
 
-    out = model(input_ids=input_ids, use_cache=True, output_attentions=True)
+    track = budget < 10 ** 8                          # full 臂(超大预算)不淘汰→跳过注意力/重要性
+    imp_every, lyr_stride = 4, 4                       # 重要性每 4 步用 1/4 层更新一次（慢变量,提速）
+    out = model(input_ids=input_ids, use_cache=True, output_attentions=False)
     cache = out.past_key_values
     logits = out.logits[:, -1]
     slot_pos = torch.arange(P, device=device)
@@ -102,8 +104,9 @@ def generate_token_evict(
         if nxt == eos:
             break
         cache_len = slot_pos.numel()
+        want_attn = track and (step % imp_every == 0)
         out = model(input_ids=torch.tensor([[nxt]], device=device), past_key_values=cache,
-                    use_cache=True, output_attentions=True,
+                    use_cache=True, output_attentions=want_attn,
                     attention_mask=torch.ones(1, cache_len + 1, device=device, dtype=torch.long),
                     position_ids=torch.tensor([[true_pos]], device=device),
                     cache_position=torch.tensor([cache_len], device=device))
@@ -112,14 +115,15 @@ def generate_token_evict(
         slot_pos = torch.cat([slot_pos, torch.tensor([true_pos], device=device)])
         imp = torch.cat([imp, torch.zeros(1, device=device)])
         ent = torch.cat([ent, torch.tensor([e], device=device)])
-        # 观察窗：当前 query 对各槽注意力（层/头平均）maxpool 进 imp（带衰减）
-        row = torch.zeros(slot_pos.numel(), device=device)
-        for a in out.attentions:
-            row += a[0, :, -1, :].mean(0).float()
-        row /= len(out.attentions)
-        imp = torch.maximum(imp * obs_decay, row)
+        if want_attn:                                 # 观察窗：1/4 层注意力均值 maxpool 进 imp
+            row = torch.zeros(slot_pos.numel(), device=device)
+            layers = out.attentions[::lyr_stride]
+            for a in layers:
+                row += a[0, :, -1, :].mean(0).float()
+            row /= len(layers)
+            imp = torch.maximum(imp * obs_decay, row)
 
-        if (step + 1) % evict_every == 0 and slot_pos.numel() > budget + anchor_k:
+        if track and (step + 1) % evict_every == 0 and slot_pos.numel() > budget + anchor_k:
             key_rep = _key_reps(cache, device) if backend == "rkv" else None
             idx = _select_tokens(imp, ent, key_rep, slot_pos, budget, recent, sink,
                                  backend, anchor_mode, anchor_k, None)
