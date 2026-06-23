@@ -30,6 +30,7 @@ def main():
     ap.add_argument("--anchor", action="store_true", help="阶段B:比 none/anchor/random/lowent")
     ap.add_argument("--backend", default="rkv")
     ap.add_argument("--budget", type=int, default=512)
+    ap.add_argument("--no-full", action="store_true", help="跳过 full 臂(预算扫描复用已有 full)")
     ap.add_argument("--out", default="results/step3_eval.json")
     args = ap.parse_args()
 
@@ -51,13 +52,13 @@ def main():
                 ("anchor", dict(backend=args.backend, budget=args.budget, anchor_mode="anchor")),
                 ("random", dict(backend=args.backend, budget=args.budget, anchor_mode="random")),
                 ("lowent", dict(backend=args.backend, budget=args.budget, anchor_mode="lowent"))]
-        full_arm = True
+        full_arm = not args.no_full
     else:
         arms = []
         for be in args.backends.split(","):
             for b in [int(x) for x in args.budgets.split(",")]:
                 arms.append((f"{be}@{b}", dict(backend=be, budget=b, anchor_mode="none")))
-        full_arm = True
+        full_arm = not args.no_full
 
     recs = []
     for i, prob in enumerate(probs):
