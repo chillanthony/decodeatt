@@ -72,69 +72,77 @@ def _key_reps(cache, device):
 
 @torch.no_grad()
 def generate_token_evict(
-    model, tokenizer, input_ids, budget=1024, recent=256, sink=8,
-    backend="rkv", anchor_mode="none", anchor_frac=0.05, evict_every=64,
-    obs_decay=0.9, max_new=4096, do_sample=True, temperature=0.6, top_p=0.95, seed=0,
+    model, tokenizer, input_ids, budget=1024, recent=64, sink=8,
+    backend="rkv", anchor_mode="none", anchor_frac=0.05, evict_every=128,
+    obs_window=16, obs_decay=0.9, max_new=4096,
+    do_sample=True, temperature=0.6, top_p=0.95, seed=0,
 ):
-    """token 级淘汰生成。返回 dict(text, gen_ids, n_evict, final_cache_len)。
-    anchor_mode: none/anchor/random/lowent;anchor_k = anchor_frac×budget。"""
+    """token 级淘汰生成(忠实 R-KV 架构 + 支持长生成)。
+
+    速度/忠实兼顾:平时 output_attentions=False(模型若以 sdpa 加载则走快算子),
+    **只在每次压缩前的 obs_window 步**用全层注意力算重要性(SnapKV/R-KV 的观察窗思想)。
+    缓冲预分配(slot_pos/imp/ent),消掉逐步 torch.cat 的 O(n²),解锁 16k 长生成。
+    返回 dict(text, gen_ids, n_evict, final_cache_len)。"""
     device = next(model.parameters()).device
     if do_sample:
         torch.manual_seed(seed)
     input_ids = input_ids.to(device)
     P = input_ids.shape[1]
     anchor_k = int(anchor_frac * budget)
+    track = budget < 10 ** 8                          # full 臂超大预算→不淘汰,全程快路径
 
-    track = budget < 10 ** 8                          # full 臂(超大预算)不淘汰→跳过注意力/重要性
-    imp_every, lyr_stride = 4, 4                       # 重要性每 4 步用 1/4 层更新一次（慢变量,提速）
+    N = P + max_new
+    slot_pos = torch.zeros(N, dtype=torch.long, device=device); slot_pos[:P] = torch.arange(P, device=device)
+    imp = torch.zeros(N, device=device)
+    ent = torch.zeros(N, device=device)
+    n = P                                             # 当前缓存长度
+
     out = model(input_ids=input_ids, use_cache=True, output_attentions=False)
     cache = out.past_key_values
     logits = out.logits[:, -1]
-    slot_pos = torch.arange(P, device=device)
-    imp = torch.zeros(P, device=device)               # 每槽重要性（观察窗 maxpool+衰减）
-    ent = torch.zeros(P, device=device)               # 每槽熵（prompt 记 0）
     eos = tokenizer.eos_token_id
     gen, n_evict = [], 0
 
     for step in range(max_new):
         true_pos = P + step
-        e = _entropy(logits)                          # 即将生成 token 的熵
+        e = _entropy(logits)
         nxt = _sample(logits, do_sample, temperature, top_p)
         gen.append(nxt)
         if nxt == eos:
             break
-        cache_len = slot_pos.numel()
-        want_attn = track and (step % imp_every == 0)
+        # 只在"下次压缩前 obs_window 步内"开注意力,算全层重要性
+        to_evict = evict_every - ((step + 1) % evict_every or evict_every)
+        want_attn = track and to_evict < obs_window
         out = model(input_ids=torch.tensor([[nxt]], device=device), past_key_values=cache,
                     use_cache=True, output_attentions=want_attn,
-                    attention_mask=torch.ones(1, cache_len + 1, device=device, dtype=torch.long),
+                    attention_mask=torch.ones(1, n + 1, device=device, dtype=torch.long),
                     position_ids=torch.tensor([[true_pos]], device=device),
-                    cache_position=torch.tensor([cache_len], device=device))
+                    cache_position=torch.tensor([n], device=device))
         cache = out.past_key_values
         logits = out.logits[:, -1]
-        slot_pos = torch.cat([slot_pos, torch.tensor([true_pos], device=device)])
-        imp = torch.cat([imp, torch.zeros(1, device=device)])
-        ent = torch.cat([ent, torch.tensor([e], device=device)])
-        if want_attn:                                 # 观察窗：1/4 层注意力均值 maxpool 进 imp
-            row = torch.zeros(slot_pos.numel(), device=device)
-            layers = out.attentions[::lyr_stride]
-            for a in layers:
+        slot_pos[n] = true_pos; ent[n] = e; imp[n] = 0.0
+        n += 1
+        if want_attn:                                 # 观察窗:全层注意力均值 maxpool 进 imp
+            row = torch.zeros(n, device=device)
+            for a in out.attentions:
                 row += a[0, :, -1, :].mean(0).float()
-            row /= len(layers)
-            imp = torch.maximum(imp * obs_decay, row)
+            row /= len(out.attentions)
+            imp[:n] = torch.maximum(imp[:n] * obs_decay, row)
 
-        if track and (step + 1) % evict_every == 0 and slot_pos.numel() > budget + anchor_k:
+        if track and (step + 1) % evict_every == 0 and n > budget + anchor_k:
             key_rep = _key_reps(cache, device) if backend == "rkv" else None
-            idx = _select_tokens(imp, ent, key_rep, slot_pos, budget, recent, sink,
-                                 backend, anchor_mode, anchor_k, None)
+            idx = _select_tokens(imp[:n], ent[:n], key_rep, slot_pos[:n], budget, recent,
+                                 sink, backend, anchor_mode, anchor_k, None)
             for layer in cache.layers:
                 layer.keys = layer.keys.index_select(2, idx).contiguous()
                 layer.values = layer.values.index_select(2, idx).contiguous()
-            slot_pos, imp, ent = slot_pos[idx], imp[idx], ent[idx]
+            k = idx.numel()
+            slot_pos[:k] = slot_pos[idx]; imp[:k] = imp[idx]; ent[:k] = ent[idx]
+            n = k
             n_evict += 1
 
     return {"text": tokenizer.decode(gen, skip_special_tokens=True), "gen_ids": gen,
-            "n_evict": n_evict, "final_cache_len": int(slot_pos.numel())}
+            "n_evict": n_evict, "final_cache_len": n}
 
 
 def _smoke(model_path, max_new=200):
