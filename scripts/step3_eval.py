@@ -31,6 +31,7 @@ def main():
     ap.add_argument("--backend", default="rkv")
     ap.add_argument("--budget", type=int, default=512)
     ap.add_argument("--no-full", action="store_true", help="跳过 full 臂(预算扫描复用已有 full)")
+    ap.add_argument("--scorer", default="results/signature_scorer.json", help="完整签名权重(sig 臂用)")
     ap.add_argument("--out", default="results/step3_eval.json")
     args = ap.parse_args()
 
@@ -48,10 +49,16 @@ def main():
         return is_correct(extract_answer(r["text"]), prob["answer"]), len(r["gen_ids"])
 
     if args.anchor:
-        arms = [("none", dict(backend=args.backend, budget=args.budget, anchor_mode="none")),
-                ("anchor", dict(backend=args.backend, budget=args.budget, anchor_mode="anchor")),
-                ("random", dict(backend=args.backend, budget=args.budget, anchor_mode="random")),
-                ("lowent", dict(backend=args.backend, budget=args.budget, anchor_mode="lowent"))]
+        # 加载完整签名权重(原始空间线性,顺序=[entropy,cum_attn,position,concentration])
+        sg = json.load(open(args.scorer))
+        idx = [sg["feature_names"].index(f) for f in ["entropy", "cum_attn", "position", "concentration"]]
+        sig = ([sg["w_raw"][i] for i in idx], sg["b_raw"])
+        b = args.budget
+        arms = [("none", dict(backend=args.backend, budget=b, anchor_mode="none")),
+                ("sig", dict(backend=args.backend, budget=b, anchor_mode="sig", sig=sig)),
+                ("anchor", dict(backend=args.backend, budget=b, anchor_mode="anchor")),
+                ("random", dict(backend=args.backend, budget=b, anchor_mode="random")),
+                ("lowent", dict(backend=args.backend, budget=b, anchor_mode="lowent"))]
         full_arm = not args.no_full
     else:
         arms = []

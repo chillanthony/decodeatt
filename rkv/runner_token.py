@@ -18,8 +18,10 @@ from rkv.runner_evict import _entropy, _sample
 
 @torch.no_grad()
 def _select_tokens(imp, ent, key_rep, slot_pos, budget, recent, sink,
-                   backend, anchor_mode, anchor_k, rng):
-    """返回应保留的**槽下标** LongTensor。imp/ent/key_rep/slot_pos 均按当前缓存槽对齐。"""
+                   backend, anchor_mode, anchor_k, rng, cum=None, con=None, sig=None):
+    """返回应保留的**槽下标** LongTensor。imp/ent/key_rep/slot_pos 均按当前缓存槽对齐。
+    anchor_mode="sig" 时用完整 4 维签名(熵,cum_attn,位置,concentration)打分,
+    sig=(w[4], b);cum/con 为每槽 cum_attn/concentration。"""
     n = slot_pos.numel()
     dev = slot_pos.device
     if n <= budget:
@@ -51,8 +53,14 @@ def _select_tokens(imp, ent, key_rep, slot_pos, budget, recent, sink,
     if anchor_mode != "none" and anchor_k > 0:
         drop = (~keep).nonzero(as_tuple=True)[0]
         if drop.numel():
-            if anchor_mode == "anchor":
+            if anchor_mode == "anchor":                 # 熵单维(旧)
                 extra = drop[torch.argsort(ent[drop], descending=True)][:anchor_k]
+            elif anchor_mode == "sig":                  # 完整 4 维签名(新)
+                n = slot_pos.numel()
+                pos = slot_pos.float() / max(int(slot_pos.max()), 1)
+                feat = torch.stack([ent, cum, pos, con], dim=1)  # [n,4]
+                score = feat @ sig[0] + sig[1]
+                extra = drop[torch.argsort(score[drop], descending=True)][:anchor_k]
             elif anchor_mode == "lowent":
                 extra = drop[torch.argsort(ent[drop])][:anchor_k]
             else:                            # random
@@ -75,7 +83,7 @@ def generate_token_evict(
     model, tokenizer, input_ids, budget=1024, recent=64, sink=8,
     backend="rkv", anchor_mode="none", anchor_frac=0.05, evict_every=128,
     obs_window=16, obs_decay=0.9, max_new=4096,
-    do_sample=True, temperature=0.6, top_p=0.95, seed=0,
+    do_sample=True, temperature=0.6, top_p=0.95, seed=0, sig=None,
 ):
     """token 级淘汰生成(忠实 R-KV 架构 + 支持长生成)。
 
@@ -91,10 +99,15 @@ def generate_token_evict(
     anchor_k = int(anchor_frac * budget)
     track = budget < 10 ** 8                          # full 臂超大预算→不淘汰,全程快路径
 
+    use_sig = anchor_mode == "sig"                    # 完整 4 维签名锚点
     N = P + max_new
     slot_pos = torch.zeros(N, dtype=torch.long, device=device); slot_pos[:P] = torch.arange(P, device=device)
     imp = torch.zeros(N, device=device)
     ent = torch.zeros(N, device=device)
+    # 完整签名需 cum_attn/concentration → 维护每槽被访问注意力的 sum/cnt/max
+    att_sum = torch.zeros(N, device=device); att_cnt = torch.zeros(N, device=device)
+    att_max = torch.zeros(N, device=device)
+    sig_t = (torch.tensor(sig[0], device=device), float(sig[1])) if use_sig else None
     n = P                                             # 当前缓存长度
 
     out = model(input_ids=input_ids, use_cache=True, output_attentions=False)
@@ -121,6 +134,8 @@ def generate_token_evict(
         cache = out.past_key_values
         logits = out.logits[:, -1]
         slot_pos[n] = true_pos; ent[n] = e; imp[n] = 0.0
+        if use_sig:
+            att_sum[n] = 0.0; att_cnt[n] = 0.0; att_max[n] = 0.0
         n += 1
         if want_attn:                                 # 观察窗:全层注意力均值 maxpool 进 imp
             row = torch.zeros(n, device=device)
@@ -128,16 +143,26 @@ def generate_token_evict(
                 row += a[0, :, -1, :].mean(0).float()
             row /= len(out.attentions)
             imp[:n] = torch.maximum(imp[:n] * obs_decay, row)
+            if use_sig:                               # cum_attn/concentration 统计
+                att_sum[:n] += row; att_cnt[:n] += 1.0
+                att_max[:n] = torch.maximum(att_max[:n], row)
 
         if track and (step + 1) % evict_every == 0 and n > budget + anchor_k:
             key_rep = _key_reps(cache, device) if backend == "rkv" else None
+            cum = con = None
+            if use_sig:
+                cum = att_sum[:n] / att_cnt[:n].clamp(min=1)
+                con = att_max[:n] / (cum + 1e-9)
             idx = _select_tokens(imp[:n], ent[:n], key_rep, slot_pos[:n], budget, recent,
-                                 sink, backend, anchor_mode, anchor_k, None)
+                                 sink, backend, anchor_mode, anchor_k, None,
+                                 cum=cum, con=con, sig=sig_t)
             for layer in cache.layers:
                 layer.keys = layer.keys.index_select(2, idx).contiguous()
                 layer.values = layer.values.index_select(2, idx).contiguous()
             k = idx.numel()
             slot_pos[:k] = slot_pos[idx]; imp[:k] = imp[idx]; ent[:k] = ent[idx]
+            if use_sig:
+                att_sum[:k] = att_sum[idx]; att_cnt[:k] = att_cnt[idx]; att_max[:k] = att_max[idx]
             n = k
             n_evict += 1
 
