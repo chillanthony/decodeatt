@@ -28,6 +28,7 @@ def main():
     ap.add_argument("--recent", type=int, default=64)
     ap.add_argument("--backends", default="rkv,snapkv")
     ap.add_argument("--anchor", action="store_true", help="阶段B:比 none/anchor/random/lowent")
+    ap.add_argument("--anchor-frac", type=float, default=0.05, help="anchor 额外保护预算占主 budget 的比例")
     ap.add_argument("--backend", default="rkv")
     ap.add_argument("--budget", type=int, default=512)
     ap.add_argument("--no-full", action="store_true", help="跳过 full 臂(预算扫描复用已有 full)")
@@ -45,7 +46,7 @@ def main():
         ids = tok.apply_chat_template([{"role": "user", "content": prob["question"]}],
                                       add_generation_prompt=True, return_tensors="pt").to("cuda")
         r = generate_token_evict(model, tok, ids, max_new=args.max_new, recent=args.recent,
-                                 do_sample=True, seed=0, **kw)
+                                 anchor_frac=args.anchor_frac, do_sample=True, seed=0, **kw)
         return is_correct(extract_answer(r["text"]), prob["answer"]), len(r["gen_ids"])
 
     if args.anchor:
