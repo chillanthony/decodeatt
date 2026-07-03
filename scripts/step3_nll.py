@@ -21,6 +21,7 @@ def main():
     ap.add_argument("--scorer", default="results/signature_scorer.json")
     ap.add_argument("--trace-dir", default="data/traces_long")
     ap.add_argument("--budget", type=int, default=1024)
+    ap.add_argument("--anchor-frac", type=float, default=0.05, help="anchor 额外保护预算占主 budget 的比例")
     ap.add_argument("--max-traces", type=int, default=12)
     ap.add_argument("--max-len", type=int, default=16000)
     ap.add_argument("--out", default="results/step3_nll.json")
@@ -52,7 +53,7 @@ def main():
         rec = {"id": tr.get("id", Path(f).stem), "arms": {}}
         for arm in ARMS:
             r = score_trace_token(model, tok, full_ids, P, refl, arm, budget=args.budget,
-                                  sig=sig if arm == "sig" else None)
+                                  anchor_frac=args.anchor_frac, sig=sig if arm == "sig" else None)
             rec["arms"][arm] = r
             print(f"  [{fi+1}/{len(files)}] {rec['id']} {arm:7s} nll_corr={r['nll_corr']:.4f}", flush=True)
         recs.append(rec)
