@@ -34,6 +34,10 @@ def main():
     ap.add_argument("--no-full", action="store_true", help="跳过 full 臂(预算扫描复用已有 full)")
     ap.add_argument("--scorer", default="results/signature_scorer.json", help="完整签名权重(sig 臂用)")
     ap.add_argument("--out", default="results/step3_eval.json")
+    ap.add_argument("--only-ids", default="", help="只跑指定题目 id,逗号分隔,如 aime-8,aime-1")
+    ap.add_argument("--eval-arms", default="", help="只跑指定 arm,逗号分隔,如 none,sig,random")
+    ap.add_argument("--debug-dir", default="", help="非空时为每题每臂保存 token 淘汰 debug JSON")
+    ap.add_argument("--debug-topk", type=int, default=64, help="debug 中每次淘汰最多解码多少个 token 文本样例")
     args = ap.parse_args()
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -41,12 +45,19 @@ def main():
     model = AutoModelForCausalLM.from_pretrained(
         args.model, dtype=torch.bfloat16, device_map="cuda", attn_implementation="eager").eval()
     probs = load_dataset_problems(args.dataset, args.n)
+    if args.only_ids:
+        keep_ids = set(args.only_ids.split(","))
+        probs = [p for p in probs if p["id"] in keep_ids]
 
-    def run(prob, **kw):
+    def run(prob, arm_name, **kw):
         ids = tok.apply_chat_template([{"role": "user", "content": prob["question"]}],
                                       add_generation_prompt=True, return_tensors="pt").to("cuda")
+        dbg = None
+        if args.debug_dir:
+            dbg = str(Path(args.debug_dir) / f"{prob['id']}_{arm_name}.json")
         r = generate_token_evict(model, tok, ids, max_new=args.max_new, recent=args.recent,
-                                 anchor_frac=args.anchor_frac, do_sample=True, seed=0, **kw)
+                                 anchor_frac=args.anchor_frac, do_sample=True, seed=0,
+                                 debug_path=dbg, debug_topk=args.debug_topk, **kw)
         return is_correct(extract_answer(r["text"]), prob["answer"]), len(r["gen_ids"])
 
     if args.anchor:
@@ -67,16 +78,19 @@ def main():
             for b in [int(x) for x in args.budgets.split(",")]:
                 arms.append((f"{be}@{b}", dict(backend=be, budget=b, anchor_mode="none")))
         full_arm = not args.no_full
+    if args.eval_arms:
+        keep_arms = set(args.eval_arms.split(","))
+        arms = [a for a in arms if a[0] in keep_arms]
 
     recs = []
     for i, prob in enumerate(probs):
         row = {"id": prob["id"], "gold": prob["answer"], "arms": {}}
         if full_arm:
             # full = 超大预算（不触发淘汰）
-            ok, L = run(prob, backend="snapkv", budget=10**9, anchor_mode="none")
+            ok, L = run(prob, "full", backend="snapkv", budget=10**9, anchor_mode="none")
             row["arms"]["full"] = {"ok": ok, "len": L}
         for name, kw in arms:
-            ok, L = run(prob, **kw)
+            ok, L = run(prob, name, **kw)
             row["arms"][name] = {"ok": ok, "len": L}
             print(f"[{i+1}/{len(probs)}] {prob['id']} {name:12s} ok={ok} len={L}", flush=True)
         recs.append(row)

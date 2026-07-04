@@ -11,6 +11,9 @@ token——只在 token 级才有效)。复用同一套 HF DynamicCache 压缩�
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import torch
 
 from rkv.runner_evict import _entropy, _sample
@@ -18,14 +21,22 @@ from rkv.runner_evict import _entropy, _sample
 
 @torch.no_grad()
 def _select_tokens(imp, ent, key_rep, slot_pos, budget, recent, sink,
-                   backend, anchor_mode, anchor_k, rng, cum=None, con=None, sig=None):
+                   backend, anchor_mode, anchor_k, rng, cum=None, con=None, sig=None,
+                   return_debug=False):
     """返回应保留的**槽下标** LongTensor。imp/ent/key_rep/slot_pos 均按当前缓存槽对齐。
     anchor_mode="sig" 时用完整 4 维签名(熵,cum_attn,位置,concentration)打分,
     sig=(w[4], b);cum/con 为每槽 cum_attn/concentration。"""
     n = slot_pos.numel()
     dev = slot_pos.device
     if n <= budget:
-        return torch.arange(n, device=dev)
+        idx = torch.arange(n, device=dev)
+        if return_debug:
+            return idx, {
+                "backend_keep": idx,
+                "anchor_extra": torch.empty(0, dtype=torch.long, device=dev),
+                "sig_score": None,
+            }
+        return idx
     keep = torch.zeros(n, dtype=torch.bool, device=dev)
     keep[:sink] = True                       # attention sink
     keep[n - recent:] = True                 # recent window
@@ -48,6 +59,9 @@ def _select_tokens(imp, ent, key_rep, slot_pos, budget, recent, sink,
     else:                                    # snapkv:纯重要性 top
         picked = order[:n_pick]
     keep[picked] = True
+    backend_keep = keep.clone()
+    anchor_extra = torch.empty(0, dtype=torch.long, device=dev)
+    sig_score = None
 
     # 锚点保护:预算外额外钉 anchor_k 个槽
     if anchor_mode != "none" and anchor_k > 0:
@@ -59,14 +73,38 @@ def _select_tokens(imp, ent, key_rep, slot_pos, budget, recent, sink,
                 n = slot_pos.numel()
                 pos = slot_pos.float() / max(int(slot_pos.max()), 1)
                 feat = torch.stack([ent, cum, pos, con], dim=1)  # [n,4]
-                score = feat @ sig[0] + sig[1]
-                extra = drop[torch.argsort(score[drop], descending=True)][:anchor_k]
+                sig_score = feat @ sig[0] + sig[1]
+                extra = drop[torch.argsort(sig_score[drop], descending=True)][:anchor_k]
             elif anchor_mode == "lowent":
                 extra = drop[torch.argsort(ent[drop])][:anchor_k]
             else:                            # random
                 extra = drop[torch.randperm(drop.numel(), device=dev)][:anchor_k]
+            anchor_extra = extra
             keep[extra] = True
-    return keep.nonzero(as_tuple=True)[0]
+    idx = keep.nonzero(as_tuple=True)[0]
+    if return_debug:
+        return idx, {
+            "backend_keep": backend_keep.nonzero(as_tuple=True)[0],
+            "anchor_extra": anchor_extra,
+            "sig_score": sig_score,
+        }
+    return idx
+
+
+def _take_float(x):
+    return [float(v) for v in x.detach().float().cpu().tolist()]
+
+
+def _take_int(x):
+    return [int(v) for v in x.detach().cpu().tolist()]
+
+
+def _token_samples(tokenizer, slot_ids, idx, limit=64):
+    idx = idx[:limit].detach().cpu().tolist()
+    ids = slot_ids.detach().cpu().tolist()
+    return [{"slot": int(i), "token_id": int(ids[i]),
+             "text": tokenizer.decode([int(ids[i])], skip_special_tokens=False)}
+            for i in idx]
 
 
 def _key_reps(cache, device):
@@ -84,6 +122,7 @@ def generate_token_evict(
     backend="rkv", anchor_mode="none", anchor_frac=0.05, evict_every=128,
     obs_window=16, obs_decay=0.9, max_new=4096,
     do_sample=True, temperature=0.6, top_p=0.95, seed=0, sig=None,
+    debug_path=None, debug_topk=64,
 ):
     """token 级淘汰生成(忠实 R-KV 架构 + 支持长生成)。
 
@@ -102,6 +141,7 @@ def generate_token_evict(
     use_sig = anchor_mode == "sig"                    # 完整 4 维签名锚点
     N = P + max_new
     slot_pos = torch.zeros(N, dtype=torch.long, device=device); slot_pos[:P] = torch.arange(P, device=device)
+    slot_ids = torch.full((N,), -1, dtype=torch.long, device=device); slot_ids[:P] = input_ids[0]
     imp = torch.zeros(N, device=device)
     ent = torch.zeros(N, device=device)
     # 完整签名需 cum_attn/concentration → 维护每槽被访问注意力的 sum/cnt/max
@@ -115,6 +155,16 @@ def generate_token_evict(
     logits = out.logits[:, -1]
     eos = tokenizer.eos_token_id
     gen, n_evict = [], 0
+    debug = {
+        "config": {
+            "budget": budget, "recent": recent, "sink": sink, "backend": backend,
+            "anchor_mode": anchor_mode, "anchor_frac": anchor_frac,
+            "anchor_k": anchor_k, "evict_every": evict_every,
+            "obs_window": obs_window, "obs_decay": obs_decay, "max_new": max_new,
+        },
+        "prompt_len": P,
+        "evictions": [],
+    } if debug_path else None
 
     for step in range(max_new):
         true_pos = P + step
@@ -133,7 +183,7 @@ def generate_token_evict(
                     cache_position=torch.tensor([n], device=device))
         cache = out.past_key_values
         logits = out.logits[:, -1]
-        slot_pos[n] = true_pos; ent[n] = e; imp[n] = 0.0
+        slot_pos[n] = true_pos; slot_ids[n] = nxt; ent[n] = e; imp[n] = 0.0
         if use_sig:
             att_sum[n] = 0.0; att_cnt[n] = 0.0; att_max[n] = 0.0
         n += 1
@@ -153,20 +203,65 @@ def generate_token_evict(
             if use_sig:
                 cum = att_sum[:n] / att_cnt[:n].clamp(min=1)
                 con = att_max[:n] / (cum + 1e-9)
-            idx = _select_tokens(imp[:n], ent[:n], key_rep, slot_pos[:n], budget, recent,
-                                 sink, backend, anchor_mode, anchor_k, None,
-                                 cum=cum, con=con, sig=sig_t)
+            if debug is not None:
+                idx, dbg = _select_tokens(imp[:n], ent[:n], key_rep, slot_pos[:n], budget, recent,
+                                          sink, backend, anchor_mode, anchor_k, None,
+                                          cum=cum, con=con, sig=sig_t, return_debug=True)
+                final_keep = torch.zeros(n, dtype=torch.bool, device=device)
+                final_keep[idx] = True
+                backend_keep = torch.zeros(n, dtype=torch.bool, device=device)
+                backend_keep[dbg["backend_keep"]] = True
+                anchor_extra = torch.zeros(n, dtype=torch.bool, device=device)
+                if dbg["anchor_extra"].numel():
+                    anchor_extra[dbg["anchor_extra"]] = True
+                evicted = (~final_keep).nonzero(as_tuple=True)[0]
+                score = dbg["sig_score"]
+                if score is None:
+                    score = torch.full((n,), float("nan"), device=device)
+                rescued = dbg["anchor_extra"]
+                evicted_by_sig = evicted[torch.argsort(score[evicted], descending=True)] if evicted.numel() else evicted
+                debug["evictions"].append({
+                    "step": step + 1,
+                    "cache_len_before": n,
+                    "cache_len_after": int(idx.numel()),
+                    "slot_pos": _take_int(slot_pos[:n]),
+                    "token_ids": _take_int(slot_ids[:n]),
+                    "imp": _take_float(imp[:n]),
+                    "ent": _take_float(ent[:n]),
+                    "cum_attn": _take_float(cum) if cum is not None else None,
+                    "concentration": _take_float(con) if con is not None else None,
+                    "sig_score": _take_float(score),
+                    "backend_keep_slots": _take_int(dbg["backend_keep"]),
+                    "anchor_extra_slots": _take_int(rescued),
+                    "final_keep_slots": _take_int(idx),
+                    "evicted_slots": _take_int(evicted),
+                    "anchor_extra_text": _token_samples(tokenizer, slot_ids[:n], rescued, debug_topk),
+                    "evicted_top_sig_text": _token_samples(tokenizer, slot_ids[:n], evicted_by_sig, debug_topk),
+                })
+            else:
+                idx = _select_tokens(imp[:n], ent[:n], key_rep, slot_pos[:n], budget, recent,
+                                     sink, backend, anchor_mode, anchor_k, None,
+                                     cum=cum, con=con, sig=sig_t)
             for layer in cache.layers:
                 layer.keys = layer.keys.index_select(2, idx).contiguous()
                 layer.values = layer.values.index_select(2, idx).contiguous()
             k = idx.numel()
-            slot_pos[:k] = slot_pos[idx]; imp[:k] = imp[idx]; ent[:k] = ent[idx]
+            slot_pos[:k] = slot_pos[idx]; slot_ids[:k] = slot_ids[idx]; imp[:k] = imp[idx]; ent[:k] = ent[idx]
             if use_sig:
                 att_sum[:k] = att_sum[idx]; att_cnt[:k] = att_cnt[idx]; att_max[:k] = att_max[idx]
             n = k
             n_evict += 1
 
-    return {"text": tokenizer.decode(gen, skip_special_tokens=True), "gen_ids": gen,
+    text = tokenizer.decode(gen, skip_special_tokens=True)
+    if debug is not None:
+        debug["generated_text"] = text
+        debug["gen_ids"] = [int(x) for x in gen]
+        debug["n_evict"] = n_evict
+        debug["final_cache_len"] = n
+        path = Path(debug_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(debug, ensure_ascii=False, indent=1))
+    return {"text": text, "gen_ids": gen,
             "n_evict": n_evict, "final_cache_len": n}
 
 
