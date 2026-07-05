@@ -97,8 +97,10 @@ def main():
         json.dump(recs, open(args.out, "w"), ensure_ascii=False, indent=1)
 
     print(f"\n=== Step3 {'正交增益' if args.anchor else 'headroom'} (MATH n={len(recs)}) ===")
-    keys = (["full"] + [a[0] for a in arms])
+    keys = ((["full"] if full_arm else []) + [a[0] for a in arms])
     for k in keys:
+        if any(k not in r["arms"] for r in recs):
+            continue
         acc = sum(r["arms"][k]["ok"] for r in recs) / len(recs)
         print(f"{k:14s} acc={acc:.3f} ({sum(r['arms'][k]['ok'] for r in recs)}/{len(recs)})")
 
