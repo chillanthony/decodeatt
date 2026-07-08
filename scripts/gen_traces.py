@@ -16,7 +16,7 @@ from pathlib import Path
 import torch
 import yaml
 
-from rkv.runner import load_model
+from kv_eviction.runner import load_model
 
 # 内置示例题（仅作 --dataset sample 的兜底；正式实验用真 AIME/MATH）
 SAMPLE_PROBLEMS = [

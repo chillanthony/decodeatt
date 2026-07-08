@@ -18,6 +18,19 @@ def _load_config(path: str | None) -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _merge_config(base: dict, overlay: dict) -> dict:
+    merged = dict(base)
+    for key, value in overlay.items():
+        if key == "policy_params":
+            params = {name: dict(values or {}) for name, values in merged.get(key, {}).items()}
+            for policy, values in (value or {}).items():
+                params.setdefault(policy, {}).update(values or {})
+            merged[key] = params
+        else:
+            merged[key] = value
+    return merged
+
+
 def _parse_scalar(value: str):
     lowered = value.lower()
     if lowered in {"true", "false"}:
@@ -49,6 +62,11 @@ def _merge_policy_params(config_params: dict | None, overrides: list[str]) -> di
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/eval.yaml")
+    parser.add_argument(
+        "--strategy-config",
+        default=None,
+        help="Optional strategy config, e.g. configs/strategies/rkv_paper.yaml",
+    )
     parser.add_argument("--model", default=None)
     parser.add_argument("--dataset", default=None, choices=["sample", "aime", "math500", "mix"])
     parser.add_argument("--n", type=int, default=None)
@@ -83,6 +101,8 @@ def main():
     args = parser.parse_args()
 
     cfg = _load_config(args.config)
+    if args.strategy_config:
+        cfg = _merge_config(cfg, _load_config(args.strategy_config))
 
     def pick(name, default=None):
         value = getattr(args, name.replace("-", "_"), None)

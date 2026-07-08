@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from rkv.runner_token import generate_token_evict
+from kv_eviction.runner_token import generate_token_evict
 
 from kvbench.datasets import load_problems
 from kvbench.metrics import extract_answer, is_correct, summarize_accuracy

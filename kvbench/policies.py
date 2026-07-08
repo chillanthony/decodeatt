@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from rkv.policies import policy_names
+from kv_eviction.strategies.token import policy_names
 
 
 @dataclass(frozen=True)

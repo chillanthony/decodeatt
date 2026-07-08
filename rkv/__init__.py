@@ -1,3 +1,5 @@
-"""Low-level KV eviction runner implementations used by KVBench."""
+"""Backward-compatible package alias for ``kv_eviction``."""
 
-__version__ = "0.1.0"
+from kv_eviction import __version__
+
+__all__ = ["__version__"]
