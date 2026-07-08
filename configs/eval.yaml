@@ -1,0 +1,29 @@
+# Generic KV eviction evaluation config.
+
+model: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+dtype: bfloat16
+device_map: cuda
+attn: eager
+
+dataset: math500
+n: 24
+max_new: 4000
+do_sample: true
+temperature: 0.6
+top_p: 0.95
+seed: 0
+
+arms: full,random@1024,h2o@1024,window@1024,snapkv@1024,rkv@1024
+recent: 64
+sink: 8
+evict_every: 128
+obs_window: 16
+obs_decay: 0.9
+
+policy_params:
+  rkv:
+    redundancy_lambda: 0.5
+    pool_factor: 3
+    pool_extra: 128
+
+out: results/eval.json

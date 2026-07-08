@@ -3,7 +3,7 @@
 每条 trace 落盘一个 .pt：prompt_ids / gen_ids / 每步熵 / 题目 / 标准答案 / 元信息。
 
 用法：
-  uv run python scripts/gen_traces.py --config configs/default.yaml --n 1
+  uv run python scripts/gen_traces.py --config configs/eval.yaml --n 1
   # 烟雾测试（小模型、短生成）：
   uv run python scripts/gen_traces.py --model Qwen/Qwen2.5-0.5B-Instruct --max-new 128 --n 1
 """
@@ -148,7 +148,7 @@ def generate_trace(model, tokenizer, problem: dict, cfg: dict, max_new: int):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default="configs/default.yaml")
+    ap.add_argument("--config", default="configs/eval.yaml")
     ap.add_argument("--model", default=None, help="覆盖 config 的模型（烟雾测试用小模型）")
     ap.add_argument("--max-new", type=int, default=None, help="覆盖 max_new_tokens")
     ap.add_argument("--n", type=int, default=1, help="生成几条 trace")

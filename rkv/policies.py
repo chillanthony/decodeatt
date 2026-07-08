@@ -1,0 +1,131 @@
+"""Token-level KV eviction policy registry."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import torch
+
+
+@dataclass(frozen=True)
+class SelectionContext:
+    importance: torch.Tensor
+    cumulative_attention: torch.Tensor
+    window_attention: torch.Tensor
+    key_reps: torch.Tensor | None
+    slot_pos: torch.Tensor
+    budget: int
+    recent: int
+    sink: int
+    params: dict
+
+
+class TokenEvictionPolicy:
+    name = "base"
+    needs_key_reps = False
+
+    def scores(self, ctx: SelectionContext) -> torch.Tensor:
+        raise NotImplementedError
+
+    def select_keep(self, ctx: SelectionContext) -> torch.Tensor:
+        n = ctx.slot_pos.numel()
+        dev = ctx.slot_pos.device
+        if n <= ctx.budget:
+            return torch.arange(n, device=dev)
+
+        keep = torch.zeros(n, dtype=torch.bool, device=dev)
+        if ctx.sink > 0:
+            keep[: min(ctx.sink, n)] = True
+        if ctx.recent > 0:
+            keep[max(0, n - ctx.recent):] = True
+
+        free = (~keep).nonzero(as_tuple=True)[0]
+        n_pick = max(0, ctx.budget - int(keep.sum()))
+        if n_pick > 0 and free.numel() > 0:
+            picked = self._pick_free(ctx, free, n_pick)
+            keep[picked] = True
+        return keep.nonzero(as_tuple=True)[0]
+
+    def _pick_free(self, ctx: SelectionContext, free: torch.Tensor, n_pick: int) -> torch.Tensor:
+        score = self.scores(ctx)
+        return free[torch.argsort(score[free], descending=True)[:n_pick]]
+
+
+class SnapKVPolicy(TokenEvictionPolicy):
+    name = "snapkv"
+
+    def scores(self, ctx: SelectionContext) -> torch.Tensor:
+        return ctx.importance
+
+
+class H2OPolicy(TokenEvictionPolicy):
+    name = "h2o"
+
+    def scores(self, ctx: SelectionContext) -> torch.Tensor:
+        return ctx.cumulative_attention
+
+
+class WindowPolicy(TokenEvictionPolicy):
+    name = "window"
+
+    def scores(self, ctx: SelectionContext) -> torch.Tensor:
+        return ctx.window_attention
+
+
+class RandomPolicy(TokenEvictionPolicy):
+    name = "random"
+
+    def scores(self, ctx: SelectionContext) -> torch.Tensor:
+        return torch.zeros_like(ctx.importance)
+
+    def _pick_free(self, ctx: SelectionContext, free: torch.Tensor, n_pick: int) -> torch.Tensor:
+        order = torch.randperm(free.numel(), device=free.device)
+        return free[order[:n_pick]]
+
+
+class RKVPolicy(TokenEvictionPolicy):
+    name = "rkv"
+    needs_key_reps = True
+
+    def scores(self, ctx: SelectionContext) -> torch.Tensor:
+        return ctx.importance
+
+    def _pick_free(self, ctx: SelectionContext, free: torch.Tensor, n_pick: int) -> torch.Tensor:
+        order = free[torch.argsort(ctx.importance[free], descending=True)]
+        if ctx.key_reps is None or n_pick <= 0:
+            return order[:n_pick]
+
+        lam = float(ctx.params.get("redundancy_lambda", 0.5))
+        pool_factor = int(ctx.params.get("pool_factor", 3))
+        pool_extra = int(ctx.params.get("pool_extra", 128))
+        pool = order[: min(order.numel(), n_pick * pool_factor + pool_extra)]
+        reps = torch.nn.functional.normalize(ctx.key_reps[pool], dim=1)
+        k = pool.numel()
+        cos = reps @ reps.T
+        higher = torch.tril(torch.ones(k, k, device=free.device, dtype=torch.bool), -1)
+        redundancy = cos.masked_fill(~higher, -1e9).max(1).values.clamp(min=0)
+        score = ctx.importance[pool] - lam * redundancy
+        return pool[torch.argsort(score, descending=True)[:n_pick]]
+
+
+_POLICIES: dict[str, TokenEvictionPolicy] = {
+    policy.name: policy
+    for policy in (
+        SnapKVPolicy(),
+        RKVPolicy(),
+        H2OPolicy(),
+        WindowPolicy(),
+        RandomPolicy(),
+    )
+}
+
+
+def get_policy(name: str) -> TokenEvictionPolicy:
+    try:
+        return _POLICIES[name]
+    except KeyError as exc:
+        valid = ", ".join(["full", *_POLICIES])
+        raise ValueError(f"unknown eviction policy {name!r}; expected one of: {valid}") from exc
+
+
+def policy_names() -> list[str]:
+    return sorted(_POLICIES)
