@@ -77,6 +77,7 @@ def run_generation_eval(
             row["arms"][arm.name] = {
                 "ok": ok,
                 "pred": pred,
+                "raw_output": result["text"],
                 "gen_len": len(result["gen_ids"]),
                 "n_evict": result["n_evict"],
                 "final_cache_len": result["final_cache_len"],

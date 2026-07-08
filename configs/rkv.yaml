@@ -1,6 +1,9 @@
-# R-KV paper smoke reproduction config.
+# R-KV paper-style smoke config for A100.
+#
+# Intended to run on ssh target `a100`. If the local model directory differs,
+# override with: --model /actual/path/to/DeepSeek-R1-Distill-Qwen-7B
 
-model: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+model: /root/data1/cyb/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
 dtype: bfloat16
 device_map: cuda
 attn: eager
@@ -32,4 +35,4 @@ policy_params:
     pool_kernel: 5
     redundancy_chunk: 512
 
-out: results/rkv_paper_smoke.json
+out: results/rkv_qwen_smoke.json

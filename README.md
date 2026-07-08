@@ -17,7 +17,7 @@ source .venv/bin/activate
 uv pip install -e ".[flash]" --no-build-isolation
 ```
 
-主模型：deepseek-ai/DeepSeek-R1-Distill-Qwen-7B。
+主复现模型：deepseek-ai/DeepSeek-R1-Distill-Llama-8B。
 Linux + CUDA 下 torch 默认 PyPI wheel 已含 CUDA，无需额外配置。
 
 ## 当前结构
@@ -36,11 +36,10 @@ scripts/gen_traces.py             # trace 生成工具
 ```bash
 PYTHONPATH=. uv run python scripts/eval.py \
   --config configs/eval.yaml \
-  --model /path/to/model \
   --dataset math500 \
-  --n 24 \
-  --arms full,random@1024,h2o@1024,window@1024,snapkv@1024,rkv@1024 \
-  --out results/eval.json
+  --n 1 \
+  --arms full,snapkv@1024,rkv@1024 \
+  --out results/rkv_paper_smoke.json
 ```
 
 当前支持的 token 级驱逐策略：
@@ -50,7 +49,8 @@ PYTHONPATH=. uv run python scripts/eval.py \
 - `h2o@B`: 按累计注意力保留到预算 `B`。
 - `window@B`: 按观察窗注意力保留到预算 `B`。
 - `snapkv@B`: 按观察窗 max-pooled 重要性保留到预算 `B`。
-- `rkv@B`: 在重要性基础上加入 key 冗余惩罚，保留到预算 `B`。
+- `rkv@B`: 论文版 R-KV，`B` 是 paper 的 `Bbudget`；每 128 tokens 压缩一次，保留
+  `Bbudget` 个候选 token 加最后 `alpha=8` 个 observation tokens。
 
 策略选择接口在 `rkv/policies.py`，评测 arm 解析在 `kvbench/policies.py`。
 
@@ -67,28 +67,29 @@ PYTHONPATH=. uv run python scripts/eval.py \
 ```yaml
 policy_params:
   rkv:
-    redundancy_lambda: 0.5
-    pool_factor: 3
-    pool_extra: 128
+    lambda: 0.1
+    alpha: 8
+    beta: 8
+    similarity_threshold: 0.9
+    pool_kernel: 5
 ```
 
 也可用 CLI 覆盖：
 
 ```bash
 PYTHONPATH=. uv run python scripts/eval.py \
-  --policy-param rkv.redundancy_lambda=0.7 \
-  --policy-param rkv.pool_factor=4
+  --policy-param rkv.lambda=0.2 \
+  --policy-param rkv.alpha=8
 ```
 
-快速烟雾测试可用更小模型和内置样例：
+论文口径 smoke reproduction：
 
 ```bash
 PYTHONPATH=. uv run python scripts/eval.py \
-  --model Qwen/Qwen2.5-0.5B-Instruct \
-  --dataset sample \
+  --config configs/eval.yaml \
+  --dataset math500 \
   --n 1 \
-  --arms full,random@128,h2o@128,window@128,snapkv@128,rkv@128 \
-  --max-new 64 \
-  --greedy \
-  --out results/smoke_eval.json
+  --arms full,snapkv@1024,rkv@1024 \
+  --max-new 16384 \
+  --out results/rkv_paper_smoke.json
 ```

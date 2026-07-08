@@ -2,7 +2,7 @@
 
 后端:
   snapkv —— 重要性(观察窗注意力 maxpool)top-B + recent window + sink。
-  rkv    —— 贪心选「重要性高且与已选槽不冗余(token key 余弦)」+ recent + sink。
+  rkv    —— 论文版 R-KV: observation attention importance + per-head key redundancy。
   h2o    —— 累计注意力 top-B + recent window + sink。
   window —— 观察窗注意力 top-B + recent window + sink。
   random —— 随机中段 token + recent window + sink。
@@ -137,6 +137,144 @@ def _key_reps(cache, device):
     return acc / len(cache.layers)
 
 
+def _aggregate_gqa_attention(attn: torch.Tensor, kv_heads: int) -> torch.Tensor:
+    """Map query-head attention rows to KV heads.
+
+    HF returns attention probabilities per query head. For GQA models, several
+    query heads share one KV head; we approximate the paper's group max-pooling
+    using the returned attention probabilities.
+    """
+    q_heads = attn.shape[0]
+    if q_heads == kv_heads:
+        return attn
+    if q_heads % kv_heads == 0:
+        group = q_heads // kv_heads
+        return attn.view(kv_heads, group, attn.shape[-1]).max(1).values
+    return attn.mean(0, keepdim=True).expand(kv_heads, attn.shape[-1])
+
+
+def _max_pool_importance(attn: torch.Tensor, kernel: int) -> torch.Tensor:
+    if kernel <= 1 or attn.numel() == 0:
+        return attn
+    pad = kernel // 2
+    pooled = torch.nn.functional.max_pool1d(
+        attn.unsqueeze(1), kernel_size=kernel, stride=1, padding=pad
+    ).squeeze(1)
+    return pooled[:, : attn.shape[-1]]
+
+
+def _rkv_paper_importance(
+    attn_history: list[list[torch.Tensor]],
+    layer_idx: int,
+    kv_heads: int,
+    n_cand: int,
+    n_total: int,
+    pool_kernel: int,
+    device,
+) -> torch.Tensor:
+    rows = []
+    for step_rows in attn_history:
+        if layer_idx >= len(step_rows):
+            continue
+        row = step_rows[layer_idx].to(device=device, dtype=torch.float32)
+        row = _aggregate_gqa_attention(row, kv_heads)
+        if row.shape[-1] < n_total:
+            row = torch.nn.functional.pad(row, (0, n_total - row.shape[-1]))
+        rows.append(row[:, :n_cand])
+    if not rows:
+        return torch.zeros(kv_heads, n_cand, dtype=torch.float32, device=device)
+    attn = torch.stack(rows, dim=1).mean(1)
+    return _max_pool_importance(attn, pool_kernel)
+
+
+def _rkv_paper_redundancy(
+    keys: torch.Tensor,
+    threshold: float,
+    beta: int,
+    eps: float,
+    chunk_size: int,
+) -> torch.Tensor:
+    """Compute paper Eq. (6) per KV head without materializing all heads at once."""
+    kv_heads, n_cand, _ = keys.shape
+    if n_cand == 0:
+        return torch.empty(kv_heads, 0, dtype=torch.float32, device=keys.device)
+    keys = torch.nn.functional.normalize(keys.float(), dim=-1, eps=eps)
+    means = []
+    col_ids = torch.arange(n_cand, device=keys.device).view(1, 1, n_cand)
+    for start in range(0, n_cand, chunk_size):
+        end = min(start + chunk_size, n_cand)
+        sim = keys[:, start:end] @ keys.transpose(1, 2)
+        local = torch.arange(start, end, device=keys.device)
+        sim[:, torch.arange(end - start, device=keys.device), local] = 0.0
+        if beta > 0:
+            high = sim > threshold
+            recent_ids = torch.where(high, col_ids, torch.full_like(col_ids, -1))
+            recent = recent_ids.topk(min(beta, n_cand), dim=-1).values
+            for rank in range(recent.shape[-1]):
+                target = recent[..., rank]
+                valid = target >= 0
+                if valid.any():
+                    head_idx, row_idx = torch.where(valid)
+                    sim[head_idx, row_idx, target[valid]] = 0.0
+        means.append(sim.mean(-1))
+    avg_sim = torch.cat(means, dim=-1)
+    return torch.softmax(avg_sim, dim=-1)
+
+
+def _select_rkv_paper(cache, attn_history, n, budget, params, return_debug=False):
+    """Paper-faithful R-KV selection.
+
+    ``budget`` is the paper's Bbudget. The final cache keeps the selected
+    Bbudget candidate tokens plus the last alpha observation tokens.
+    """
+    device = cache.layers[0].keys.device
+    alpha = int(params.get("alpha", 8))
+    lam = float(params.get("lambda", params.get("redundancy_lambda", 0.1)))
+    pool_kernel = int(params.get("pool_kernel", 5))
+    threshold = float(params.get("similarity_threshold", 0.9))
+    beta = int(params.get("beta", 8))
+    eps = float(params.get("eps", 1e-8))
+    chunk_size = int(params.get("redundancy_chunk", 512))
+
+    obs = min(alpha, n)
+    n_cand = n - obs
+    if n_cand <= budget:
+        idx = torch.arange(n, device=device)
+        if return_debug:
+            score = torch.full((n,), float("inf"), dtype=torch.float32, device=device)
+            return idx, {"backend_keep": idx, "anchor_extra": torch.empty(0, dtype=torch.long, device=device),
+                         "sig_score": None, "policy_score": score}
+        return idx
+
+    agg_score = torch.zeros(n_cand, dtype=torch.float32, device=device)
+    n_heads_total = 0
+    for layer_idx, layer in enumerate(cache.layers):
+        keys = layer.keys[0, :, :n_cand, :]
+        kv_heads = keys.shape[0]
+        importance = _rkv_paper_importance(
+            attn_history, layer_idx, kv_heads, n_cand, n, pool_kernel, device
+        )
+        redundancy = _rkv_paper_redundancy(keys, threshold, beta, eps, chunk_size)
+        score = lam * importance - (1.0 - lam) * redundancy
+        agg_score += score.sum(0)
+        n_heads_total += kv_heads
+    agg_score /= max(n_heads_total, 1)
+
+    selected = torch.argsort(agg_score, descending=True)[:budget]
+    obs_idx = torch.arange(n_cand, n, device=device)
+    idx = torch.cat([selected, obs_idx]).sort().values
+    if return_debug:
+        policy_score = torch.full((n,), float("inf"), dtype=torch.float32, device=device)
+        policy_score[:n_cand] = agg_score
+        return idx, {
+            "backend_keep": idx,
+            "anchor_extra": torch.empty(0, dtype=torch.long, device=device),
+            "sig_score": None,
+            "policy_score": policy_score,
+        }
+    return idx
+
+
 @torch.no_grad()
 def generate_token_evict(
     model, tokenizer, input_ids, budget=1024, recent=64, sink=8,
@@ -165,6 +303,9 @@ def generate_token_evict(
     P = input_ids.shape[1]
     anchor_k = int(anchor_frac * budget)
     track = budget < 10 ** 8                          # full 臂超大预算→不淘汰,全程快路径
+    policy_params = policy_params or {}
+    paper_rkv = backend in {"rkv", "rkv-paper"}
+    paper_alpha = int(policy_params.get("alpha", 8))
 
     use_sig = anchor_mode == "sig"                    # 完整 4 维签名锚点
     N = P + max_new
@@ -186,13 +327,14 @@ def generate_token_evict(
     eos = tokenizer.eos_token_id
     gen, n_evict = [], 0
     evict_events = []
+    attn_history = []
     debug = {
         "config": {
             "budget": budget, "recent": recent, "sink": sink, "backend": backend,
             "anchor_mode": anchor_mode, "anchor_frac": anchor_frac,
             "anchor_k": anchor_k, "evict_every": evict_every,
             "obs_window": obs_window, "obs_decay": obs_decay, "max_new": max_new,
-            "policy_params": policy_params or {},
+            "policy_params": policy_params,
         },
         "prompt_len": P,
         "evictions": [],
@@ -207,7 +349,8 @@ def generate_token_evict(
             break
         # 只在"下次压缩前 obs_window 步内"开注意力,算全层重要性
         to_evict = evict_every - ((step + 1) % evict_every or evict_every)
-        want_attn = track and to_evict < obs_window
+        active_obs_window = paper_alpha if paper_rkv else obs_window
+        want_attn = track and to_evict < active_obs_window
         out = model(input_ids=torch.tensor([[nxt]], device=device), past_key_values=cache,
                     use_cache=True, output_attentions=want_attn,
                     attention_mask=torch.ones(1, n + 1, device=device, dtype=torch.long),
@@ -221,6 +364,9 @@ def generate_token_evict(
             att_sum[n] = 0.0; att_cnt[n] = 0.0; att_max[n] = 0.0
         n += 1
         if want_attn:                                 # 观察窗:全层注意力均值 maxpool 进 imp
+            if paper_rkv:
+                attn_history.append([a[0, :, -1, :n].detach().float() for a in out.attentions])
+                attn_history = attn_history[-paper_alpha:]
             row = torch.zeros(n, device=device)
             for a in out.attentions:
                 row += a[0, :, -1, :].mean(0).float()
@@ -232,33 +378,46 @@ def generate_token_evict(
                 att_sum[:n] += row; att_cnt[:n] += 1.0
                 att_max[:n] = torch.maximum(att_max[:n], row)
 
-        if track and (step + 1) % evict_every == 0 and n > budget + anchor_k:
+        trigger_len = budget + (paper_alpha if paper_rkv else anchor_k)
+        if track and (step + 1) % evict_every == 0 and n > trigger_len:
             policy = get_policy(backend)
-            key_rep = _key_reps(cache, device) if policy.needs_key_reps else None
+            key_rep = None if paper_rkv else (_key_reps(cache, device) if policy.needs_key_reps else None)
             cum = con = None
             if use_sig:
                 cum = att_sum[:n] / att_cnt[:n].clamp(min=1)
                 con = att_max[:n] / (cum + 1e-9)
-            if debug is not None:
+            if paper_rkv:
+                if debug is not None:
+                    idx, dbg = _select_rkv_paper(
+                        cache, attn_history, n, budget, policy_params, return_debug=True
+                    )
+                else:
+                    idx = _select_rkv_paper(cache, attn_history, n, budget, policy_params)
+            elif debug is not None:
                 idx, dbg = _select_tokens(imp[:n], cum_imp[:n], win_imp[:n], ent[:n],
                                           key_rep, slot_pos[:n], budget, recent,
                                           sink, backend, anchor_mode, anchor_k, None,
                                           cum=cum, con=con, sig=sig_t,
                                           policy_params=policy_params,
                                           return_debug=True)
+            else:
+                idx = _select_tokens(imp[:n], cum_imp[:n], win_imp[:n], ent[:n],
+                                     key_rep, slot_pos[:n], budget, recent,
+                                     sink, backend, anchor_mode, anchor_k, None,
+                                     cum=cum, con=con, sig=sig_t,
+                                     policy_params=policy_params)
+            if debug is not None:
                 final_keep = torch.zeros(n, dtype=torch.bool, device=device)
                 final_keep[idx] = True
-                backend_keep = torch.zeros(n, dtype=torch.bool, device=device)
-                backend_keep[dbg["backend_keep"]] = True
-                anchor_extra = torch.zeros(n, dtype=torch.bool, device=device)
-                if dbg["anchor_extra"].numel():
-                    anchor_extra[dbg["anchor_extra"]] = True
                 evicted = (~final_keep).nonzero(as_tuple=True)[0]
                 score = dbg["sig_score"]
                 if score is None:
                     score = torch.full((n,), float("nan"), device=device)
                 rescued = dbg["anchor_extra"]
-                evicted_by_sig = evicted[torch.argsort(score[evicted], descending=True)] if evicted.numel() else evicted
+                evicted_by_sig = (
+                    evicted[torch.argsort(score[evicted], descending=True)]
+                    if evicted.numel() else evicted
+                )
                 debug["evictions"].append({
                     "step": step + 1,
                     "cache_len_before": n,
@@ -280,12 +439,6 @@ def generate_token_evict(
                     "anchor_extra_text": _token_samples(tokenizer, slot_ids[:n], rescued, debug_topk),
                     "evicted_top_sig_text": _token_samples(tokenizer, slot_ids[:n], evicted_by_sig, debug_topk),
                 })
-            else:
-                idx = _select_tokens(imp[:n], cum_imp[:n], win_imp[:n], ent[:n],
-                                     key_rep, slot_pos[:n], budget, recent,
-                                     sink, backend, anchor_mode, anchor_k, None,
-                                     cum=cum, con=con, sig=sig_t,
-                                     policy_params=policy_params)
             before_n = n
             for layer in cache.layers:
                 layer.keys = layer.keys.index_select(2, idx).contiguous()
@@ -296,6 +449,8 @@ def generate_token_evict(
             if use_sig:
                 att_sum[:k] = att_sum[idx]; att_cnt[:k] = att_cnt[idx]; att_max[:k] = att_max[idx]
             n = k
+            if paper_rkv:
+                attn_history = []
             n_evict += 1
             evict_events.append({
                 "step": step + 1,
