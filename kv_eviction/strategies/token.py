@@ -23,7 +23,6 @@ _POLICIES: dict[str, TokenEvictionPolicy] = {
         RandomPolicy(),
     )
 }
-_POLICIES["full"] = _POLICIES["fullkv"]
 
 
 def get_policy(name: str) -> TokenEvictionPolicy:

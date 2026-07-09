@@ -46,7 +46,7 @@ PYTHONPATH=. uv run python scripts/eval.py \
 
 当前支持的 token 级驱逐策略：
 
-- `fullkv` / `full`: 不触发驱逐的上界 baseline。
+- `fullkv`: 不触发驱逐的上界 baseline。
 - `snapkv@B`: 官方 HuggingFace SnapKV baseline，按每层/每 KV head 的
   observation-window max-pooled attention 保留到预算 `B`。
 - `h2o@B`: 官方 HuggingFace H2O baseline，按最后一步 attention 的 head 平均

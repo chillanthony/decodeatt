@@ -59,7 +59,7 @@ def summarize_file(path: Path) -> list[dict[str, Any]]:
     if not arms and payload.get("summary"):
         arms = sorted(payload["summary"])
 
-    full_arm = "fullkv" if "fullkv" in arms else ("full" if "full" in arms else None)
+    full_arm = "fullkv" if "fullkv" in arms else None
     full_rows = _rows_for_arm(records, full_arm) if full_arm else []
     full_accuracy = _accuracy(full_rows)
     full_cache = _mean(full_rows, "final_cache_len")

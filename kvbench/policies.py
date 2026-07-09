@@ -19,17 +19,17 @@ class EvalArm:
 
 
 def parse_arm(spec: str) -> EvalArm:
-    """Parse arm specs such as full, snapkv@1024, rkv@512."""
+    """Parse arm specs such as fullkv, snapkv@1024, rkv@512."""
     spec = spec.strip()
     if not spec:
         raise ValueError("empty arm spec")
-    if spec in {"full", "fullkv"}:
-        return EvalArm(name=spec, backend="fullkv", budget=10**9)
+    if spec == "fullkv":
+        return EvalArm(name="fullkv", backend="fullkv", budget=10**9)
     if "@" not in spec:
-        raise ValueError(f"arm {spec!r} must be full or backend@budget")
+        raise ValueError(f"arm {spec!r} must be fullkv or backend@budget")
     backend, budget_text = spec.split("@", 1)
     if backend not in policy_names():
-        valid = ", ".join(["full", *policy_names()])
+        valid = ", ".join(policy_names())
         raise ValueError(f"unknown arm backend {backend!r}; expected one of: {valid}")
     budget = int(budget_text)
     return EvalArm(name=f"{backend}@{budget}", backend=backend, budget=budget)

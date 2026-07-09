@@ -27,14 +27,14 @@ def test_registry_contains_official_baselines():
     names = set(policy_names())
     for name in ["fullkv", "snapkv", "h2o", "streamingllm", "rkv"]:
         assert name in names
-    assert get_policy("full") is get_policy("fullkv")
+    assert "full" not in names
 
 
-def test_fullkv_keeps_everything_and_full_alias_parses():
+def test_fullkv_keeps_everything_and_parses():
     policy = get_policy("fullkv")
     idx = policy.select_keep(_ctx(n=12, budget=4))
     torch.testing.assert_close(idx, torch.arange(12))
-    arm = parse_arm("full")
+    arm = parse_arm("fullkv")
     assert arm.backend == "fullkv"
     assert arm.is_full
 
@@ -53,7 +53,7 @@ def test_streamingllm_uses_budget_when_recent_is_smaller():
 
 if __name__ == "__main__":
     test_registry_contains_official_baselines()
-    test_fullkv_keeps_everything_and_full_alias_parses()
+    test_fullkv_keeps_everything_and_parses()
     test_streamingllm_keeps_sink_and_recent_budget()
     test_streamingllm_uses_budget_when_recent_is_smaller()
     print("Strategy baseline tests passed")
