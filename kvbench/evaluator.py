@@ -74,6 +74,37 @@ def run_generation_eval(
             )
             pred = extract_answer(result["text"])
             ok = is_correct(pred, problem["answer"])
+            extra_metric_keys = [
+                "mean_effective_cache_len",
+                "max_effective_cache_len",
+                "min_effective_cache_len",
+                "total_effective_kv_tokens",
+                "effective_kv_tokens_per_layer_head",
+                "head_budget_mean",
+                "head_budget_std",
+                "head_budget_min",
+                "head_budget_max",
+                "head_budget_entropy",
+                "num_underfilled_heads",
+                "total_evicted_tokens",
+                "total_effective_evicted_tokens",
+                "mean_evicted_per_event",
+                "mean_effective_evicted_per_event",
+                "min_compression_ratio",
+                "max_compression_ratio",
+                "mean_effective_compression_ratio",
+                "min_effective_compression_ratio",
+                "max_effective_compression_ratio",
+                "cache_len_curve",
+                "effective_cache_len_curve",
+                "prefill_sec",
+                "decode_sec",
+                "decode_forward_sec",
+                "attention_observation_sec",
+                "eviction_sec_total",
+                "eviction_sec_mean",
+                "other_decode_sec",
+            ]
             row["arms"][arm.name] = {
                 "ok": ok,
                 "pred": pred,
@@ -86,6 +117,7 @@ def run_generation_eval(
                 "peak_memory_bytes": result["peak_memory_bytes"],
                 "mean_compression_ratio": result["mean_compression_ratio"],
                 "evict_events": result["evict_events"],
+                **{key: result[key] for key in extra_metric_keys if key in result},
             }
             print(
                 f"[{index + 1}/{len(problems)}] {problem['id']} {arm.name:12s} "

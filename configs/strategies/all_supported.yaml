@@ -1,6 +1,6 @@
 # All token-level KV eviction strategies currently implemented in this repo.
 
-arms: fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024,random@1024,window@1024
+arms: fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024,criticalkv@1024,defensivekv@1024,random@1024,window@1024
 recent: 8
 sink: 0
 evict_every: 128
@@ -18,3 +18,13 @@ policy_params:
     similarity_threshold: 0.5
     pool_kernel: 7
     redundancy_chunk: 512
+  criticalkv:
+    window_size: 32
+    kernel_size: 5
+    critical_threshold: 0.9
+    variable_head_budget: false
+  defensivekv:
+    window_size: 32
+    kernel_size: 5
+    critical_threshold: 0.9
+    variable_head_budget: true

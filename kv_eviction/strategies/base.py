@@ -19,6 +19,12 @@ class SelectionContext:
     params: dict
 
 
+@dataclass(frozen=True)
+class HeadwiseSelection:
+    indices: list[torch.Tensor]
+    valid_masks: list[torch.Tensor] | None = None
+
+
 class TokenEvictionPolicy:
     name = "base"
     needs_key_reps = False

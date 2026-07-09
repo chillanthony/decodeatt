@@ -105,6 +105,19 @@ def summarize_accuracy(records: list[dict]) -> dict:
     for arm in arms:
         rows = [row["arms"][arm] for row in records if arm in row["arms"]]
         correct = sum(bool(row["ok"]) for row in rows)
+
+        def mean_field(key: str, default: float = 0.0) -> float:
+            values = [row[key] for row in rows if isinstance(row.get(key), (int, float))]
+            return sum(values) / len(values) if values else default
+
+        def min_field(key: str, default: float = 0.0) -> float:
+            values = [row[key] for row in rows if isinstance(row.get(key), (int, float))]
+            return min(values) if values else default
+
+        def max_field(key: str, default: float = 0.0) -> float:
+            values = [row[key] for row in rows if isinstance(row.get(key), (int, float))]
+            return max(values) if values else default
+
         summary[arm] = {
             "accuracy": correct / len(rows) if rows else 0.0,
             "correct": correct,
@@ -126,5 +139,30 @@ def summarize_accuracy(records: list[dict]) -> dict:
             "max_peak_memory_bytes": max(
                 (row["peak_memory_bytes"] or 0 for row in rows), default=0
             ),
+            "mean_effective_cache_len": mean_field("mean_effective_cache_len"),
+            "max_effective_cache_len": max_field("max_effective_cache_len"),
+            "mean_total_effective_kv_tokens": mean_field("total_effective_kv_tokens"),
+            "mean_total_evicted_tokens": mean_field("total_evicted_tokens"),
+            "mean_total_effective_evicted_tokens": mean_field("total_effective_evicted_tokens"),
+            "mean_evicted_per_event": mean_field("mean_evicted_per_event"),
+            "mean_effective_evicted_per_event": mean_field("mean_effective_evicted_per_event"),
+            "min_compression_ratio": min_field("min_compression_ratio", 1.0),
+            "max_compression_ratio": max_field("max_compression_ratio", 1.0),
+            "mean_effective_compression_ratio": mean_field("mean_effective_compression_ratio", 1.0),
+            "min_effective_compression_ratio": min_field("min_effective_compression_ratio", 1.0),
+            "max_effective_compression_ratio": max_field("max_effective_compression_ratio", 1.0),
+            "mean_head_budget_mean": mean_field("head_budget_mean"),
+            "mean_head_budget_std": mean_field("head_budget_std"),
+            "min_head_budget_min": min_field("head_budget_min"),
+            "max_head_budget_max": max_field("head_budget_max"),
+            "mean_head_budget_entropy": mean_field("head_budget_entropy"),
+            "mean_num_underfilled_heads": mean_field("num_underfilled_heads"),
+            "mean_prefill_sec": mean_field("prefill_sec"),
+            "mean_decode_sec": mean_field("decode_sec"),
+            "mean_decode_forward_sec": mean_field("decode_forward_sec"),
+            "mean_attention_observation_sec": mean_field("attention_observation_sec"),
+            "mean_eviction_sec_total": mean_field("eviction_sec_total"),
+            "mean_eviction_sec_mean": mean_field("eviction_sec_mean"),
+            "mean_other_decode_sec": mean_field("other_decode_sec"),
         }
     return summary
