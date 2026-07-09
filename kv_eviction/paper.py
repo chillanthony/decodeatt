@@ -1,17 +1,21 @@
-"""Backward-compatible imports for paper R-KV strategy utilities."""
+"""Backward-compatible imports for R-KV strategy utilities."""
 
-from kv_eviction.strategies.rkv_paper import (
+from kv_eviction.strategies.rkv import (
     aggregate_gqa_attention,
     max_pool_importance,
-    rkv_paper_importance,
-    rkv_paper_redundancy,
-    select_rkv_paper,
+    rkv_importance,
+    rkv_redundancy,
+    select_rkv,
+    select_rkv_global,
+    select_rkv_layers,
 )
 
 __all__ = [
     "aggregate_gqa_attention",
     "max_pool_importance",
-    "rkv_paper_importance",
-    "rkv_paper_redundancy",
-    "select_rkv_paper",
+    "rkv_importance",
+    "rkv_redundancy",
+    "select_rkv",
+    "select_rkv_global",
+    "select_rkv_layers",
 ]

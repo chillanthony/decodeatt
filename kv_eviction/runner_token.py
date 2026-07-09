@@ -17,7 +17,7 @@ from pathlib import Path
 
 import torch
 
-from kv_eviction.strategies.rkv_paper import select_rkv_paper as _select_rkv_paper
+from kv_eviction.strategies.rkv_official import compute_attention_scores
 from kv_eviction.strategies.token import SelectionContext, get_policy
 
 
@@ -46,7 +46,7 @@ def _entropy(logits: torch.Tensor) -> float:
 @torch.no_grad()
 def _select_tokens(imp, cum_imp, win_imp, ent, key_rep, slot_pos, budget, recent, sink,
                    backend, anchor_mode, anchor_k, rng, cum=None, con=None, sig=None,
-                   policy_params=None,
+                   policy_params=None, cache=None, attn_history=None,
                    return_debug=False):
     """返回应保留的**槽下标** LongTensor。imp/ent/key_rep/slot_pos 均按当前缓存槽对齐。
     anchor_mode="sig" 时用完整 4 维签名(熵,cum_attn,位置,concentration)打分,
@@ -76,13 +76,42 @@ def _select_tokens(imp, cum_imp, win_imp, ent, key_rep, slot_pos, budget, recent
         sink=sink,
         params=policy_params or {},
     )
-    backend_idx = policy.select_keep(ctx)
+    if policy.needs_cache or policy.needs_attn_history:
+        if return_debug:
+            backend_idx, policy_debug = policy.select_from_cache(
+                cache, attn_history, n, budget, policy_params or {}, ctx=ctx, return_debug=True
+            )
+            policy_score = policy_debug["policy_score"]
+        else:
+            backend_idx = policy.select_from_cache(
+                cache, attn_history, n, budget, policy_params or {}, ctx=ctx
+            )
+            policy_score = None
+    else:
+        backend_idx = policy.select_keep(ctx)
+        policy_score = policy.scores(ctx) if return_debug else None
+    if _is_headwise_selection(backend_idx):
+        if anchor_mode != "none" and anchor_k > 0:
+            raise ValueError("anchor modes are not supported for head-wise cache-aware strategies")
+        idx = backend_idx
+        if return_debug:
+            return idx, {
+                "backend_keep": _representative_indices(backend_idx),
+                "anchor_extra": torch.empty(0, dtype=torch.long, device=dev),
+                "sig_score": None,
+                "policy_score": policy_score
+                if policy_score is not None
+                else torch.full((n,), float("nan"), device=dev),
+            }
+        return idx
+
     keep = torch.zeros(n, dtype=torch.bool, device=dev)
     keep[backend_idx] = True
     backend_keep = keep.clone()
     anchor_extra = torch.empty(0, dtype=torch.long, device=dev)
     sig_score = None
-    policy_score = policy.scores(ctx)
+    if return_debug and policy_score is None:
+        policy_score = policy.scores(ctx)
 
     # 锚点保护:预算外额外钉 anchor_k 个槽
     if anchor_mode != "none" and anchor_k > 0:
@@ -138,6 +167,88 @@ def _key_reps(cache, device):
     return acc / len(cache.layers)
 
 
+def _is_headwise_selection(idx) -> bool:
+    return isinstance(idx, list)
+
+
+def _representative_indices(idx):
+    if _is_headwise_selection(idx):
+        return idx[0][0]
+    return idx
+
+
+def _compact_cache(cache, idx):
+    if _is_headwise_selection(idx):
+        for layer, layer_idx in zip(cache.layers, idx):
+            layer_idx = layer_idx.to(layer.keys.device)
+            head_dim = layer.keys.shape[-1]
+            gather_idx = layer_idx.unsqueeze(0).unsqueeze(-1).expand(1, -1, -1, head_dim)
+            layer.keys = layer.keys.gather(2, gather_idx).contiguous()
+            layer.values = layer.values.gather(2, gather_idx).contiguous()
+        return int(idx[0].shape[-1])
+
+    for layer in cache.layers:
+        layer.keys = layer.keys.index_select(2, idx).contiguous()
+        layer.values = layer.values.index_select(2, idx).contiguous()
+    return int(idx.numel())
+
+
+def _base_model(model):
+    return getattr(model, "model", getattr(model, "transformer", model))
+
+
+def _model_layers(model):
+    base = _base_model(model)
+    return getattr(base, "layers", getattr(base, "h", None))
+
+
+def _rotate_half(x: torch.Tensor) -> torch.Tensor:
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2:]
+    return torch.cat((-x2, x1), dim=-1)
+
+
+def _apply_rotary_q(query_states: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    cos = cos.unsqueeze(1)
+    sin = sin.unsqueeze(1)
+    return (query_states * cos) + (_rotate_half(query_states) * sin)
+
+
+def _supports_attention_logits(model) -> bool:
+    layers = _model_layers(model)
+    base = _base_model(model)
+    if layers is None or not hasattr(base, "rotary_emb"):
+        return False
+    if len(layers) == 0:
+        return False
+    attn = getattr(layers[0], "self_attn", None)
+    return attn is not None and hasattr(attn, "q_proj") and hasattr(attn, "head_dim")
+
+
+def _attention_logit_rows(model, outputs, cache, position_ids, n):
+    """Compute official pre-softmax attention rows from layer inputs and cache keys."""
+    if not getattr(outputs, "hidden_states", None):
+        return None
+    layers = _model_layers(model)
+    base = _base_model(model)
+    if layers is None or not hasattr(base, "rotary_emb"):
+        return None
+
+    rows = []
+    for layer_idx, layer in enumerate(layers):
+        attn = getattr(layer, "self_attn", None)
+        if attn is None or not hasattr(attn, "q_proj") or not hasattr(attn, "head_dim"):
+            return None
+        hidden = outputs.hidden_states[layer_idx][:, -1:, :]
+        q = attn.q_proj(hidden)
+        q = q.view(*hidden.shape[:-1], -1, attn.head_dim).transpose(1, 2)
+        cos, sin = base.rotary_emb(hidden, position_ids)
+        q = _apply_rotary_q(q, cos, sin)
+        keys = cache.layers[layer_idx].keys[:, :, :n, :]
+        rows.append(compute_attention_scores(q, keys)[0, :, -1, :].detach().float())
+    return rows
+
+
 @torch.no_grad()
 def generate_token_evict(
     model, tokenizer, input_ids, budget=1024, recent=64, sink=8,
@@ -149,8 +260,8 @@ def generate_token_evict(
 ):
     """token 级淘汰生成(忠实 R-KV 架构 + 支持长生成)。
 
-    速度/忠实兼顾:平时 output_attentions=False(模型若以 sdpa 加载则走快算子),
-    **只在每次压缩前的 obs_window 步**用全层注意力算重要性(SnapKV/R-KV 的观察窗思想)。
+    速度/忠实兼顾:平时不取观测信号; cache-aware 官方 baseline 只在压缩前
+    observation window 内用 hidden states + q_proj + cache keys 重算 attention logits。
     缓冲预分配(slot_pos/imp/ent),消掉逐步 torch.cat 的 O(n²),解锁 16k 长生成。
     返回 dict(text, gen_ids, n_evict, final_cache_len)。"""
     device = next(model.parameters()).device
@@ -165,10 +276,10 @@ def generate_token_evict(
     input_ids = input_ids.to(device)
     P = input_ids.shape[1]
     anchor_k = int(anchor_frac * budget)
-    track = budget < 10 ** 8                          # full 臂超大预算→不淘汰,全程快路径
+    policy = get_policy(backend)
+    track = budget < 10 ** 8 and not policy.never_evict
     policy_params = policy_params or {}
-    paper_rkv = backend in {"rkv", "rkv-paper"}
-    paper_alpha = int(policy_params.get("alpha", 8))
+    use_attention_logits = policy.needs_attn_history and _supports_attention_logits(model)
 
     use_sig = anchor_mode == "sig"                    # 完整 4 维签名锚点
     N = P + max_new
@@ -212,12 +323,16 @@ def generate_token_evict(
             break
         # 只在"下次压缩前 obs_window 步内"开注意力,算全层重要性
         to_evict = evict_every - ((step + 1) % evict_every or evict_every)
-        active_obs_window = paper_alpha if paper_rkv else obs_window
-        want_attn = track and to_evict < active_obs_window
+        active_obs_window = policy.observation_window(policy_params, obs_window)
+        want_observe = track and active_obs_window > 0 and to_evict < active_obs_window
+        want_logits = want_observe and policy.needs_attn_history and use_attention_logits
+        want_attn = want_observe and not want_logits
+        position_ids = torch.tensor([[true_pos]], device=device)
         out = model(input_ids=torch.tensor([[nxt]], device=device), past_key_values=cache,
                     use_cache=True, output_attentions=want_attn,
+                    output_hidden_states=want_logits,
                     attention_mask=torch.ones(1, n + 1, device=device, dtype=torch.long),
-                    position_ids=torch.tensor([[true_pos]], device=device),
+                    position_ids=position_ids,
                     cache_position=torch.tensor([n], device=device))
         cache = out.past_key_values
         logits = out.logits[:, -1]
@@ -226,10 +341,21 @@ def generate_token_evict(
         if use_sig:
             att_sum[n] = 0.0; att_cnt[n] = 0.0; att_max[n] = 0.0
         n += 1
+        if want_logits:
+            rows = _attention_logit_rows(model, out, cache, position_ids, n)
+            if rows is None:
+                raise RuntimeError(
+                    "attention-logit extraction failed; use a supported RoPE decoder or disable cache-aware baselines"
+                )
+            attn_history.append(rows)
+            attn_history = attn_history[-active_obs_window:]
         if want_attn:                                 # 观察窗:全层注意力均值 maxpool 进 imp
-            if paper_rkv:
-                attn_history.append([a[0, :, -1, :n].detach().float() for a in out.attentions])
-                attn_history = attn_history[-paper_alpha:]
+            if policy.needs_attn_history:
+                attn_history.append([
+                    torch.log(a[0, :, -1, :n].detach().float().clamp_min(1e-30))
+                    for a in out.attentions
+                ])
+                attn_history = attn_history[-active_obs_window:]
             row = torch.zeros(n, device=device)
             for a in out.attentions:
                 row += a[0, :, -1, :].mean(0).float()
@@ -241,37 +367,34 @@ def generate_token_evict(
                 att_sum[:n] += row; att_cnt[:n] += 1.0
                 att_max[:n] = torch.maximum(att_max[:n], row)
 
-        trigger_len = budget if paper_rkv else budget + anchor_k
-        if track and (step + 1) % evict_every == 0 and n > trigger_len:
-            policy = get_policy(backend)
-            key_rep = None if paper_rkv else (_key_reps(cache, device) if policy.needs_key_reps else None)
+        cache_aware = policy.needs_cache or policy.needs_attn_history
+        trigger_len = budget if cache_aware else budget + anchor_k
+        over_trigger = n >= trigger_len if cache_aware else n > trigger_len
+        if track and (step + 1) % evict_every == 0 and over_trigger:
+            key_rep = None if policy.needs_cache else (_key_reps(cache, device) if policy.needs_key_reps else None)
             cum = con = None
             if use_sig:
                 cum = att_sum[:n] / att_cnt[:n].clamp(min=1)
                 con = att_max[:n] / (cum + 1e-9)
-            if paper_rkv:
-                if debug is not None:
-                    idx, dbg = _select_rkv_paper(
-                        cache, attn_history, n, budget, policy_params, return_debug=True
-                    )
-                else:
-                    idx = _select_rkv_paper(cache, attn_history, n, budget, policy_params)
-            elif debug is not None:
+            if debug is not None:
                 idx, dbg = _select_tokens(imp[:n], cum_imp[:n], win_imp[:n], ent[:n],
                                           key_rep, slot_pos[:n], budget, recent,
                                           sink, backend, anchor_mode, anchor_k, None,
                                           cum=cum, con=con, sig=sig_t,
-                                          policy_params=policy_params,
+                                          policy_params=policy_params, cache=cache,
+                                          attn_history=attn_history,
                                           return_debug=True)
             else:
                 idx = _select_tokens(imp[:n], cum_imp[:n], win_imp[:n], ent[:n],
                                      key_rep, slot_pos[:n], budget, recent,
                                      sink, backend, anchor_mode, anchor_k, None,
                                      cum=cum, con=con, sig=sig_t,
-                                     policy_params=policy_params)
+                                     policy_params=policy_params, cache=cache,
+                                     attn_history=attn_history)
             if debug is not None:
+                idx_debug = _representative_indices(idx)
                 final_keep = torch.zeros(n, dtype=torch.bool, device=device)
-                final_keep[idx] = True
+                final_keep[idx_debug] = True
                 evicted = (~final_keep).nonzero(as_tuple=True)[0]
                 score = dbg["sig_score"]
                 if score is None:
@@ -297,22 +420,20 @@ def generate_token_evict(
                     "policy_score": _take_float(dbg["policy_score"]),
                     "backend_keep_slots": _take_int(dbg["backend_keep"]),
                     "anchor_extra_slots": _take_int(rescued),
-                    "final_keep_slots": _take_int(idx),
+                    "final_keep_slots": _take_int(idx_debug),
                     "evicted_slots": _take_int(evicted),
                     "anchor_extra_text": _token_samples(tokenizer, slot_ids[:n], rescued, debug_topk),
                     "evicted_top_sig_text": _token_samples(tokenizer, slot_ids[:n], evicted_by_sig, debug_topk),
                 })
             before_n = n
-            for layer in cache.layers:
-                layer.keys = layer.keys.index_select(2, idx).contiguous()
-                layer.values = layer.values.index_select(2, idx).contiguous()
-            k = idx.numel()
-            slot_pos[:k] = slot_pos[idx]; slot_ids[:k] = slot_ids[idx]; imp[:k] = imp[idx]
-            cum_imp[:k] = cum_imp[idx]; win_imp[:k] = win_imp[idx]; ent[:k] = ent[idx]
+            idx_slots = _representative_indices(idx)
+            k = _compact_cache(cache, idx)
+            slot_pos[:k] = slot_pos[idx_slots]; slot_ids[:k] = slot_ids[idx_slots]; imp[:k] = imp[idx_slots]
+            cum_imp[:k] = cum_imp[idx_slots]; win_imp[:k] = win_imp[idx_slots]; ent[:k] = ent[idx_slots]
             if use_sig:
-                att_sum[:k] = att_sum[idx]; att_cnt[:k] = att_cnt[idx]; att_max[:k] = att_max[idx]
+                att_sum[:k] = att_sum[idx_slots]; att_cnt[:k] = att_cnt[idx_slots]; att_max[:k] = att_max[idx_slots]
             n = k
-            if paper_rkv:
+            if policy.needs_attn_history:
                 attn_history = []
             n_evict += 1
             evict_events.append({
@@ -355,7 +476,8 @@ def generate_token_evict(
 @torch.no_grad()
 def score_trace_token(model, tokenizer, full_ids, prompt_len, refl_steps, anchor_mode,
                       budget=1024, recent=64, sink=8, backend="rkv", anchor_frac=0.05,
-                      evict_every=128, obs_window=16, obs_decay=0.9, span_len=32, sig=None):
+                      evict_every=128, obs_window=16, obs_decay=0.9, span_len=32, sig=None,
+                      policy_params=None):
     """NLL 兜底:token 级淘汰下 teacher-forced 喂真 trace,测纠错 span 的 NLL。
     与 generate_token_evict 同淘汰逻辑,但不采样、喂 gen_ids,累计纠错/非纠错 NLL。"""
     device = next(model.parameters()).device
@@ -371,6 +493,10 @@ def score_trace_token(model, tokenizer, full_ids, prompt_len, refl_steps, anchor
     anchor_k = int(anchor_frac * budget)
     use_sig = anchor_mode == "sig"
     sig_t = (torch.tensor(sig[0], device=device), float(sig[1])) if use_sig else None
+    policy = get_policy(backend)
+    policy_params = policy_params or {}
+    track = budget < 10 ** 8 and not policy.never_evict
+    use_attention_logits = policy.needs_attn_history and _supports_attention_logits(model)
 
     N = P + Lgen
     slot_pos = torch.zeros(N, dtype=torch.long, device=device); slot_pos[:P] = torch.arange(P, device=device)
@@ -381,6 +507,7 @@ def score_trace_token(model, tokenizer, full_ids, prompt_len, refl_steps, anchor
     out = model(input_ids=full_ids[:, :P], use_cache=True, output_attentions=False)
     cache = out.past_key_values; logits = out.logits[:, -1]
     nll_c, nll_n, c_c, c_n = 0.0, 0.0, 0, 0
+    attn_history = []
 
     for t in range(Lgen):
         real = int(gen_ids[t])
@@ -389,16 +516,35 @@ def score_trace_token(model, tokenizer, full_ids, prompt_len, refl_steps, anchor
         else: nll_n += nll; c_n += 1
         true_pos = P + t
         to_evict = evict_every - ((t + 1) % evict_every or evict_every)
-        want_attn = to_evict < obs_window
+        active_obs_window = policy.observation_window(policy_params, obs_window)
+        want_observe = track and active_obs_window > 0 and to_evict < active_obs_window
+        want_logits = want_observe and policy.needs_attn_history and use_attention_logits
+        want_attn = want_observe and not want_logits
+        position_ids = torch.tensor([[true_pos]], device=device)
         out = model(input_ids=full_ids[:, P + t:P + t + 1], past_key_values=cache, use_cache=True,
-                    output_attentions=want_attn, attention_mask=torch.ones(1, n + 1, device=device, dtype=torch.long),
-                    position_ids=torch.tensor([[true_pos]], device=device), cache_position=torch.tensor([n], device=device))
+                    output_attentions=want_attn, output_hidden_states=want_logits,
+                    attention_mask=torch.ones(1, n + 1, device=device, dtype=torch.long),
+                    position_ids=position_ids, cache_position=torch.tensor([n], device=device))
         cache = out.past_key_values; logits = out.logits[:, -1]
         slot_pos[n] = true_pos; ent[n] = _entropy(logits)   # 锚点判据用当前 logits 熵近似
         imp[n] = 0.0; cum_imp[n] = 0.0; win_imp[n] = 0.0
         att_sum[n] = 0.0; att_cnt[n] = 0.0; att_max[n] = 0.0
         n += 1
+        if want_logits:
+            rows = _attention_logit_rows(model, out, cache, position_ids, n)
+            if rows is None:
+                raise RuntimeError(
+                    "attention-logit extraction failed; use a supported RoPE decoder or disable cache-aware baselines"
+                )
+            attn_history.append(rows)
+            attn_history = attn_history[-active_obs_window:]
         if want_attn:
+            if policy.needs_attn_history:
+                attn_history.append([
+                    torch.log(a[0, :, -1, :n].detach().float().clamp_min(1e-30))
+                    for a in out.attentions
+                ])
+                attn_history = attn_history[-active_obs_window:]
             row = torch.zeros(n, device=device)
             for a in out.attentions: row += a[0, :, -1, :].mean(0).float()
             row /= len(out.attentions)
@@ -407,23 +553,26 @@ def score_trace_token(model, tokenizer, full_ids, prompt_len, refl_steps, anchor
             win_imp[:n] = win_imp[:n] * obs_decay + row
             if use_sig:
                 att_sum[:n] += row; att_cnt[:n] += 1.0; att_max[:n] = torch.maximum(att_max[:n], row)
-        if (t + 1) % evict_every == 0 and n > budget + anchor_k:
-            policy = get_policy(backend)
-            key_rep = _key_reps(cache, device) if policy.needs_key_reps else None
+        cache_aware = policy.needs_cache or policy.needs_attn_history
+        trigger_len = budget if cache_aware else budget + anchor_k
+        over_trigger = n >= trigger_len if cache_aware else n > trigger_len
+        if track and (t + 1) % evict_every == 0 and over_trigger:
+            key_rep = None if policy.needs_cache else (_key_reps(cache, device) if policy.needs_key_reps else None)
             cum = con = None
             if use_sig:
                 cum = att_sum[:n] / att_cnt[:n].clamp(min=1); con = att_max[:n] / (cum + 1e-9)
             idx = _select_tokens(imp[:n], cum_imp[:n], win_imp[:n], ent[:n],
                                  key_rep, slot_pos[:n], budget, recent, sink,
-                                 backend, anchor_mode, anchor_k, None, cum=cum, con=con, sig=sig_t)
-            for layer in cache.layers:
-                layer.keys = layer.keys.index_select(2, idx).contiguous()
-                layer.values = layer.values.index_select(2, idx).contiguous()
-            k = idx.numel()
-            slot_pos[:k] = slot_pos[idx]; imp[:k] = imp[idx]
-            cum_imp[:k] = cum_imp[idx]; win_imp[:k] = win_imp[idx]; ent[:k] = ent[idx]
-            att_sum[:k] = att_sum[idx]; att_cnt[:k] = att_cnt[idx]; att_max[:k] = att_max[idx]
+                                 backend, anchor_mode, anchor_k, None, cum=cum, con=con, sig=sig_t,
+                                 policy_params=policy_params, cache=cache, attn_history=attn_history)
+            idx_slots = _representative_indices(idx)
+            k = _compact_cache(cache, idx)
+            slot_pos[:k] = slot_pos[idx_slots]; imp[:k] = imp[idx_slots]
+            cum_imp[:k] = cum_imp[idx_slots]; win_imp[:k] = win_imp[idx_slots]; ent[:k] = ent[idx_slots]
+            att_sum[:k] = att_sum[idx_slots]; att_cnt[:k] = att_cnt[idx_slots]; att_max[:k] = att_max[idx_slots]
             n = k
+            if policy.needs_attn_history:
+                attn_history = []
     return {"nll_corr": nll_c / max(c_c, 1), "n_corr": c_c,
             "nll_noncorr": nll_n / max(c_n, 1), "n_noncorr": c_n}
 

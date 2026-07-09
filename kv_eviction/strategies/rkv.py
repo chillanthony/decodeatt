@@ -1,31 +1,39 @@
-"""R-KV strategy registry entries.
-
-The paper-faithful selector lives in ``kv_eviction.strategies.rkv_paper`` because it
-needs cache keys and observation-window attention rows in addition to the
-generic ``SelectionContext``.
-"""
+"""Official HuggingFace R-KV strategy implementation and registry entries."""
 from __future__ import annotations
 
 from .base import SelectionContext, TokenEvictionPolicy
+from .rkv_official import (
+    aggregate_gqa_attention,
+    max_pool_importance,
+    rkv_importance,
+    rkv_redundancy,
+    select_rkv_global,
+    select_rkv_layers,
+)
+
+select_rkv = select_rkv_layers
 
 
 class RKVPolicy(TokenEvictionPolicy):
     name = "rkv"
-    needs_key_reps = True
+    needs_cache = True
+    needs_attn_history = True
 
     def scores(self, ctx: SelectionContext) -> torch.Tensor:
         return ctx.importance
 
-    def select_keep(self, ctx: SelectionContext) -> torch.Tensor:
-        """Generic fallback; paper R-KV uses ``kv_eviction.strategies.rkv_paper``."""
-        return super().select_keep(ctx)
+    def observation_window(self, params: dict, default: int) -> int:
+        return int(params.get("alpha", 8))
 
-
-class RKVPaperAliasPolicy(TokenEvictionPolicy):
-    """Backward-compatible alias for the paper-faithful R-KV implementation."""
-
-    name = "rkv-paper"
-    needs_key_reps = True
-
-    def scores(self, ctx: SelectionContext) -> torch.Tensor:
-        return ctx.importance
+    def select_from_cache(
+        self,
+        cache,
+        attn_history,
+        n: int,
+        budget: int,
+        params: dict,
+        *,
+        ctx: SelectionContext | None = None,
+        return_debug: bool = False,
+    ):
+        return select_rkv(cache, attn_history, n, budget, params, return_debug=return_debug)

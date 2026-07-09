@@ -11,10 +11,10 @@ from dataclasses import dataclass
 
 import torch
 
-from kv_eviction.strategies.rkv_paper import (
-    rkv_paper_importance,
-    rkv_paper_redundancy,
-    select_rkv_paper,
+from kv_eviction.strategies.rkv import (
+    rkv_importance,
+    rkv_redundancy,
+    select_rkv_global,
 )
 
 
@@ -131,10 +131,9 @@ def _case():
     return cache, key_states, value_states, query_states, total_budget, params
 
 
-def _attn_history_from_full_probs(query_states: torch.Tensor, key_states: torch.Tensor, window: int):
+def _attn_history_from_logits(query_states: torch.Tensor, key_states: torch.Tensor, window: int):
     scores = _reference_attention_scores(query_states, key_states)
-    probs = torch.softmax(scores[:, :, -window:, :], dim=-1, dtype=torch.float32)
-    return [[probs[0, :, row, :].clone()] for row in range(window)]
+    return [[scores[0, :, -window + row, :].clone()] for row in range(window)]
 
 
 def test_importance_matches_reference_candidate_softmax():
@@ -142,9 +141,9 @@ def test_importance_matches_reference_candidate_softmax():
     window = params["alpha"]
     n_total = key_states.shape[-2]
     n_cand = n_total - window
-    history = _attn_history_from_full_probs(query_states, key_states, window)
+    history = _attn_history_from_logits(query_states, key_states, window)
 
-    actual = rkv_paper_importance(
+    actual = rkv_importance(
         history, 0, 1, n_cand, n_total, params["pool_kernel"], key_states.device
     )
     scores = _reference_attention_scores(query_states, key_states)
@@ -163,7 +162,7 @@ def test_importance_matches_reference_candidate_softmax():
 def test_redundancy_matches_reference_cal_similarity():
     _, key_states, _, _, _, params = _case()
     n_cand = key_states.shape[-2] - params["alpha"]
-    actual = rkv_paper_redundancy(
+    actual = rkv_redundancy(
         key_states[0, :, :n_cand, :],
         params["similarity_threshold"],
         params["retain_ratio"],
@@ -180,11 +179,11 @@ def test_redundancy_matches_reference_cal_similarity():
     torch.testing.assert_close(actual, expected, rtol=1e-5, atol=1e-6)
 
 
-def test_select_rkv_paper_matches_reference_single_layer_single_head():
+def test_select_rkv_matches_reference_single_layer_single_head():
     cache, key_states, _, query_states, total_budget, params = _case()
-    history = _attn_history_from_full_probs(query_states, key_states, params["alpha"])
+    history = _attn_history_from_logits(query_states, key_states, params["alpha"])
 
-    actual = select_rkv_paper(
+    actual = select_rkv_global(
         cache, history, key_states.shape[-2], total_budget, params
     )
     reference = _reference_rkv_indices(
@@ -202,10 +201,10 @@ def test_select_rkv_paper_matches_reference_single_layer_single_head():
     torch.testing.assert_close(actual, reference)
 
 
-def test_select_rkv_paper_debug_scores_are_aligned():
+def test_select_rkv_debug_scores_are_aligned():
     cache, key_states, _, query_states, total_budget, params = _case()
-    history = _attn_history_from_full_probs(query_states, key_states, params["alpha"])
-    idx, debug = select_rkv_paper(
+    history = _attn_history_from_logits(query_states, key_states, params["alpha"])
+    idx, debug = select_rkv_global(
         cache, history, key_states.shape[-2], total_budget, params, return_debug=True
     )
 
@@ -217,11 +216,11 @@ def test_select_rkv_paper_debug_scores_are_aligned():
     assert debug["sig_score"] is None
 
 
-def test_select_rkv_paper_rejects_budget_not_greater_than_alpha():
+def test_select_rkv_rejects_budget_not_greater_than_alpha():
     cache, key_states, _, query_states, _, params = _case()
-    history = _attn_history_from_full_probs(query_states, key_states, params["alpha"])
+    history = _attn_history_from_logits(query_states, key_states, params["alpha"])
     try:
-        select_rkv_paper(cache, history, key_states.shape[-2], params["alpha"], params)
+        select_rkv_global(cache, history, key_states.shape[-2], params["alpha"], params)
     except ValueError as exc:
         assert "budget must be greater than alpha" in str(exc)
     else:
@@ -231,7 +230,7 @@ def test_select_rkv_paper_rejects_budget_not_greater_than_alpha():
 if __name__ == "__main__":
     test_importance_matches_reference_candidate_softmax()
     test_redundancy_matches_reference_cal_similarity()
-    test_select_rkv_paper_matches_reference_single_layer_single_head()
-    test_select_rkv_paper_debug_scores_are_aligned()
-    test_select_rkv_paper_rejects_budget_not_greater_than_alpha()
+    test_select_rkv_matches_reference_single_layer_single_head()
+    test_select_rkv_debug_scores_are_aligned()
+    test_select_rkv_rejects_budget_not_greater_than_alpha()
     print("R-KV parity tests passed")

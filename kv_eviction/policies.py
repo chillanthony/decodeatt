@@ -1,12 +1,13 @@
 """Backward-compatible imports for token eviction strategy registry."""
 
 from kv_eviction.strategies.token import (
+    FullKVPolicy,
     H2OPolicy,
-    RKVPaperAliasPolicy,
     RKVPolicy,
     RandomPolicy,
     SelectionContext,
     SnapKVPolicy,
+    StreamingLLMPolicy,
     TokenEvictionPolicy,
     WindowPolicy,
     get_policy,
@@ -16,12 +17,13 @@ from kv_eviction.strategies.token import (
 __all__ = [
     "SelectionContext",
     "TokenEvictionPolicy",
+    "FullKVPolicy",
     "SnapKVPolicy",
     "H2OPolicy",
+    "StreamingLLMPolicy",
     "WindowPolicy",
     "RandomPolicy",
     "RKVPolicy",
-    "RKVPaperAliasPolicy",
     "get_policy",
     "policy_names",
 ]

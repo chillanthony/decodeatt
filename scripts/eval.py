@@ -65,7 +65,7 @@ def main():
     parser.add_argument(
         "--strategy-config",
         default=None,
-        help="Optional strategy config, e.g. configs/strategies/rkv_paper.yaml",
+        help="Optional strategy config, e.g. configs/strategies/all_supported.yaml",
     )
     parser.add_argument("--model", default=None)
     parser.add_argument("--dataset", default=None, choices=["sample", "aime", "math500", "mix"])
@@ -73,7 +73,7 @@ def main():
     parser.add_argument(
         "--arms",
         default=None,
-        help="Comma-separated arms, e.g. full,random@1024,h2o@1024,window@1024,snapkv@1024,rkv@1024",
+        help="Comma-separated arms, e.g. fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024",
     )
     parser.add_argument("--max-new", type=int, default=None)
     parser.add_argument("--recent", type=int, default=None)
@@ -112,7 +112,7 @@ def main():
     if not model_name:
         raise SystemExit("missing --model or model in config")
 
-    arms = parse_arms(args.arms or cfg.get("arms", "full,snapkv@1024,rkv@1024"))
+    arms = parse_arms(args.arms or cfg.get("arms", "fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024"))
     policy_params = _merge_policy_params(cfg.get("policy_params"), args.policy_param)
     model, tokenizer = load_causal_lm(
         model_name,

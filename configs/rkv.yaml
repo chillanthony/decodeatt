@@ -19,7 +19,7 @@ seed: 0
 # Paper Table 2 budget points:
 # MATH: 128,256,512,768,1024,1536,2048
 # AIME24: 128,256,512,768,1024,1536,2048,2560,3072,4096
-arms: full,snapkv@1024,rkv@1024
+arms: fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024
 recent: 8
 sink: 0
 evict_every: 128
@@ -27,6 +27,8 @@ obs_window: 8
 obs_decay: 0.9
 
 policy_params:
+  streamingllm:
+    first_tokens: 4
   rkv:
     lambda: 0.1
     alpha: 8

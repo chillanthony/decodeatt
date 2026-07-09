@@ -23,8 +23,8 @@ def parse_arm(spec: str) -> EvalArm:
     spec = spec.strip()
     if not spec:
         raise ValueError("empty arm spec")
-    if spec == "full":
-        return EvalArm(name="full", backend="snapkv", budget=10**9)
+    if spec in {"full", "fullkv"}:
+        return EvalArm(name=spec, backend="fullkv", budget=10**9)
     if "@" not in spec:
         raise ValueError(f"arm {spec!r} must be full or backend@budget")
     backend, budget_text = spec.split("@", 1)

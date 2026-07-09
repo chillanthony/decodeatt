@@ -22,9 +22,15 @@ class SelectionContext:
 class TokenEvictionPolicy:
     name = "base"
     needs_key_reps = False
+    needs_cache = False
+    needs_attn_history = False
+    never_evict = False
 
     def scores(self, ctx: SelectionContext) -> torch.Tensor:
         raise NotImplementedError
+
+    def observation_window(self, params: dict, default: int) -> int:
+        return default
 
     def select_keep(self, ctx: SelectionContext) -> torch.Tensor:
         n = ctx.slot_pos.numel()
@@ -48,3 +54,26 @@ class TokenEvictionPolicy:
     def _pick_free(self, ctx: SelectionContext, free: torch.Tensor, n_pick: int) -> torch.Tensor:
         score = self.scores(ctx)
         return free[torch.argsort(score[free], descending=True)[:n_pick]]
+
+    def select_from_cache(
+        self,
+        cache,
+        attn_history,
+        n: int,
+        budget: int,
+        params: dict,
+        *,
+        ctx: SelectionContext | None = None,
+        return_debug: bool = False,
+    ):
+        if ctx is None:
+            raise ValueError(f"{self.name} requires SelectionContext")
+        idx = self.select_keep(ctx)
+        if return_debug:
+            return idx, {
+                "backend_keep": idx,
+                "anchor_extra": torch.empty(0, dtype=torch.long, device=idx.device),
+                "sig_score": None,
+                "policy_score": self.scores(ctx),
+            }
+        return idx

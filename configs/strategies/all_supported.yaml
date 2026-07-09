@@ -1,6 +1,6 @@
 # All token-level KV eviction strategies currently implemented in this repo.
 
-arms: full,random@1024,h2o@1024,window@1024,snapkv@1024,rkv@1024
+arms: fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024,random@1024,window@1024
 recent: 8
 sink: 0
 evict_every: 128
@@ -8,6 +8,8 @@ obs_window: 8
 obs_decay: 0.9
 
 policy_params:
+  streamingllm:
+    first_tokens: 4
   rkv:
     lambda: 0.1
     alpha: 8

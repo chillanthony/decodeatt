@@ -24,7 +24,7 @@ Linux + CUDA 下 torch 默认 PyPI wheel 已含 CUDA，无需额外配置。
 
 ```text
 configs/eval.yaml                 # 通用 KV 驱逐评测配置
-configs/strategies/               # 可选策略组配置，如 rkv_paper/all_supported
+configs/strategies/               # 可选策略组配置，如 all_supported
 kvbench/                          # 新框架：数据、模型加载、arm 解析、评测、指标
 kv_eviction/                      # 底层 KV 驱逐 runner 与策略实现
 kv_eviction/strategies/           # token 驱逐策略，一策略一文件
@@ -40,23 +40,26 @@ PYTHONPATH=. uv run python scripts/eval.py \
   --config configs/eval.yaml \
   --dataset math500 \
   --n 1 \
-  --arms full,snapkv@1024,rkv@1024 \
-  --out results/rkv_paper_smoke.json
+  --arms fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024 \
+  --out results/rkv_smoke.json
 ```
 
 当前支持的 token 级驱逐策略：
 
-- `full`: 不触发驱逐的上界 baseline。
-- `random@B`: 保留 sink/recent 后，从中段随机保留到预算 `B`。
-- `h2o@B`: 按累计注意力保留到预算 `B`。
-- `window@B`: 按观察窗注意力保留到预算 `B`。
-- `snapkv@B`: 按观察窗 max-pooled 重要性保留到预算 `B`。
+- `fullkv` / `full`: 不触发驱逐的上界 baseline。
+- `snapkv@B`: 官方 HuggingFace SnapKV baseline，按每层/每 KV head 的
+  observation-window max-pooled attention 保留到预算 `B`。
+- `h2o@B`: 官方 HuggingFace H2O baseline，按最后一步 attention 的 head 平均
+  分数保留到预算 `B`，并保留最后 1 个 token。
+- `streamingllm@B`: 官方 HuggingFace StreamingLLM baseline，保留 first tokens
+  和最近 `B - first_tokens` 个 token。
 - `rkv@B`: 论文版 R-KV，`B` 与官方 `R1KV.budget` 一致，是压缩后的总
   cache 长度；每 128 tokens 压缩一次，保留 `B - alpha` 个候选 token 加最后
   `alpha=8` 个 observation tokens。
+- `random@B` / `window@B`: diagnostic 策略，不属于官方 baseline 集合。
 
-策略实现位于 `kv_eviction/strategies/`：`random.py`、`h2o.py`、`window.py`、
-`snapkv.py`、`rkv.py`、`rkv_paper.py`；策略注册表在
+策略实现位于 `kv_eviction/strategies/`：`full.py`、`snapkv.py`、`h2o.py`、
+`streamingllm.py`、`rkv.py`、`random.py`、`window.py`；策略注册表在
 `kv_eviction/strategies/token.py`，评测 arm 解析在 `kvbench/policies.py`。
 
 结果 JSON 会为每题每个 arm 记录：
@@ -93,17 +96,19 @@ PYTHONPATH=. uv run python scripts/eval.py \
 ```bash
 PYTHONPATH=. uv run python scripts/eval.py \
   --config configs/eval.yaml \
-  --strategy-config configs/strategies/rkv_paper.yaml \
-  --out results/rkv_paper_smoke.json
+  --strategy-config configs/strategies/all_supported.yaml \
+  --out results/rkv_smoke.json
 ```
 
-## R-KV reference parity test
+## R-KV parity test
 
 ```bash
 uv run python tests/test_rkv_parity.py
+uv run python tests/test_official_baseline_parity.py
 ```
 
-该测试用小张量 oracle 对齐上游 R-KV 的 `R1KV.update_kv` 语义，覆盖
+这些测试用小张量 oracle 对齐上游 HuggingFace `update_kv` 语义，覆盖
+SnapKV、H2O、StreamingLLM、R-KV 的保留 indices、head-wise cache gather、
 candidate attention 重归一化、完整 cache similarity、官方 total-budget
 保留长度和 debug score 对齐。
 
@@ -114,7 +119,7 @@ PYTHONPATH=. uv run python scripts/eval.py \
   --config configs/eval.yaml \
   --dataset math500 \
   --n 1 \
-  --arms full,snapkv@1024,rkv@1024 \
+  --arms fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024 \
   --max-new 16384 \
-  --out results/rkv_paper_smoke.json
+  --out results/rkv_smoke.json
 ```

@@ -1,4 +1,4 @@
-"""Paper-faithful R-KV token selection utilities.
+"""Official HuggingFace R-KV token selection utilities.
 
 This module intentionally contains only tensor/cache selection logic. The
 generation loop, tokenizer debug output, and cache mutation live in
@@ -6,15 +6,33 @@ generation loop, tokenizer debug output, and cache mutation live in
 """
 from __future__ import annotations
 
+import math
+
 import torch
+
+
+def compute_attention_scores(query_states: torch.Tensor, key_states: torch.Tensor, pooling: str = "max") -> torch.Tensor:
+    batch_size, q_heads, q_len, head_dim = query_states.shape
+    kv_heads = key_states.shape[1]
+    query_group_size = q_heads // kv_heads
+    if query_group_size == 1:
+        return torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(head_dim)
+
+    query_states = query_states.view(batch_size, kv_heads, query_group_size, q_len, head_dim)
+    key_states = key_states.unsqueeze(2)
+    attn_weights = torch.matmul(query_states, key_states.transpose(3, 4)) / math.sqrt(head_dim)
+    if pooling == "mean":
+        return attn_weights.mean(dim=2)
+    if pooling == "max":
+        return attn_weights.max(dim=2).values
+    raise ValueError("Pooling method not supported")
 
 
 def aggregate_gqa_attention(attn: torch.Tensor, kv_heads: int) -> torch.Tensor:
     """Map query-head attention rows to KV heads.
 
-    HF returns attention probabilities per query head. For GQA models, several
-    query heads share one KV head; we approximate the paper's group max-pooling
-    using the returned attention probabilities.
+    This is used only for compatibility histories that are not already grouped
+    by ``compute_attention_scores``.
     """
     q_heads = attn.shape[0]
     if q_heads == kv_heads:
@@ -35,7 +53,7 @@ def max_pool_importance(attn: torch.Tensor, kernel: int) -> torch.Tensor:
     return pooled[:, : attn.shape[-1]]
 
 
-def rkv_paper_importance(
+def rkv_importance(
     attn_history: list[list[torch.Tensor]],
     layer_idx: int,
     kv_heads: int,
@@ -52,18 +70,17 @@ def rkv_paper_importance(
         row = aggregate_gqa_attention(row, kv_heads)
         if row.shape[-1] < n_total:
             row = torch.nn.functional.pad(row, (0, n_total - row.shape[-1]))
-        # The reference R-KV implementation slices out the trailing observation
-        # window before softmax. HF exposes post-softmax attention over the full
-        # cache, so re-normalize the candidate prefix to recover that semantics.
+        # Official R-KV/SnapKV/H2O slice out the trailing observation window
+        # before softmax.
         cand = row[:, :n_cand]
-        rows.append(cand / cand.sum(-1, keepdim=True).clamp_min(1e-12))
+        rows.append(torch.softmax(cand, dim=-1, dtype=torch.float32))
     if not rows:
         return torch.zeros(kv_heads, n_cand, dtype=torch.float32, device=device)
     attn = torch.stack(rows, dim=1).mean(1)
     return max_pool_importance(attn, pool_kernel)
 
 
-def rkv_paper_redundancy(
+def rkv_redundancy(
     keys: torch.Tensor,
     threshold: float,
     retain_ratio: float,
@@ -107,7 +124,7 @@ def rkv_paper_redundancy(
     return torch.softmax(col_sum / n_cand, dim=-1)
 
 
-def select_rkv_paper(cache, attn_history, n, budget, params, return_debug=False):
+def select_rkv_global(cache, attn_history, n, budget, params, return_debug=False):
     """Return token slots kept by the paper-faithful R-KV selection rule.
 
     ``budget`` matches upstream ``R1KV.budget``: the final compacted cache
@@ -144,10 +161,10 @@ def select_rkv_paper(cache, attn_history, n, budget, params, return_debug=False)
     for layer_idx, layer in enumerate(cache.layers):
         keys = layer.keys[0, :, :n, :]
         kv_heads = keys.shape[0]
-        importance = rkv_paper_importance(
+        importance = rkv_importance(
             attn_history, layer_idx, kv_heads, n_cand, n, pool_kernel, device
         )
-        redundancy = rkv_paper_redundancy(
+        redundancy = rkv_redundancy(
             keys, threshold, retain_ratio, retain_direction, eps, chunk_size
         )[:, :n_cand]
         score = lam * importance - (1.0 - lam) * redundancy
@@ -169,3 +186,68 @@ def select_rkv_paper(cache, attn_history, n, budget, params, return_debug=False)
             "policy_score": policy_score,
         }
     return idx
+
+
+def select_rkv_layers(cache, attn_history, n, budget, params, return_debug=False):
+    """Return official R-KV per-layer/per-KV-head kept slot indices.
+
+    Each returned tensor has shape ``[num_kv_heads, budget]`` and preserves the
+    upstream gather order: top-scoring candidate slots followed by the trailing
+    observation window.
+    """
+    device = cache.layers[0].keys.device
+    alpha = int(params.get("alpha", params.get("window_size", 8)))
+    if budget - alpha <= 0:
+        raise ValueError("R-KV budget must be greater than alpha")
+    lam = float(params.get("lambda", params.get("mix_lambda", params.get("redundancy_lambda", 0.1))))
+    pool_kernel = int(params.get("pool_kernel", params.get("kernel_size", 7)))
+    threshold = float(params.get("similarity_threshold", 0.5))
+    retain_ratio = float(params.get("retain_ratio", 0.1))
+    retain_direction = str(params.get("retain_direction", "last"))
+    eps = float(params.get("eps", 1e-8))
+    chunk_size = int(params.get("redundancy_chunk", 512))
+
+    if n < budget:
+        idx = [
+            torch.arange(n, device=device).expand(layer.keys.shape[1], -1)
+            for layer in cache.layers
+        ]
+        if return_debug:
+            return idx, {
+                "backend_keep": idx[0][0],
+                "anchor_extra": torch.empty(0, dtype=torch.long, device=device),
+                "sig_score": None,
+                "policy_score": torch.full((n,), float("inf"), dtype=torch.float32, device=device),
+            }
+        return idx
+
+    n_cand = n - alpha
+    per_layer = []
+    score_acc = torch.zeros(n, dtype=torch.float32, device=device)
+    score_count = 0
+    for layer_idx, layer in enumerate(cache.layers):
+        keys = layer.keys[0, :, :n, :]
+        kv_heads = keys.shape[0]
+        importance = rkv_importance(
+            attn_history[-alpha:], layer_idx, kv_heads, n_cand, n, pool_kernel, device
+        )
+        redundancy = rkv_redundancy(
+            keys, threshold, retain_ratio, retain_direction, eps, chunk_size
+        )[:, :n_cand]
+        final_score = importance * lam - redundancy * (1.0 - lam)
+        selected = torch.topk(final_score, k=budget - alpha, dim=-1).indices
+        recent = torch.arange(n_cand, n, device=device).expand(kv_heads, -1)
+        per_layer.append(torch.cat([selected, recent], dim=-1))
+        score_acc[:n_cand] += final_score.sum(0)
+        score_count += kv_heads
+
+    policy_score = score_acc / max(score_count, 1)
+    policy_score[n_cand:] = float("inf")
+    if return_debug:
+        return per_layer, {
+            "backend_keep": per_layer[0][0],
+            "anchor_extra": torch.empty(0, dtype=torch.long, device=device),
+            "sig_score": None,
+            "policy_score": policy_score,
+        }
+    return per_layer
