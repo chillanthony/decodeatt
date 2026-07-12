@@ -31,7 +31,7 @@ def run_generation_eval(
     seed: int = 0,
     only_ids: set[str] | None = None,
     debug_dir: str | Path | None = None,
-    debug_topk: int = 64,
+    debug_topk: int = 0,
     policy_params: dict | None = None,
 ) -> dict:
     problems = load_problems(dataset, n)

@@ -139,7 +139,7 @@ def main():
         seed=pick("seed", 0),
         only_ids=set(args.only_ids.split(",")) if args.only_ids else None,
         debug_dir=args.debug_dir,
-        debug_topk=pick("debug_topk", 64),
+        debug_topk=pick("debug_topk", 0),
         policy_params=policy_params,
     )
     print("\n=== KV eviction eval ===")

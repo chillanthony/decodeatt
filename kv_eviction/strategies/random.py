@@ -9,6 +9,9 @@ from .base import SelectionContext, TokenEvictionPolicy
 class RandomPolicy(TokenEvictionPolicy):
     name = "random"
 
+    def observation_window(self, params: dict, default: int) -> int:
+        return 0
+
     def scores(self, ctx: SelectionContext) -> torch.Tensor:
         return torch.zeros_like(ctx.importance)
 

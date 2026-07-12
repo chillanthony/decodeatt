@@ -157,6 +157,8 @@ def _take_int(x):
 
 
 def _token_samples(tokenizer, slot_ids, idx, limit=64):
+    if limit <= 0:
+        return []
     idx = idx[:limit].detach().cpu().tolist()
     ids = slot_ids.detach().cpu().tolist()
     return [{"slot": int(i), "token_id": int(ids[i]),
@@ -181,6 +183,37 @@ def _representative_indices(idx):
     if _is_headwise_selection(idx):
         return idx[0][0]
     return idx
+
+
+def _should_collect_observation(
+    policy,
+    *,
+    track: bool,
+    policy_params: dict,
+    obs_window: int,
+    evict_every: int,
+    step: int,
+    cache_len: int,
+    budget: int,
+    anchor_k: int,
+) -> tuple[bool, int]:
+    active_obs_window = policy.observation_window(policy_params, obs_window)
+    if not track or active_obs_window <= 0:
+        return False, active_obs_window
+
+    to_evict = evict_every - ((step + 1) % evict_every or evict_every)
+    if to_evict >= active_obs_window:
+        return False, active_obs_window
+
+    cache_aware = policy.needs_cache or policy.needs_attn_history
+    trigger_len = budget if cache_aware else budget + anchor_k
+    predicted_len_at_evict = cache_len + to_evict + 1
+    will_trigger = (
+        predicted_len_at_evict >= trigger_len
+        if cache_aware
+        else predicted_len_at_evict > trigger_len
+    )
+    return will_trigger, active_obs_window
 
 
 def _selection_length(idx) -> int:
@@ -303,7 +336,7 @@ def generate_token_evict(
     obs_window=16, obs_decay=0.9, max_new=4096,
     do_sample=True, temperature=0.6, top_p=0.95, seed=0, sig=None,
     policy_params=None,
-    debug_path=None, debug_topk=64,
+    debug_path=None, debug_topk=0,
 ):
     """token 级淘汰生成(忠实 R-KV 架构 + 支持长生成)。
 
@@ -374,10 +407,18 @@ def generate_token_evict(
         gen.append(nxt)
         if nxt == eos:
             break
-        # 只在"下次压缩前 obs_window 步内"开注意力,算全层重要性
-        to_evict = evict_every - ((step + 1) % evict_every or evict_every)
-        active_obs_window = policy.observation_window(policy_params, obs_window)
-        want_observe = track and active_obs_window > 0 and to_evict < active_obs_window
+        # 只在下一次会真正触发压缩前的 observation window 内打开注意力观测。
+        want_observe, active_obs_window = _should_collect_observation(
+            policy,
+            track=track,
+            policy_params=policy_params,
+            obs_window=obs_window,
+            evict_every=evict_every,
+            step=step,
+            cache_len=n,
+            budget=budget,
+            anchor_k=anchor_k,
+        )
         want_logits = want_observe and policy.needs_attn_history and use_attention_logits
         want_attn = want_observe and not want_logits
         position_ids = torch.tensor([[true_pos]], device=device)
