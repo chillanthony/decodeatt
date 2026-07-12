@@ -185,6 +185,30 @@ def _representative_indices(idx):
     return idx
 
 
+class _CacheLayerView:
+    def __init__(self, keys: torch.Tensor, values: torch.Tensor):
+        self.keys = keys
+        self.values = values
+
+
+class _CacheView:
+    def __init__(self, layers: list[_CacheLayerView]):
+        self.layers = layers
+
+
+def _cache_view(cache):
+    if cache is None or hasattr(cache, "layers"):
+        return cache
+    if isinstance(cache, tuple):
+        return _CacheView([_CacheLayerView(keys, values) for keys, values in cache])
+    if hasattr(cache, "key_cache") and hasattr(cache, "value_cache"):
+        return _CacheView([
+            _CacheLayerView(keys, values)
+            for keys, values in zip(cache.key_cache, cache.value_cache)
+        ])
+    return cache
+
+
 def _should_collect_observation(
     policy,
     *,
@@ -238,6 +262,52 @@ def _compact_cache(cache, idx):
     return int(idx.numel())
 
 
+def _compact_cache_update(cache, idx):
+    if hasattr(cache, "layers"):
+        return cache, _compact_cache(cache, idx)
+
+    if isinstance(cache, tuple):
+        compacted = []
+        if _is_headwise_selection(idx):
+            for (keys, values), layer_idx in zip(cache, idx):
+                layer_idx = layer_idx.to(keys.device)
+                head_dim = keys.shape[-1]
+                gather_idx = layer_idx.unsqueeze(0).unsqueeze(-1).expand(1, -1, -1, head_dim)
+                compacted.append((
+                    keys.gather(2, gather_idx).contiguous(),
+                    values.gather(2, gather_idx).contiguous(),
+                ))
+            return tuple(compacted), int(idx[0].shape[-1])
+
+        for keys, values in cache:
+            local_idx = idx.to(keys.device)
+            compacted.append((
+                keys.index_select(2, local_idx).contiguous(),
+                values.index_select(2, local_idx).contiguous(),
+            ))
+        return tuple(compacted), int(idx.numel())
+
+    if hasattr(cache, "key_cache") and hasattr(cache, "value_cache"):
+        if _is_headwise_selection(idx):
+            for layer_i, layer_idx in enumerate(idx):
+                keys = cache.key_cache[layer_i]
+                values = cache.value_cache[layer_i]
+                layer_idx = layer_idx.to(keys.device)
+                head_dim = keys.shape[-1]
+                gather_idx = layer_idx.unsqueeze(0).unsqueeze(-1).expand(1, -1, -1, head_dim)
+                cache.key_cache[layer_i] = keys.gather(2, gather_idx).contiguous()
+                cache.value_cache[layer_i] = values.gather(2, gather_idx).contiguous()
+            return cache, int(idx[0].shape[-1])
+
+        for layer_i, keys in enumerate(cache.key_cache):
+            local_idx = idx.to(keys.device)
+            cache.key_cache[layer_i] = keys.index_select(2, local_idx).contiguous()
+            cache.value_cache[layer_i] = cache.value_cache[layer_i].index_select(2, local_idx).contiguous()
+        return cache, int(idx.numel())
+
+    return cache, _compact_cache(cache, idx)
+
+
 def _base_model(model):
     return getattr(model, "model", getattr(model, "transformer", model))
 
@@ -248,6 +318,7 @@ def _model_layers(model):
 
 
 def _cache_length_summary(cache, physical_len: int) -> dict:
+    cache = _cache_view(cache)
     if cache is None:
         lengths = torch.tensor([float(physical_len)])
     else:
@@ -439,7 +510,7 @@ def generate_token_evict(
         n += 1
         if want_logits:
             obs_start = time.perf_counter()
-            rows = _attention_logit_rows(model, out, cache, position_ids, n)
+            rows = _attention_logit_rows(model, out, _cache_view(cache), position_ids, n)
             attention_observation_sec += time.perf_counter() - obs_start
             if rows is None:
                 raise RuntimeError(
@@ -472,8 +543,9 @@ def generate_token_evict(
         over_trigger = n >= trigger_len if cache_aware else n > trigger_len
         if track and (step + 1) % evict_every == 0 and over_trigger:
             evict_start = time.perf_counter()
-            before_summary = _cache_length_summary(cache, n)
-            key_rep = None if policy.needs_cache else (_key_reps(cache, device) if policy.needs_key_reps else None)
+            selection_cache = _cache_view(cache)
+            before_summary = _cache_length_summary(selection_cache, n)
+            key_rep = None if policy.needs_cache else (_key_reps(selection_cache, device) if policy.needs_key_reps else None)
             cum = con = None
             if use_sig:
                 cum = att_sum[:n] / att_cnt[:n].clamp(min=1)
@@ -483,7 +555,7 @@ def generate_token_evict(
                                           key_rep, slot_pos[:n], budget, recent,
                                           sink, backend, anchor_mode, anchor_k, None,
                                           cum=cum, con=con, sig=sig_t,
-                                          policy_params=policy_params, cache=cache,
+                                          policy_params=policy_params, cache=selection_cache,
                                           attn_history=attn_history,
                                           model=model,
                                           return_debug=True)
@@ -492,7 +564,7 @@ def generate_token_evict(
                                      key_rep, slot_pos[:n], budget, recent,
                                      sink, backend, anchor_mode, anchor_k, None,
                                      cum=cum, con=con, sig=sig_t,
-                                     policy_params=policy_params, cache=cache,
+                                     policy_params=policy_params, cache=selection_cache,
                                      attn_history=attn_history, model=model)
             if debug is not None:
                 idx_debug = _representative_indices(idx)
@@ -530,7 +602,7 @@ def generate_token_evict(
                 })
             before_n = n
             idx_slots = _representative_indices(idx)
-            k = _compact_cache(cache, idx)
+            cache, k = _compact_cache_update(cache, idx)
             after_summary = _cache_length_summary(cache, k)
             slot_pos[:k] = slot_pos[idx_slots]; slot_ids[:k] = slot_ids[idx_slots]; imp[:k] = imp[idx_slots]
             cum_imp[:k] = cum_imp[idx_slots]; win_imp[:k] = win_imp[idx_slots]; ent[:k] = ent[idx_slots]

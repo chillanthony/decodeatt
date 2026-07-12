@@ -2,13 +2,20 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
+from pathlib import Path
 
+import torch
 import yaml
 
 from kvbench.evaluator import run_generation_eval
 from kvbench.models import load_causal_lm
 from kvbench.policies import parse_arms
+from kvbench.metrics import summarize_accuracy
+
+
+_FAST_ATTN_BACKENDS = {"fullkv", "streamingllm", "window", "random"}
 
 
 def _load_config(path: str | None) -> dict:
@@ -59,6 +66,34 @@ def _merge_policy_params(config_params: dict | None, overrides: list[str]) -> di
     return params
 
 
+def _arm_attn_backend(backend: str, requested_attn: str, fast_attn: str) -> str:
+    if requested_attn != "auto":
+        return requested_attn
+    return fast_attn if backend in _FAST_ATTN_BACKENDS else "eager"
+
+
+def _merge_payloads(payloads: list[dict], out_path: str | Path) -> dict:
+    rows_by_id: dict[str, dict] = {}
+    order: list[str] = []
+    for payload in payloads:
+        for row in payload["records"]:
+            problem_id = row["id"]
+            if problem_id not in rows_by_id:
+                rows_by_id[problem_id] = {
+                    "id": problem_id,
+                    "gold": row["gold"],
+                    "arms": {},
+                }
+                order.append(problem_id)
+            rows_by_id[problem_id]["arms"].update(row["arms"])
+    records = [rows_by_id[problem_id] for problem_id in order]
+    merged = {"records": records, "summary": summarize_accuracy(records)}
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(merged, ensure_ascii=False, indent=1))
+    return merged
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/eval.yaml")
@@ -83,7 +118,8 @@ def main():
     parser.add_argument("--obs-decay", type=float, default=None)
     parser.add_argument("--dtype", default=None)
     parser.add_argument("--device-map", default=None)
-    parser.add_argument("--attn", default=None)
+    parser.add_argument("--attn", default=None, help="Attention backend, or auto for per-strategy selection")
+    parser.add_argument("--fast-attn", default=None, help="Fast backend used by --attn auto, default sdpa")
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--top-p", type=float, default=None)
     parser.add_argument("--greedy", action="store_true")
@@ -114,19 +150,12 @@ def main():
 
     arms = parse_arms(args.arms or cfg.get("arms", "fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024"))
     policy_params = _merge_policy_params(cfg.get("policy_params"), args.policy_param)
-    model, tokenizer = load_causal_lm(
-        model_name,
-        dtype=pick("dtype", "bfloat16"),
-        device_map=pick("device_map", "cuda"),
-        attn_implementation=pick("attn", "eager"),
-    )
-    payload = run_generation_eval(
-        model,
-        tokenizer,
+    requested_attn = pick("attn", "auto")
+    fast_attn = pick("fast_attn", cfg.get("fast_attn", "sdpa"))
+    out_path = Path(pick("out", "results/eval.json"))
+    eval_kwargs = dict(
         dataset=pick("dataset", "sample"),
         n=pick("n", 2),
-        arms=arms,
-        out_path=pick("out", "results/eval.json"),
         max_new=pick("max_new", 4096),
         recent=pick("recent", 64),
         sink=pick("sink", 8),
@@ -142,6 +171,42 @@ def main():
         debug_topk=pick("debug_topk", 0),
         policy_params=policy_params,
     )
+
+    groups: dict[str, list] = {}
+    for arm in arms:
+        groups.setdefault(_arm_attn_backend(arm.backend, requested_attn, fast_attn), []).append(arm)
+
+    payloads = []
+    for attn_backend, group_arms in groups.items():
+        print(
+            f"\n=== Loading model with attn={attn_backend} for arms: "
+            f"{', '.join(arm.name for arm in group_arms)} ===",
+            flush=True,
+        )
+        model, tokenizer = load_causal_lm(
+            model_name,
+            dtype=pick("dtype", "bfloat16"),
+            device_map=pick("device_map", "cuda"),
+            attn_implementation=attn_backend,
+        )
+        group_out = out_path
+        if len(groups) > 1:
+            group_out = out_path.with_name(f"{out_path.stem}.{attn_backend}{out_path.suffix}")
+        payloads.append(
+            run_generation_eval(
+                model,
+                tokenizer,
+                arms=group_arms,
+                out_path=group_out,
+                **eval_kwargs,
+            )
+        )
+        del model, tokenizer
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    payload = payloads[0] if len(payloads) == 1 else _merge_payloads(payloads, out_path)
     print("\n=== KV eviction eval ===")
     print(json.dumps(payload["summary"], ensure_ascii=False, indent=1))
 

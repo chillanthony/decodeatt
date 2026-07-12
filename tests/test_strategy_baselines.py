@@ -4,9 +4,10 @@ from __future__ import annotations
 import torch
 
 from kvbench.policies import parse_arm
-from kv_eviction.runner_token import _should_collect_observation, _token_samples
+from kv_eviction.runner_token import _cache_length_summary, _compact_cache_update, _should_collect_observation, _token_samples
 from kv_eviction.strategies.base import SelectionContext
 from kv_eviction.strategies.token import get_policy, policy_names
+from scripts.eval import _arm_attn_backend
 
 
 def _ctx(n: int, budget: int, recent: int = 4, sink: int = 2, params: dict | None = None):
@@ -106,6 +107,31 @@ def test_debug_token_samples_can_be_disabled():
     assert samples == []
 
 
+def test_legacy_tuple_cache_can_be_summarized_and_compacted():
+    keys = torch.arange(10, dtype=torch.float32).view(1, 2, 5, 1)
+    values = keys + 100
+    cache = ((keys, values),)
+    summary = _cache_length_summary(cache, 5)
+    assert summary["mean_effective_cache_len"] == 5.0
+    assert summary["effective_kv_tokens_per_layer_head"] == [[5, 5]]
+
+    new_cache, new_len = _compact_cache_update(cache, torch.tensor([3, 1, 4]))
+    assert new_len == 3
+    torch.testing.assert_close(new_cache[0][0][0, :, :, 0], torch.tensor([[3.0, 1.0, 4.0], [8.0, 6.0, 9.0]]))
+    torch.testing.assert_close(new_cache[0][1][0, :, :, 0], torch.tensor([[103.0, 101.0, 104.0], [108.0, 106.0, 109.0]]))
+
+
+def test_auto_attention_backend_selection():
+    assert _arm_attn_backend("fullkv", "auto", "sdpa") == "sdpa"
+    assert _arm_attn_backend("streamingllm", "auto", "sdpa") == "sdpa"
+    assert _arm_attn_backend("window", "auto", "sdpa") == "sdpa"
+    assert _arm_attn_backend("random", "auto", "sdpa") == "sdpa"
+    assert _arm_attn_backend("snapkv", "auto", "sdpa") == "eager"
+    assert _arm_attn_backend("h2o", "auto", "sdpa") == "eager"
+    assert _arm_attn_backend("rkv", "auto", "sdpa") == "eager"
+    assert _arm_attn_backend("fullkv", "eager", "sdpa") == "eager"
+
+
 if __name__ == "__main__":
     test_registry_contains_official_baselines()
     test_fullkv_keeps_everything_and_parses()
@@ -114,4 +140,6 @@ if __name__ == "__main__":
     test_strategy_observation_windows_are_minimal()
     test_observation_waits_until_next_evict_can_trigger()
     test_debug_token_samples_can_be_disabled()
+    test_legacy_tuple_cache_can_be_summarized_and_compacted()
+    test_auto_attention_backend_selection()
     print("Strategy baseline tests passed")
