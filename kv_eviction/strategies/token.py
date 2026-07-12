@@ -1,8 +1,7 @@
 """Token-level KV eviction strategy registry."""
 from __future__ import annotations
 
-from .base import HeadwiseSelection, SelectionContext, TokenEvictionPolicy
-from .defensivekv import CriticalKVPolicy, DefensiveKVPolicy
+from .base import SelectionContext, TokenEvictionPolicy
 from .full import FullKVPolicy
 from .h2o import H2OPolicy
 from .random import RandomPolicy
@@ -17,8 +16,6 @@ _POLICIES: dict[str, TokenEvictionPolicy] = {
     for policy in (
         FullKVPolicy(),
         SnapKVPolicy(),
-        CriticalKVPolicy(),
-        DefensiveKVPolicy(),
         RKVPolicy(),
         H2OPolicy(),
         StreamingLLMPolicy(),

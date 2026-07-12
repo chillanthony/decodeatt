@@ -13,13 +13,12 @@ from __future__ import annotations
 
 import json
 import time
-import types
 from pathlib import Path
 
 import torch
 
 from kv_eviction.strategies.rkv_official import compute_attention_scores
-from kv_eviction.strategies.token import HeadwiseSelection, SelectionContext, get_policy
+from kv_eviction.strategies.token import SelectionContext, get_policy
 
 
 def _sample(logits, do_sample, temperature, top_p):
@@ -175,67 +174,34 @@ def _key_reps(cache, device):
 
 
 def _is_headwise_selection(idx) -> bool:
-    return isinstance(idx, (list, HeadwiseSelection))
-
-
-def _selection_indices(idx):
-    return idx.indices if isinstance(idx, HeadwiseSelection) else idx
-
-
-def _selection_valid_masks(idx):
-    return idx.valid_masks if isinstance(idx, HeadwiseSelection) else None
+    return isinstance(idx, list)
 
 
 def _representative_indices(idx):
     if _is_headwise_selection(idx):
-        indices = _selection_indices(idx)
-        return indices[0][0]
+        return idx[0][0]
     return idx
 
 
 def _selection_length(idx) -> int:
     if _is_headwise_selection(idx):
-        return max(int(layer_idx.shape[-1]) for layer_idx in _selection_indices(idx))
+        return int(idx[0].shape[-1])
     return int(idx.numel())
 
 
-def _compact_cache(cache, idx, return_valid_masks: bool = False):
+def _compact_cache(cache, idx):
     if _is_headwise_selection(idx):
-        indices = _selection_indices(idx)
-        valid_masks = _selection_valid_masks(idx)
-        if valid_masks is None:
-            valid_masks = [
-                torch.ones_like(layer_idx, dtype=torch.bool, device=layer_idx.device)
-                for layer_idx in indices
-            ]
-        global_len = max(int(layer_idx.shape[-1]) for layer_idx in indices)
-        out_masks = []
-        for layer, layer_idx, valid in zip(cache.layers, indices, valid_masks):
+        for layer, layer_idx in zip(cache.layers, idx):
             layer_idx = layer_idx.to(layer.keys.device)
-            valid = valid.to(layer.keys.device)
-            if layer_idx.shape[-1] < global_len:
-                pad_len = global_len - layer_idx.shape[-1]
-                pad_src = torch.where(valid, layer_idx, torch.zeros_like(layer_idx))
-                fallback = pad_src[:, -1:].expand(-1, pad_len)
-                layer_idx = torch.cat([layer_idx, fallback], dim=-1)
-                valid = torch.cat(
-                    [valid, torch.zeros(valid.shape[0], pad_len, dtype=torch.bool, device=valid.device)],
-                    dim=-1,
-                )
             head_dim = layer.keys.shape[-1]
             gather_idx = layer_idx.unsqueeze(0).unsqueeze(-1).expand(1, -1, -1, head_dim)
             layer.keys = layer.keys.gather(2, gather_idx).contiguous()
             layer.values = layer.values.gather(2, gather_idx).contiguous()
-            out_masks.append(valid.contiguous())
-        if return_valid_masks:
-            return global_len, out_masks
-        return global_len
+        return int(idx[0].shape[-1])
 
     for layer in cache.layers:
         layer.keys = layer.keys.index_select(2, idx).contiguous()
         layer.values = layer.values.index_select(2, idx).contiguous()
-    if return_valid_masks:
-        return int(idx.numel()), None
     return int(idx.numel())
 
 
@@ -248,108 +214,14 @@ def _model_layers(model):
     return getattr(base, "layers", getattr(base, "h", None))
 
 
-def _ensure_headwise_mask_patch(model):
-    layers = _model_layers(model)
-    if layers is None:
-        return False
-    patched = False
-    for layer in layers:
-        attn = getattr(layer, "self_attn", None)
-        if attn is None:
-            continue
-        if getattr(attn, "_kv_eviction_mask_patched", False):
-            patched = True
-            continue
-        original_forward = attn.forward
-
-        def forward_with_head_mask(self, *args, **kwargs):
-            valid = getattr(self, "_kv_eviction_valid_mask", None)
-            if valid is not None:
-                if "attention_mask" in kwargs:
-                    attention_mask = kwargs["attention_mask"]
-                elif len(args) >= 3:
-                    attention_mask = args[2]
-                else:
-                    attention_mask = None
-                hidden_states = kwargs.get("hidden_states", args[0] if args else None)
-                q_len = 1 if hidden_states is None else hidden_states.shape[1]
-                groups = int(getattr(self, "num_key_value_groups", 1))
-                q_mask = valid.to(device=hidden_states.device if hidden_states is not None else valid.device)
-                q_mask = q_mask.repeat_interleave(groups, dim=0).unsqueeze(0).unsqueeze(2)
-                q_mask = q_mask.expand(-1, -1, q_len, -1)
-                dtype = (
-                    attention_mask.dtype
-                    if attention_mask is not None and attention_mask.is_floating_point()
-                    else (hidden_states.dtype if hidden_states is not None else torch.float32)
-                )
-                pad = torch.zeros(q_mask.shape, dtype=dtype, device=q_mask.device)
-                pad = pad.masked_fill(~q_mask, torch.finfo(dtype).min)
-                if attention_mask is None:
-                    attention_mask = pad
-                else:
-                    if attention_mask.shape[1] == 1 and pad.shape[1] != 1:
-                        attention_mask = attention_mask.expand(-1, pad.shape[1], -1, -1)
-                    attention_mask = attention_mask + pad[:, :, :, : attention_mask.shape[-1]]
-                if "attention_mask" in kwargs:
-                    kwargs["attention_mask"] = attention_mask
-                else:
-                    args = list(args)
-                    if len(args) >= 3:
-                        args[2] = attention_mask
-                    else:
-                        kwargs["attention_mask"] = attention_mask
-                    args = tuple(args)
-            return self._kv_eviction_original_forward(*args, **kwargs)
-
-        attn._kv_eviction_original_forward = original_forward
-        attn.forward = types.MethodType(forward_with_head_mask, attn)
-        attn._kv_eviction_mask_patched = True
-        patched = True
-    return patched
-
-
-def _set_headwise_valid_masks(model, valid_masks):
-    layers = _model_layers(model)
-    if layers is None:
-        return
-    if valid_masks is None and not any(
-        getattr(getattr(layer, "self_attn", None), "_kv_eviction_mask_patched", False)
-        for layer in layers
-    ):
-        return
-    _ensure_headwise_mask_patch(model)
-    for layer_idx, layer in enumerate(layers):
-        attn = getattr(layer, "self_attn", None)
-        if attn is None:
-            continue
-        if valid_masks is None:
-            attn._kv_eviction_valid_mask = None
-        else:
-            attn._kv_eviction_valid_mask = valid_masks[layer_idx]
-
-
-def _append_valid_token(valid_masks):
-    if valid_masks is None:
-        return None
-    return [
-        torch.cat(
-            [mask, torch.ones(mask.shape[0], 1, dtype=torch.bool, device=mask.device)],
-            dim=-1,
-        )
-        for mask in valid_masks
-    ]
-
-
-def _cache_length_summary(cache, valid_masks, physical_len: int) -> dict:
+def _cache_length_summary(cache, physical_len: int) -> dict:
     if cache is None:
         lengths = torch.tensor([float(physical_len)])
-    elif valid_masks is None:
+    else:
         lengths = torch.cat([
             torch.full((layer.keys.shape[1],), float(physical_len), device=layer.keys.device)
             for layer in cache.layers
         ])
-    else:
-        lengths = torch.cat([mask[:, :physical_len].sum(dim=-1).float() for mask in valid_masks])
 
     total = float(lengths.sum())
     probs = lengths / max(total, 1e-12)
@@ -360,17 +232,10 @@ def _cache_length_summary(cache, valid_masks, physical_len: int) -> dict:
         "max_effective_cache_len": max_len,
         "min_effective_cache_len": float(lengths.min()) if lengths.numel() else 0.0,
         "total_effective_kv_tokens": total,
-        "effective_kv_tokens_per_layer_head": (
-            [
-                [int(v) for v in mask[:, :physical_len].sum(dim=-1).detach().cpu().tolist()]
-                for mask in valid_masks
-            ]
-            if valid_masks is not None
-            else [
-                [int(physical_len)] * int(layer.keys.shape[1])
-                for layer in cache.layers
-            ] if cache is not None else [[int(physical_len)]]
-        ),
+        "effective_kv_tokens_per_layer_head": [
+            [int(physical_len)] * int(layer.keys.shape[1])
+            for layer in cache.layers
+        ] if cache is not None else [[int(physical_len)]],
         "head_budget_mean": float(lengths.mean()) if lengths.numel() else 0.0,
         "head_budget_std": float(lengths.std(unbiased=False)) if lengths.numel() else 0.0,
         "head_budget_min": float(lengths.min()) if lengths.numel() else 0.0,
@@ -407,7 +272,7 @@ def _supports_attention_logits(model) -> bool:
     return attn is not None and hasattr(attn, "q_proj") and hasattr(attn, "head_dim")
 
 
-def _attention_logit_rows(model, outputs, cache, position_ids, n, valid_masks=None):
+def _attention_logit_rows(model, outputs, cache, position_ids, n):
     """Compute official pre-softmax attention rows from layer inputs and cache keys."""
     if not getattr(outputs, "hidden_states", None):
         return None
@@ -427,11 +292,7 @@ def _attention_logit_rows(model, outputs, cache, position_ids, n, valid_masks=No
         cos, sin = base.rotary_emb(hidden, position_ids)
         q = _apply_rotary_q(q, cos, sin)
         keys = cache.layers[layer_idx].keys[:, :, :n, :]
-        score = compute_attention_scores(q, keys)[0, :, -1, :].detach().float()
-        if valid_masks is not None:
-            valid = valid_masks[layer_idx][:, :n].to(score.device)
-            score = score.masked_fill(~valid, torch.finfo(score.dtype).min)
-        rows.append(score)
+        rows.append(compute_attention_scores(q, keys)[0, :, -1, :].detach().float())
     return rows
 
 
@@ -489,7 +350,6 @@ def generate_token_evict(
     out = model(input_ids=input_ids, use_cache=True, output_attentions=False)
     prefill_sec = time.perf_counter() - prefill_start
     cache = out.past_key_values
-    cache_valid_masks = None
     logits = out.logits[:, -1]
     eos = tokenizer.eos_token_id
     gen, n_evict = [], 0
@@ -521,9 +381,6 @@ def generate_token_evict(
         want_logits = want_observe and policy.needs_attn_history and use_attention_logits
         want_attn = want_observe and not want_logits
         position_ids = torch.tensor([[true_pos]], device=device)
-        forward_valid_masks = _append_valid_token(cache_valid_masks)
-        if forward_valid_masks is not None:
-            _set_headwise_valid_masks(model, forward_valid_masks)
         decode_start = time.perf_counter()
         out = model(input_ids=torch.tensor([[nxt]], device=device), past_key_values=cache,
                     use_cache=True, output_attentions=want_attn,
@@ -533,7 +390,6 @@ def generate_token_evict(
                     cache_position=torch.tensor([n], device=device))
         decode_forward_sec += time.perf_counter() - decode_start
         cache = out.past_key_values
-        cache_valid_masks = forward_valid_masks
         logits = out.logits[:, -1]
         slot_pos[n] = true_pos; slot_ids[n] = nxt; ent[n] = e; imp[n] = 0.0
         cum_imp[n] = 0.0; win_imp[n] = 0.0
@@ -542,7 +398,7 @@ def generate_token_evict(
         n += 1
         if want_logits:
             obs_start = time.perf_counter()
-            rows = _attention_logit_rows(model, out, cache, position_ids, n, cache_valid_masks)
+            rows = _attention_logit_rows(model, out, cache, position_ids, n)
             attention_observation_sec += time.perf_counter() - obs_start
             if rows is None:
                 raise RuntimeError(
@@ -575,7 +431,7 @@ def generate_token_evict(
         over_trigger = n >= trigger_len if cache_aware else n > trigger_len
         if track and (step + 1) % evict_every == 0 and over_trigger:
             evict_start = time.perf_counter()
-            before_summary = _cache_length_summary(cache, cache_valid_masks, n)
+            before_summary = _cache_length_summary(cache, n)
             key_rep = None if policy.needs_cache else (_key_reps(cache, device) if policy.needs_key_reps else None)
             cum = con = None
             if use_sig:
@@ -633,8 +489,8 @@ def generate_token_evict(
                 })
             before_n = n
             idx_slots = _representative_indices(idx)
-            k, cache_valid_masks = _compact_cache(cache, idx, return_valid_masks=True)
-            after_summary = _cache_length_summary(cache, cache_valid_masks, k)
+            k = _compact_cache(cache, idx)
+            after_summary = _cache_length_summary(cache, k)
             slot_pos[:k] = slot_pos[idx_slots]; slot_ids[:k] = slot_ids[idx_slots]; imp[:k] = imp[idx_slots]
             cum_imp[:k] = cum_imp[idx_slots]; win_imp[:k] = win_imp[idx_slots]; ent[:k] = ent[idx_slots]
             if use_sig:
@@ -673,14 +529,13 @@ def generate_token_evict(
             })
 
     text = tokenizer.decode(gen, skip_special_tokens=True)
-    _set_headwise_valid_masks(model, None)
     elapsed = time.perf_counter() - start_time
     peak_memory = torch.cuda.max_memory_allocated(device) if use_cuda_memory else None
     mean_compression = (
         sum(event["compression_ratio"] for event in evict_events) / len(evict_events)
         if evict_events else 1.0
     )
-    final_length_summary = _cache_length_summary(cache, cache_valid_masks, n)
+    final_length_summary = _cache_length_summary(cache, n)
     compression_ratios = [event["compression_ratio"] for event in evict_events]
     effective_compression_ratios = [event["effective_compression_ratio"] for event in evict_events]
     total_evicted_tokens = sum(event["evicted"] for event in evict_events)
@@ -772,7 +627,6 @@ def score_trace_token(model, tokenizer, full_ids, prompt_len, refl_steps, anchor
     n = P
     out = model(input_ids=full_ids[:, :P], use_cache=True, output_attentions=False)
     cache = out.past_key_values; logits = out.logits[:, -1]
-    cache_valid_masks = None
     nll_c, nll_n, c_c, c_n = 0.0, 0.0, 0, 0
     attn_history = []
 
@@ -788,20 +642,17 @@ def score_trace_token(model, tokenizer, full_ids, prompt_len, refl_steps, anchor
         want_logits = want_observe and policy.needs_attn_history and use_attention_logits
         want_attn = want_observe and not want_logits
         position_ids = torch.tensor([[true_pos]], device=device)
-        forward_valid_masks = _append_valid_token(cache_valid_masks)
-        if forward_valid_masks is not None:
-            _set_headwise_valid_masks(model, forward_valid_masks)
         out = model(input_ids=full_ids[:, P + t:P + t + 1], past_key_values=cache, use_cache=True,
                     output_attentions=want_attn, output_hidden_states=want_logits,
                     attention_mask=torch.ones(1, n + 1, device=device, dtype=torch.long),
                     position_ids=position_ids, cache_position=torch.tensor([n], device=device))
-        cache = out.past_key_values; cache_valid_masks = forward_valid_masks; logits = out.logits[:, -1]
+        cache = out.past_key_values; logits = out.logits[:, -1]
         slot_pos[n] = true_pos; ent[n] = _entropy(logits)   # 锚点判据用当前 logits 熵近似
         imp[n] = 0.0; cum_imp[n] = 0.0; win_imp[n] = 0.0
         att_sum[n] = 0.0; att_cnt[n] = 0.0; att_max[n] = 0.0
         n += 1
         if want_logits:
-            rows = _attention_logit_rows(model, out, cache, position_ids, n, cache_valid_masks)
+            rows = _attention_logit_rows(model, out, cache, position_ids, n)
             if rows is None:
                 raise RuntimeError(
                     "attention-logit extraction failed; use a supported RoPE decoder or disable cache-aware baselines"
@@ -837,14 +688,13 @@ def score_trace_token(model, tokenizer, full_ids, prompt_len, refl_steps, anchor
                                  policy_params=policy_params, cache=cache, attn_history=attn_history,
                                  model=model)
             idx_slots = _representative_indices(idx)
-            k, cache_valid_masks = _compact_cache(cache, idx, return_valid_masks=True)
+            k = _compact_cache(cache, idx)
             slot_pos[:k] = slot_pos[idx_slots]; imp[:k] = imp[idx_slots]
             cum_imp[:k] = cum_imp[idx_slots]; win_imp[:k] = win_imp[idx_slots]; ent[:k] = ent[idx_slots]
             att_sum[:k] = att_sum[idx_slots]; att_cnt[:k] = att_cnt[idx_slots]; att_max[:k] = att_max[idx_slots]
             n = k
             if policy.needs_attn_history:
                 attn_history = []
-    _set_headwise_valid_masks(model, None)
     return {"nll_corr": nll_c / max(c_c, 1), "n_corr": c_c,
             "nll_noncorr": nll_n / max(c_n, 1), "n_noncorr": c_n}
 

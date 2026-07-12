@@ -25,7 +25,7 @@ def _ctx(n: int, budget: int, recent: int = 4, sink: int = 2, params: dict | Non
 
 def test_registry_contains_official_baselines():
     names = set(policy_names())
-    for name in ["fullkv", "snapkv", "h2o", "streamingllm", "rkv", "criticalkv", "defensivekv"]:
+    for name in ["fullkv", "snapkv", "h2o", "streamingllm", "rkv"]:
         assert name in names
     assert "full" not in names
 
