@@ -1,5 +1,8 @@
 # All token-level KV eviction strategies currently implemented in this repo.
 
+attn: auto
+fast_attn: sdpa
+
 arms: fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024,random@1024,window@1024
 recent: 8
 sink: 0
@@ -8,6 +11,10 @@ obs_window: 8
 obs_decay: 0.9
 
 policy_params:
+  snapkv:
+    window_size: 32
+    kernel_size: 7
+    pooling: avgpool
   streamingllm:
     first_tokens: 4
   rkv:

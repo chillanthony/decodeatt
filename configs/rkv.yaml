@@ -6,7 +6,8 @@
 model: /root/data1/cyb/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
 dtype: bfloat16
 device_map: cuda
-attn: eager
+attn: auto
+fast_attn: sdpa
 
 dataset: math500
 n: 1
@@ -27,6 +28,10 @@ obs_window: 8
 obs_decay: 0.9
 
 policy_params:
+  snapkv:
+    window_size: 32
+    kernel_size: 7
+    pooling: avgpool
   streamingllm:
     first_tokens: 4
   rkv:
