@@ -12,7 +12,7 @@ fi
 source .venv/bin/activate
 
 export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
-export HF_HOME="${HF_HOME:-$HOME/hf_cache}"
+export HF_HOME="${HF_HOME:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}"
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 
 MODEL="${MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}"
@@ -29,7 +29,7 @@ echo "[smoke] model=$MODEL"
 echo "[smoke] hf_home=$HF_HOME"
 echo "[smoke] out=$OUT"
 
-uv run python scripts/eval.py \
+python scripts/eval.py \
   --config "$CONFIG" \
   --dataset sample \
   --n "$N" \
