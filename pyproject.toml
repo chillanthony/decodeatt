@@ -32,12 +32,27 @@ packages = ["kv_eviction", "kvbench"]
 
 [tool.uv]
 package = true
+allow-insecure-host = [
+    "pypi.tuna.tsinghua.edu.cn",
+    "pypi.org",
+    "files.pythonhosted.org",
+    "mirror.sjtu.edu.cn",
+    "download.pytorch.org",
+    "huggingface.co",
+    "hf-mirror.com",
+]
+
+[[tool.uv.index]]
+name = "pypi-tuna"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
 
 # Linux 锁到 CUDA 12.4 的 torch（匹配 a100 驱动 550/CUDA12.4），避免拉到 cu130 带不动；
+# 使用国内 PyTorch wheel 镜像加速集群安装。
 # macOS 用默认 PyPI 源（CPU/mps）。
 [[tool.uv.index]]
 name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
+url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu124"
 explicit = true
 
 [tool.uv.sources]
