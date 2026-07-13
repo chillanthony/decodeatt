@@ -1844,9 +1844,9 @@ dependencies = [
     { name = "typing-extensions", marker = "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'" },
 ]
 wheels = [
-    { url = "https://download-r2.pytorch.org/whl/cu124/torch-2.4.1-cp310-cp310-linux_aarch64.whl", hash = "sha256:baa065a4fb7805c78f16841cfc4f3fc3c6823d1de726087e583c68abe553dad7", upload-time = "2024-09-06T22:11:22Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu124/torch-2.4.1-cp311-cp311-linux_aarch64.whl", hash = "sha256:2a2eaded7637aae3e4ed783a1539ecb06edf4a9ea9465628b5bd2c68b3b5e9da", upload-time = "2024-09-06T22:13:12Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu124/torch-2.4.1-cp312-cp312-linux_aarch64.whl", hash = "sha256:95596ba01b369898602f4fc0a885a874e2a45c99754a72ac6760d8aa3fe61ebc", upload-time = "2024-09-06T22:15:06Z" },
+    { url = "https://mirrors.aliyun.com/pytorch-wheels/cu124/torch-2.4.1-cp310-cp310-linux_aarch64.whl", hash = "sha256:baa065a4fb7805c78f16841cfc4f3fc3c6823d1de726087e583c68abe553dad7", upload-time = "2024-09-06T22:11:22Z" },
+    { url = "https://mirrors.aliyun.com/pytorch-wheels/cu124/torch-2.4.1-cp311-cp311-linux_aarch64.whl", hash = "sha256:2a2eaded7637aae3e4ed783a1539ecb06edf4a9ea9465628b5bd2c68b3b5e9da", upload-time = "2024-09-06T22:13:12Z" },
+    { url = "https://mirrors.aliyun.com/pytorch-wheels/cu124/torch-2.4.1-cp312-cp312-linux_aarch64.whl", hash = "sha256:95596ba01b369898602f4fc0a885a874e2a45c99754a72ac6760d8aa3fe61ebc", upload-time = "2024-09-06T22:15:06Z" },
 ]
 
 [[package]]
@@ -1910,9 +1910,9 @@ dependencies = [
     { name = "typing-extensions", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux') or (platform_python_implementation != 'CPython' and sys_platform == 'linux')" },
 ]
 wheels = [
-    { url = "https://download-r2.pytorch.org/whl/cu124/torch-2.4.1%2Bcu124-cp310-cp310-linux_x86_64.whl", hash = "sha256:464cb998fa46d34317b10811dad88486aa8aeb96ebbcefc3ed3f00ddf6c3249b", upload-time = "2024-09-06T21:58:49Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu124/torch-2.4.1%2Bcu124-cp311-cp311-linux_x86_64.whl", hash = "sha256:16e4ef3b32b45a278a0c512723f81cfa57035ebd5a75dbc2fb1360197ae06acd", upload-time = "2024-09-06T22:01:23Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu124/torch-2.4.1%2Bcu124-cp312-cp312-linux_x86_64.whl", hash = "sha256:975a1d0540ebe05f6f88f692bb9d848f7fac035343a91aef08f2b8d0040dde8c", upload-time = "2024-09-06T22:04:06Z" },
+    { url = "https://mirrors.aliyun.com/pytorch-wheels/cu124/torch-2.4.1%2Bcu124-cp310-cp310-linux_x86_64.whl", hash = "sha256:464cb998fa46d34317b10811dad88486aa8aeb96ebbcefc3ed3f00ddf6c3249b", upload-time = "2024-09-06T21:58:49Z" },
+    { url = "https://mirrors.aliyun.com/pytorch-wheels/cu124/torch-2.4.1%2Bcu124-cp311-cp311-linux_x86_64.whl", hash = "sha256:16e4ef3b32b45a278a0c512723f81cfa57035ebd5a75dbc2fb1360197ae06acd", upload-time = "2024-09-06T22:01:23Z" },
+    { url = "https://mirrors.aliyun.com/pytorch-wheels/cu124/torch-2.4.1%2Bcu124-cp312-cp312-linux_x86_64.whl", hash = "sha256:975a1d0540ebe05f6f88f692bb9d848f7fac035343a91aef08f2b8d0040dde8c", upload-time = "2024-09-06T22:04:06Z" },
 ]
 
 [[package]]

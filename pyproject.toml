@@ -37,6 +37,7 @@ allow-insecure-host = [
     "pypi.org",
     "files.pythonhosted.org",
     "mirror.sjtu.edu.cn",
+    "mirrors.aliyun.com",
     "download.pytorch.org",
     "huggingface.co",
     "hf-mirror.com",
