@@ -1,0 +1,74 @@
+# Complete experiment config covering every implemented token eviction policy.
+
+experiment:
+  name: math500_all_supported_b1024
+  out: results/math500_all_supported_b1024.json
+
+model:
+  name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+  dtype: bfloat16
+  device_map: cuda
+  attn: auto
+  fast_attn: sdpa
+
+data:
+  dataset: math500
+  n: 1
+
+generation:
+  max_new: 16384
+  do_sample: true
+  temperature: 0.6
+  top_p: 0.95
+  seed: 0
+
+eviction:
+  recent: 8
+  sink: 0
+  evict_every: 128
+  obs_window: 8
+  obs_decay: 0.9
+
+policy_defaults:
+  snapkv:
+    window_size: 32
+    kernel_size: 7
+    pooling: avgpool
+  streamingllm:
+    first_tokens: 4
+  rkv:
+    lambda: 0.1
+    alpha: 8
+    retain_ratio: 0.1
+    retain_direction: last
+    similarity_threshold: 0.5
+    pool_kernel: 7
+    redundancy_chunk: 512
+
+arms:
+  - id: fullkv
+    policy: fullkv
+
+  - id: snapkv_b1024
+    policy: snapkv
+    budget: 1024
+
+  - id: h2o_b1024
+    policy: h2o
+    budget: 1024
+
+  - id: streamingllm_b1024
+    policy: streamingllm
+    budget: 1024
+
+  - id: rkv_b1024
+    policy: rkv
+    budget: 1024
+
+  - id: random_b1024
+    policy: random
+    budget: 1024
+
+  - id: window_b1024
+    policy: window
+    budget: 1024

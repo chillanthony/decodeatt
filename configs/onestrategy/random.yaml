@@ -1,0 +1,35 @@
+# Complete single-strategy random retention diagnostic config.
+
+experiment:
+  name: math500_random_b1024
+  out: results/math500_random_b1024.json
+
+model:
+  name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+  dtype: bfloat16
+  device_map: cuda
+  attn: auto
+  fast_attn: sdpa
+
+data:
+  dataset: math500
+  n: 1
+
+generation:
+  max_new: 16384
+  do_sample: true
+  temperature: 0.6
+  top_p: 0.95
+  seed: 0
+
+eviction:
+  recent: 8
+  sink: 0
+  evict_every: 128
+  obs_window: 8
+  obs_decay: 0.9
+
+arms:
+  - id: random_b1024
+    policy: random
+    budget: 1024

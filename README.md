@@ -23,8 +23,8 @@ Linux + CUDA 下 torch 默认 PyPI wheel 已含 CUDA，无需额外配置。
 ## 当前结构
 
 ```text
-configs/eval.yaml                 # 通用 KV 驱逐评测配置
-configs/strategies/               # 可选策略组配置，如 all_supported
+configs/experiments/              # 完整实验配置；正式运行优先用这里
+configs/onestrategy/              # 单策略完整配置，用于补跑或调试
 kvbench/                          # 新框架：数据、模型加载、arm 解析、评测、指标
 kv_eviction/                      # 底层 KV 驱逐 runner 与策略实现
 kv_eviction/strategies/           # token 驱逐策略，一策略一文件
@@ -36,11 +36,7 @@ scripts/gen_traces.py             # trace 生成工具
 
 ```bash
 PYTHONPATH=. uv run python scripts/eval.py \
-  --config configs/eval.yaml \
-  --dataset math500 \
-  --n 1 \
-  --arms fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024 \
-  --out results/rkv_smoke.json
+  --config configs/experiments/math500_official_b1024.yaml
 ```
 
 当前支持的 token 级驱逐策略：
@@ -77,10 +73,10 @@ PYTHONPATH=. uv run python scripts/eval.py \
 - `prefill_sec` / `decode_sec` / `decode_forward_sec` /
   `attention_observation_sec` / `eviction_sec_total`: 时间开销拆分。
 
-策略超参可在 `configs/eval.yaml` 里配置，例如：
+策略超参可在完整实验配置的 `policy_defaults` 或单个 arm 的 `params` 里配置，例如：
 
 ```yaml
-policy_params:
+policy_defaults:
   snapkv:
     window_size: 32
     kernel_size: 7
@@ -92,6 +88,13 @@ policy_params:
     retain_direction: last
     similarity_threshold: 0.5
     pool_kernel: 7
+
+arms:
+  - id: rkv_b1024_lam02
+    policy: rkv
+    budget: 1024
+    params:
+      lambda: 0.2
 ```
 
 也可用 CLI 覆盖：
@@ -102,13 +105,11 @@ PYTHONPATH=. uv run python scripts/eval.py \
   --policy-param rkv.alpha=8
 ```
 
-策略组也可以拆到独立 config 后由主评测脚本选择：
+单策略补跑可以直接使用 `configs/onestrategy/` 里的完整配置：
 
 ```bash
 PYTHONPATH=. uv run python scripts/eval.py \
-  --config configs/eval.yaml \
-  --strategy-config configs/strategies/all_supported.yaml \
-  --out results/rkv_smoke.json
+  --config configs/onestrategy/rkv.yaml
 ```
 
 ## R-KV parity test
@@ -127,10 +128,5 @@ candidate attention 重归一化、完整 cache similarity、官方 total-budget
 
 ```bash
 PYTHONPATH=. uv run python scripts/eval.py \
-  --config configs/eval.yaml \
-  --dataset math500 \
-  --n 1 \
-  --arms fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024 \
-  --max-new 16384 \
-  --out results/rkv_smoke.json
+  --config configs/experiments/math500_official_b1024.yaml
 ```

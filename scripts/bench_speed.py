@@ -24,9 +24,38 @@ def _load_config(path: str | None) -> dict:
         return yaml.safe_load(f) or {}
 
 
-def _pick(args, cfg: dict, name: str, default=None):
+def _nested_get(cfg: dict, path: tuple[str, ...], default=None):
+    cur = cfg
+    for key in path:
+        if not isinstance(cur, dict) or key not in cur:
+            return default
+        cur = cur[key]
+    return cur
+
+
+def _config_value(cfg: dict, flat_name: str, nested_path: tuple[str, ...], default=None):
+    if flat_name in cfg and not isinstance(cfg.get(flat_name), dict):
+        return cfg[flat_name]
+    return _nested_get(cfg, nested_path, default)
+
+
+def _pick(args, cfg: dict, name: str, default=None, nested_path: tuple[str, ...] | None = None):
     value = getattr(args, name.replace("-", "_"), None)
-    return cfg.get(name, default) if value is None else value
+    if value is not None:
+        return value
+    return _config_value(cfg, name, nested_path or (name,), default)
+
+
+def _model_name(cfg: dict):
+    model = cfg.get("model")
+    return model.get("name") if isinstance(model, dict) else model
+
+
+def _policy_defaults(cfg: dict) -> dict:
+    return {
+        name: dict(values or {})
+        for name, values in (cfg.get("policy_defaults") or cfg.get("policy_params") or {}).items()
+    }
 
 
 def _mean(values: list[float], default: float = 0.0) -> float:
@@ -164,7 +193,7 @@ def generate_integrated_qwen_snapkv(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/rkv.yaml")
+    parser.add_argument("--config", default="configs/experiments/math500_official_b1024.yaml")
     parser.add_argument("--model", default=None)
     parser.add_argument("--dataset", default=None, choices=["sample", "aime", "math500", "mix"])
     parser.add_argument("--n", type=int, default=None)
@@ -191,18 +220,21 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = _load_config(args.config)
-    model_name = args.model or cfg.get("model")
+    model_name = args.model or _model_name(cfg)
     if not model_name:
         raise SystemExit("missing --model or model in config")
 
     model, tokenizer = load_causal_lm(
         model_name,
-        dtype=_pick(args, cfg, "dtype", "bfloat16"),
-        device_map=_pick(args, cfg, "device_map", "cuda"),
-        attn_implementation=_pick(args, cfg, "attn", "eager"),
+        dtype=_pick(args, cfg, "dtype", "bfloat16", ("model", "dtype")),
+        device_map=_pick(args, cfg, "device_map", "cuda", ("model", "device_map")),
+        attn_implementation=_pick(args, cfg, "attn", "eager", ("model", "attn")),
     )
-    arms = [parse_arm("fullkv"), parse_arm(f"snapkv@{args.budget}")]
-    policy_params = cfg.get("policy_params") or {}
+    policy_params = _policy_defaults(cfg)
+    arms = [
+        parse_arm("fullkv", policy_defaults=policy_params),
+        parse_arm(f"snapkv@{args.budget}", policy_defaults=policy_params),
+    ]
     snapkv_controller = None
     if args.integrated_qwen_snapkv:
         from kv_eviction.qwen_snapkv_patch import QwenSnapKVController, install_qwen2_snapkv
@@ -210,12 +242,20 @@ def main() -> None:
         snapkv_params = policy_params.get("snapkv", {})
         snapkv_controller = QwenSnapKVController(
             budget=args.budget,
-            window_size=int(snapkv_params.get("window_size", _pick(args, cfg, "obs_window", 8))),
+            window_size=int(
+                snapkv_params.get(
+                    "window_size",
+                    _pick(args, cfg, "obs_window", 8, ("eviction", "obs_window")),
+                )
+            ),
             kernel_size=int(snapkv_params.get("kernel_size", snapkv_params.get("pool_kernel", 7))),
             pooling=str(snapkv_params.get("pooling", "avgpool")),
         )
         install_qwen2_snapkv(model, snapkv_controller)
-    problems = load_problems(_pick(args, cfg, "dataset", "sample"), _pick(args, cfg, "n", 2))
+    problems = load_problems(
+        _pick(args, cfg, "dataset", "sample", ("data", "dataset")),
+        _pick(args, cfg, "n", 2, ("data", "n")),
+    )
 
     records: list[dict] = []
     by_arm: dict[str, list[dict]] = {arm.name: [] for arm in arms}
@@ -229,11 +269,12 @@ def main() -> None:
                     tokenizer,
                     input_ids,
                     controller=snapkv_controller,
-                    max_new=_pick(args, cfg, "max_new", 512),
-                    do_sample=not args.greedy and bool(cfg.get("do_sample", True)),
-                    temperature=_pick(args, cfg, "temperature", 0.6),
-                    top_p=_pick(args, cfg, "top_p", 0.95),
-                    seed=_pick(args, cfg, "seed", 0),
+                    max_new=_pick(args, cfg, "max_new", 512, ("generation", "max_new")),
+                    do_sample=not args.greedy
+                    and bool(_config_value(cfg, "do_sample", ("generation", "do_sample"), True)),
+                    temperature=_pick(args, cfg, "temperature", 0.6, ("generation", "temperature")),
+                    top_p=_pick(args, cfg, "top_p", 0.95, ("generation", "top_p")),
+                    seed=_pick(args, cfg, "seed", 0, ("generation", "seed")),
                 )
             else:
                 result = generate_token_evict(
@@ -241,18 +282,19 @@ def main() -> None:
                     tokenizer,
                     input_ids,
                     budget=arm.budget,
-                    recent=_pick(args, cfg, "recent", 8),
-                    sink=_pick(args, cfg, "sink", 0),
+                    recent=_pick(args, cfg, "recent", 8, ("eviction", "recent")),
+                    sink=_pick(args, cfg, "sink", 0, ("eviction", "sink")),
                     backend=arm.backend,
-                    evict_every=_pick(args, cfg, "evict_every", 128),
-                    obs_window=_pick(args, cfg, "obs_window", 8),
-                    obs_decay=_pick(args, cfg, "obs_decay", 0.9),
-                    max_new=_pick(args, cfg, "max_new", 512),
-                    do_sample=not args.greedy and bool(cfg.get("do_sample", True)),
-                    temperature=_pick(args, cfg, "temperature", 0.6),
-                    top_p=_pick(args, cfg, "top_p", 0.95),
-                    seed=_pick(args, cfg, "seed", 0),
-                    policy_params=policy_params.get(arm.backend, {}),
+                    evict_every=_pick(args, cfg, "evict_every", 128, ("eviction", "evict_every")),
+                    obs_window=_pick(args, cfg, "obs_window", 8, ("eviction", "obs_window")),
+                    obs_decay=_pick(args, cfg, "obs_decay", 0.9, ("eviction", "obs_decay")),
+                    max_new=_pick(args, cfg, "max_new", 512, ("generation", "max_new")),
+                    do_sample=not args.greedy
+                    and bool(_config_value(cfg, "do_sample", ("generation", "do_sample"), True)),
+                    temperature=_pick(args, cfg, "temperature", 0.6, ("generation", "temperature")),
+                    top_p=_pick(args, cfg, "top_p", 0.95, ("generation", "top_p")),
+                    seed=_pick(args, cfg, "seed", 0, ("generation", "seed")),
+                    policy_params=arm.params,
                     debug_path=None,
                     debug_topk=0,
                 )
@@ -288,11 +330,11 @@ def main() -> None:
     payload = {
         "config": {
             "model": model_name,
-            "dataset": _pick(args, cfg, "dataset", "sample"),
+            "dataset": _pick(args, cfg, "dataset", "sample", ("data", "dataset")),
             "n": len(problems),
             "budget": args.budget,
-            "max_new": _pick(args, cfg, "max_new", 512),
-            "attn": _pick(args, cfg, "attn", "eager"),
+            "max_new": _pick(args, cfg, "max_new", 512, ("generation", "max_new")),
+            "attn": _pick(args, cfg, "attn", "eager", ("model", "attn")),
             "integrated_qwen_snapkv": args.integrated_qwen_snapkv,
         },
         "summary": {arm: _summarize(rows) for arm, rows in by_arm.items()},

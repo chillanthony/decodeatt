@@ -18,13 +18,21 @@ def load_model(cfg: dict):
     """按 config 加载 causal LM 与 tokenizer。返回 (model, tokenizer)。"""
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    name = cfg["model"]
-    dtype = _DTYPE[cfg.get("dtype", "bfloat16")]
-    device = cfg.get("device", "cuda")
+    model_cfg = cfg.get("model", {})
+    if isinstance(model_cfg, dict):
+        name = model_cfg["name"]
+        dtype_name = cfg.get("dtype", model_cfg.get("dtype", "bfloat16"))
+        device = cfg.get("device", cfg.get("device_map", model_cfg.get("device_map", "cuda")))
+        attn_impl = cfg.get("attn_implementation", cfg.get("attn", model_cfg.get("attn")))
+    else:
+        name = model_cfg
+        dtype_name = cfg.get("dtype", "bfloat16")
+        device = cfg.get("device", cfg.get("device_map", "cuda"))
+        attn_impl = cfg.get("attn_implementation", cfg.get("attn"))
+    dtype = _DTYPE[dtype_name]
 
     kwargs = {}
     # 探针阶段需 eager 才能拿到 attentions；生成阶段可用 sdpa/flash 提速
-    attn_impl = cfg.get("attn_implementation")
     if attn_impl:
         kwargs["attn_implementation"] = attn_impl
 

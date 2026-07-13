@@ -68,7 +68,7 @@ def run_generation_eval(
                 temperature=temperature,
                 top_p=top_p,
                 seed=seed,
-                policy_params=(policy_params or {}).get(arm.backend, {}),
+                policy_params=arm.params or (policy_params or {}).get(arm.backend, {}),
                 debug_path=str(debug_path) if debug_path else None,
                 debug_topk=debug_topk,
             )

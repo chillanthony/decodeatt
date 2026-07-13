@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import torch
 
-from kvbench.policies import parse_arm
+from kvbench.policies import parse_arm, parse_arms
 from kv_eviction.runner_token import _cache_length_summary, _compact_cache_update, _should_collect_observation, _token_samples
 from kv_eviction.strategies.base import SelectionContext
 from kv_eviction.strategies.token import get_policy, policy_names
@@ -39,6 +39,37 @@ def test_fullkv_keeps_everything_and_parses():
     arm = parse_arm("fullkv")
     assert arm.backend == "fullkv"
     assert arm.is_full
+
+
+def test_legacy_arm_parsing_attaches_policy_defaults_and_overrides():
+    arms = parse_arms(
+        "rkv@1024,rkv@2048",
+        policy_defaults={"rkv": {"lambda": 0.1, "alpha": 8}},
+        policy_overrides={"rkv": {"lambda": 0.2}},
+    )
+    assert [arm.name for arm in arms] == ["rkv@1024", "rkv@2048"]
+    assert [arm.budget for arm in arms] == [1024, 2048]
+    assert arms[0].params == {"lambda": 0.2, "alpha": 8}
+    assert arms[1].params == {"lambda": 0.2, "alpha": 8}
+
+
+def test_structured_arm_parsing_allows_same_policy_with_different_params():
+    arms = parse_arms(
+        [
+            {"id": "rkv_b1024_lam01", "policy": "rkv", "budget": 1024},
+            {
+                "id": "rkv_b1024_lam02",
+                "policy": "rkv",
+                "budget": 1024,
+                "params": {"lambda": 0.2},
+            },
+        ],
+        policy_defaults={"rkv": {"lambda": 0.1, "alpha": 8}},
+    )
+    assert [arm.name for arm in arms] == ["rkv_b1024_lam01", "rkv_b1024_lam02"]
+    assert [arm.backend for arm in arms] == ["rkv", "rkv"]
+    assert arms[0].params == {"lambda": 0.1, "alpha": 8}
+    assert arms[1].params == {"lambda": 0.2, "alpha": 8}
 
 
 def test_streamingllm_keeps_sink_and_recent_budget():
@@ -135,6 +166,8 @@ def test_auto_attention_backend_selection():
 if __name__ == "__main__":
     test_registry_contains_official_baselines()
     test_fullkv_keeps_everything_and_parses()
+    test_legacy_arm_parsing_attaches_policy_defaults_and_overrides()
+    test_structured_arm_parsing_allows_same_policy_with_different_params()
     test_streamingllm_keeps_sink_and_recent_budget()
     test_streamingllm_uses_budget_when_recent_is_smaller()
     test_strategy_observation_windows_are_minimal()

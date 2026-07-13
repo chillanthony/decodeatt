@@ -28,11 +28,12 @@ def _load_config(path: str | None) -> dict:
 def _merge_config(base: dict, overlay: dict) -> dict:
     merged = dict(base)
     for key, value in overlay.items():
-        if key == "policy_params":
-            params = {name: dict(values or {}) for name, values in merged.get(key, {}).items()}
+        if key in {"policy_params", "policy_defaults"}:
+            existing = merged.get("policy_defaults", merged.get("policy_params", {}))
+            params = {name: dict(values or {}) for name, values in existing.items()}
             for policy, values in (value or {}).items():
                 params.setdefault(policy, {}).update(values or {})
-            merged[key] = params
+            merged["policy_defaults" if key == "policy_defaults" else "policy_params"] = params
         else:
             merged[key] = value
     return merged
@@ -52,8 +53,8 @@ def _parse_scalar(value: str):
         return value
 
 
-def _merge_policy_params(config_params: dict | None, overrides: list[str]) -> dict:
-    params = {name: dict(values or {}) for name, values in (config_params or {}).items()}
+def _parse_policy_param_overrides(overrides: list[str]) -> dict:
+    params: dict[str, dict] = {}
     for item in overrides:
         if "=" not in item or "." not in item.split("=", 1)[0]:
             raise SystemExit(
@@ -64,6 +65,36 @@ def _merge_policy_params(config_params: dict | None, overrides: list[str]) -> di
         policy, key = left.split(".", 1)
         params.setdefault(policy, {})[key] = _parse_scalar(value)
     return params
+
+
+def _policy_defaults(cfg: dict) -> dict:
+    return {
+        name: dict(values or {})
+        for name, values in (cfg.get("policy_defaults") or cfg.get("policy_params") or {}).items()
+    }
+
+
+def _nested_get(cfg: dict, path: tuple[str, ...]):
+    cur = cfg
+    for key in path:
+        if not isinstance(cur, dict) or key not in cur:
+            return None
+        cur = cur[key]
+    return cur
+
+
+def _config_value(cfg: dict, flat_name: str, nested_path: tuple[str, ...], default=None):
+    if flat_name in cfg and not isinstance(cfg.get(flat_name), dict):
+        return cfg[flat_name]
+    value = _nested_get(cfg, nested_path)
+    return default if value is None else value
+
+
+def _model_name(cfg: dict):
+    model = cfg.get("model")
+    if isinstance(model, dict):
+        return model.get("name")
+    return model
 
 
 def _arm_attn_backend(backend: str, requested_attn: str, fast_attn: str) -> str:
@@ -96,11 +127,11 @@ def _merge_payloads(payloads: list[dict], out_path: str | Path) -> dict:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/eval.yaml")
+    parser.add_argument("--config", default="configs/experiments/math500_official_b1024.yaml")
     parser.add_argument(
         "--strategy-config",
         default=None,
-        help="Optional strategy config, e.g. configs/strategies/all_supported.yaml",
+        help="Optional overlay config; formal runs should prefer one complete configs/experiments/*.yaml",
     )
     parser.add_argument("--model", default=None)
     parser.add_argument("--dataset", default=None, choices=["sample", "aime", "math500", "mix"])
@@ -140,36 +171,47 @@ def main():
     if args.strategy_config:
         cfg = _merge_config(cfg, _load_config(args.strategy_config))
 
-    def pick(name, default=None):
+    def pick(name, default=None, nested_path: tuple[str, ...] | None = None):
         value = getattr(args, name.replace("-", "_"), None)
-        return cfg.get(name, default) if value is None else value
+        if value is not None:
+            return value
+        return _config_value(cfg, name, nested_path or (name,), default)
 
-    model_name = args.model or cfg.get("model")
+    model_name = args.model or _model_name(cfg)
     if not model_name:
         raise SystemExit("missing --model or model in config")
 
-    arms = parse_arms(args.arms or cfg.get("arms", "fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024"))
-    policy_params = _merge_policy_params(cfg.get("policy_params"), args.policy_param)
-    requested_attn = pick("attn", "auto")
-    fast_attn = pick("fast_attn", cfg.get("fast_attn", "sdpa"))
-    out_path = Path(pick("out", "results/eval.json"))
+    policy_defaults = _policy_defaults(cfg)
+    policy_overrides = _parse_policy_param_overrides(args.policy_param)
+    raw_arms = args.arms or cfg.get(
+        "arms",
+        "fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024",
+    )
+    arms = parse_arms(raw_arms, policy_defaults=policy_defaults, policy_overrides=policy_overrides)
+    requested_attn = pick("attn", "auto", ("model", "attn"))
+    fast_attn = pick("fast_attn", "sdpa", ("model", "fast_attn"))
+    out_path = Path(pick("out", "results/eval.json", ("experiment", "out")))
+    config_only_ids = _config_value(cfg, "only_ids", ("data", "only_ids"), None)
+    only_ids = args.only_ids or config_only_ids or ""
     eval_kwargs = dict(
-        dataset=pick("dataset", "sample"),
-        n=pick("n", 2),
-        max_new=pick("max_new", 4096),
-        recent=pick("recent", 64),
-        sink=pick("sink", 8),
-        evict_every=pick("evict_every", 128),
-        obs_window=pick("obs_window", 16),
-        obs_decay=pick("obs_decay", 0.9),
-        do_sample=not args.greedy and bool(cfg.get("do_sample", True)),
-        temperature=pick("temperature", 0.6),
-        top_p=pick("top_p", 0.95),
-        seed=pick("seed", 0),
-        only_ids=set(args.only_ids.split(",")) if args.only_ids else None,
-        debug_dir=args.debug_dir,
-        debug_topk=pick("debug_topk", 0),
-        policy_params=policy_params,
+        dataset=pick("dataset", "sample", ("data", "dataset")),
+        n=pick("n", 2, ("data", "n")),
+        max_new=pick("max_new", 4096, ("generation", "max_new")),
+        recent=pick("recent", 64, ("eviction", "recent")),
+        sink=pick("sink", 8, ("eviction", "sink")),
+        evict_every=pick("evict_every", 128, ("eviction", "evict_every")),
+        obs_window=pick("obs_window", 16, ("eviction", "obs_window")),
+        obs_decay=pick("obs_decay", 0.9, ("eviction", "obs_decay")),
+        do_sample=not args.greedy and bool(
+            _config_value(cfg, "do_sample", ("generation", "do_sample"), True)
+        ),
+        temperature=pick("temperature", 0.6, ("generation", "temperature")),
+        top_p=pick("top_p", 0.95, ("generation", "top_p")),
+        seed=pick("seed", 0, ("generation", "seed")),
+        only_ids=set(only_ids.split(",")) if only_ids else None,
+        debug_dir=args.debug_dir or _config_value(cfg, "debug_dir", ("debug", "dir"), None),
+        debug_topk=pick("debug_topk", 0, ("debug", "topk")),
+        policy_params=policy_defaults,
     )
 
     groups: dict[str, list] = {}
@@ -185,8 +227,8 @@ def main():
         )
         model, tokenizer = load_causal_lm(
             model_name,
-            dtype=pick("dtype", "bfloat16"),
-            device_map=pick("device_map", "cuda"),
+            dtype=pick("dtype", "bfloat16", ("model", "dtype")),
+            device_map=pick("device_map", "cuda", ("model", "device_map")),
             attn_implementation=attn_backend,
         )
         group_out = out_path
