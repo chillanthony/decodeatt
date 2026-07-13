@@ -1,0 +1,10 @@
+default-index = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+allow-insecure-host = [
+  "pypi.tuna.tsinghua.edu.cn",
+  "pypi.org",
+  "files.pythonhosted.org",
+  "download.pytorch.org",
+  "huggingface.co",
+  "hf-mirror.com",
+]
