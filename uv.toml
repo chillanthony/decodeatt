@@ -1,7 +1,0 @@
-allow-insecure-host = [
-  "pypi.org",
-  "files.pythonhosted.org",
-  "download.pytorch.org",
-  "huggingface.co",
-  "hf-mirror.com",
-]
