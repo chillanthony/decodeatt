@@ -43,14 +43,31 @@ def aggregate_gqa_attention(attn: torch.Tensor, kv_heads: int) -> torch.Tensor:
     return attn.mean(0, keepdim=True).expand(kv_heads, attn.shape[-1])
 
 
-def max_pool_importance(attn: torch.Tensor, kernel: int) -> torch.Tensor:
+def pool_importance(attn: torch.Tensor, kernel: int, pooling: str = "max") -> torch.Tensor:
     if kernel <= 1 or attn.numel() == 0:
         return attn
     pad = kernel // 2
-    pooled = torch.nn.functional.max_pool1d(
-        attn.unsqueeze(1), kernel_size=kernel, stride=1, padding=pad
-    ).squeeze(1)
+    values = attn.unsqueeze(1)
+    pooling = pooling.lower()
+    if pooling == "avgpool":
+        pooling = "avg"
+    elif pooling == "maxpool":
+        pooling = "max"
+    if pooling == "avg":
+        pooled = torch.nn.functional.avg_pool1d(
+            values, kernel_size=kernel, stride=1, padding=pad
+        ).squeeze(1)
+    elif pooling == "max":
+        pooled = torch.nn.functional.max_pool1d(
+            values, kernel_size=kernel, stride=1, padding=pad
+        ).squeeze(1)
+    else:
+        raise ValueError(f"unsupported importance pooling {pooling!r}")
     return pooled[:, : attn.shape[-1]]
+
+
+def max_pool_importance(attn: torch.Tensor, kernel: int) -> torch.Tensor:
+    return pool_importance(attn, kernel, "max")
 
 
 def rkv_importance(
@@ -61,6 +78,7 @@ def rkv_importance(
     n_total: int,
     pool_kernel: int,
     device,
+    pooling: str = "max",
 ) -> torch.Tensor:
     rows = []
     for step_rows in attn_history:
@@ -77,7 +95,7 @@ def rkv_importance(
     if not rows:
         return torch.zeros(kv_heads, n_cand, dtype=torch.float32, device=device)
     attn = torch.stack(rows, dim=1).mean(1)
-    return max_pool_importance(attn, pool_kernel)
+    return pool_importance(attn, pool_kernel, pooling)
 
 
 def rkv_redundancy(

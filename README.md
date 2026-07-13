@@ -46,8 +46,8 @@ PYTHONPATH=. uv run python scripts/eval.py \
 当前支持的 token 级驱逐策略：
 
 - `fullkv`: 不触发驱逐的上界 baseline。
-- `snapkv@B`: 官方 HuggingFace SnapKV baseline，按每层/每 KV head 的
-  observation-window max-pooled attention 保留到预算 `B`。
+- `snapkv@B`: SnapKV-style baseline，按每层/每 KV head 的 observation-window
+  pooled attention 保留到预算 `B`；默认 `window_size=32`、`pooling=avgpool`。
 - `h2o@B`: 官方 HuggingFace H2O baseline，按最后一步 attention 的 head 平均
   分数保留到预算 `B`，并保留最后 1 个 token。
 - `streamingllm@B`: 官方 HuggingFace StreamingLLM baseline，保留 first tokens
@@ -81,6 +81,10 @@ PYTHONPATH=. uv run python scripts/eval.py \
 
 ```yaml
 policy_params:
+  snapkv:
+    window_size: 32
+    kernel_size: 7
+    pooling: avgpool
   rkv:
     lambda: 0.1
     alpha: 8

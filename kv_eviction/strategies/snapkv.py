@@ -9,8 +9,9 @@ from .rkv_official import rkv_importance
 
 def select_snapkv(cache, attn_history, n, budget, params, return_debug=False):
     device = cache.layers[0].keys.device
-    window_size = int(params.get("window_size", params.get("alpha", 8)))
+    window_size = int(params.get("window_size", params.get("alpha", 32)))
     kernel_size = int(params.get("kernel_size", params.get("pool_kernel", 7)))
+    pooling = str(params.get("pooling", "avgpool"))
     if budget - window_size <= 0:
         raise ValueError("SnapKV budget must be greater than window_size")
     if n < budget:
@@ -36,6 +37,7 @@ def select_snapkv(cache, attn_history, n, budget, params, return_debug=False):
             n,
             kernel_size,
             device,
+            pooling,
         )
         selected = torch.topk(importance, k=budget - window_size, dim=-1).indices
         recent = torch.arange(n_cand, n, device=device).expand(kv_heads, -1)
@@ -67,7 +69,7 @@ class SnapKVPolicy(TokenEvictionPolicy):
         return ctx.importance
 
     def observation_window(self, params: dict, default: int) -> int:
-        return int(params.get("window_size", params.get("alpha", default)))
+        return int(params.get("window_size", params.get("alpha", 32)))
 
     def select_from_cache(
         self,

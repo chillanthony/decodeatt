@@ -96,12 +96,38 @@ def test_snapkv_matches_official_update_indices():
         _history(query_states, key_states, window),
         key_states.shape[-2],
         budget,
-        {"window_size": window, "kernel_size": kernel},
+        {"window_size": window, "kernel_size": kernel, "pooling": "maxpool"},
     )[0]
 
     scores = _attention_scores(query_states, key_states)
     attn = torch.softmax(scores[:, :, -window:, :-window], dim=-1, dtype=torch.float32).mean(dim=-2)
     pooled = torch.nn.functional.max_pool1d(
+        attn, kernel_size=kernel, padding=kernel // 2, stride=1
+    )[:, :, : key_states.shape[-2] - window]
+    selected = pooled.topk(budget - window, dim=-1).indices[0]
+    recent = torch.arange(key_states.shape[-2] - window, key_states.shape[-2]).expand(
+        key_states.shape[1], -1
+    )
+    expected = torch.cat([selected, recent], dim=-1)
+    torch.testing.assert_close(actual, expected)
+
+
+def test_snapkv_avgpool_matches_official_pooling_variant():
+    cache, key_states, _, query_states = _case()
+    budget = 8
+    window = 3
+    kernel = 5
+    actual = select_snapkv(
+        cache,
+        _history(query_states, key_states, window),
+        key_states.shape[-2],
+        budget,
+        {"window_size": window, "kernel_size": kernel, "pooling": "avgpool"},
+    )[0]
+
+    scores = _attention_scores(query_states, key_states)
+    attn = torch.softmax(scores[:, :, -window:, :-window], dim=-1, dtype=torch.float32).mean(dim=-2)
+    pooled = torch.nn.functional.avg_pool1d(
         attn, kernel_size=kernel, padding=kernel // 2, stride=1
     )[:, :, : key_states.shape[-2] - window]
     selected = pooled.topk(budget - window, dim=-1).indices[0]
@@ -244,6 +270,7 @@ def test_runner_attention_logit_rows_match_official_scores_without_attentions():
 
 if __name__ == "__main__":
     test_snapkv_matches_official_update_indices()
+    test_snapkv_avgpool_matches_official_pooling_variant()
     test_h2o_matches_official_shared_head_indices()
     test_streamingllm_matches_official_first_plus_local_window()
     test_rkv_layer_selector_matches_official_update_indices()
