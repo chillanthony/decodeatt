@@ -13,13 +13,14 @@ source .venv/bin/activate
 
 MODEL="${MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}"
 REVISION="${REVISION:-main}"
-MAX_WORKERS="${MAX_WORKERS:-8}"
+MAX_WORKERS="${MAX_WORKERS:-2}"
 SFS_HF_HOME="${SFS_HF_HOME:-${HF_HOME:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}}"
 
 export HF_HOME="$SFS_HF_HOME"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_HOME/hub}"
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 export HF_HUB_DISABLE_PROGRESS_BARS="${HF_HUB_DISABLE_PROGRESS_BARS:-0}"
+export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-300}"
 export MODEL REVISION MAX_WORKERS
 
 mkdir -p "$HF_HUB_CACHE"
@@ -34,6 +35,7 @@ echo "[download-model-sfs] hf_home=$HF_HOME"
 echo "[download-model-sfs] hf_hub_cache=$HF_HUB_CACHE"
 echo "[download-model-sfs] endpoint=$HF_ENDPOINT"
 echo "[download-model-sfs] max_workers=$MAX_WORKERS"
+echo "[download-model-sfs] download_timeout=$HF_HUB_DOWNLOAD_TIMEOUT"
 echo "[download-model-sfs] warning=SSL certificate verification is disabled" >&2
 
 python - <<'PY'
