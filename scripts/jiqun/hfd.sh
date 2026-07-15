@@ -134,7 +134,7 @@ METADATA_FILE="$LOCAL_DIR/.hfd/repo_metadata.json"
 
 # Fetch and save metadata
 fetch_and_save_metadata() {
-    status_code=$(curl -L -s -w "%{http_code}" -o "$METADATA_FILE" ${HF_TOKEN:+-H "Authorization: Bearer $HF_TOKEN"} "$API_URL")
+    status_code=$(curl -k -L -sS -w "%{http_code}" -o "$METADATA_FILE" ${HF_TOKEN:+-H "Authorization: Bearer $HF_TOKEN"} "$API_URL")
     RESPONSE=$(cat "$METADATA_FILE")
     if [ "$status_code" -eq 200 ]; then
         printf "%s\n" "$RESPONSE"
@@ -315,9 +315,9 @@ printf "${YELLOW}Starting download with $TOOL to $LOCAL_DIR...\n${NC}"
 
 cd "$LOCAL_DIR"
 if [[ "$TOOL" == "aria2c" ]]; then
-    aria2c --console-log-level=error --file-allocation=none -x "$THREADS" -j "$CONCURRENT" -s "$THREADS" -k 1M -c -i "$fileslist_file" --save-session="$fileslist_file"
+    aria2c --check-certificate=false --console-log-level=error --file-allocation=none -x "$THREADS" -j "$CONCURRENT" -s "$THREADS" -k 1M -c -i "$fileslist_file" --save-session="$fileslist_file"
 elif [[ "$TOOL" == "wget" ]]; then
-    wget -x -nH --cut-dirs="$CUT_DIRS" ${HF_TOKEN:+--header="Authorization: Bearer $HF_TOKEN"} --input-file="$fileslist_file" --continue
+    wget --no-check-certificate -x -nH --cut-dirs="$CUT_DIRS" ${HF_TOKEN:+--header="Authorization: Bearer $HF_TOKEN"} --input-file="$fileslist_file" --continue
 fi
 
 if [[ $? -eq 0 ]]; then

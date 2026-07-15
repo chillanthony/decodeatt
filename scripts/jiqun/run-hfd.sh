@@ -25,6 +25,7 @@ echo "[run-hfd] model_dir=$MODEL_DIR"
 echo "[run-hfd] tool=wget"
 echo "[run-hfd] log_file=$LOG_FILE"
 echo "[run-hfd] proxy=disabled"
+echo "[run-hfd] warning=SSL certificate verification is disabled" >&2
 
 env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
   -u http_proxy -u https_proxy -u all_proxy \
