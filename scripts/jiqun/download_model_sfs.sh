@@ -34,11 +34,25 @@ echo "[download-model-sfs] hf_home=$HF_HOME"
 echo "[download-model-sfs] hf_hub_cache=$HF_HUB_CACHE"
 echo "[download-model-sfs] endpoint=$HF_ENDPOINT"
 echo "[download-model-sfs] max_workers=$MAX_WORKERS"
+echo "[download-model-sfs] warning=SSL certificate verification is disabled" >&2
 
 python - <<'PY'
 import os
+import warnings
 
-from huggingface_hub import snapshot_download
+import requests
+from huggingface_hub import configure_http_backend, snapshot_download
+from urllib3.exceptions import InsecureRequestWarning
+
+
+def backend_factory():
+    session = requests.Session()
+    session.verify = False
+    return session
+
+
+configure_http_backend(backend_factory=backend_factory)
+warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
 path = snapshot_download(
     repo_id=os.environ["MODEL"],
