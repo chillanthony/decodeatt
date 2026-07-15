@@ -18,7 +18,7 @@ SFS_HF_HOME="${SFS_HF_HOME:-${HF_HOME:-/home/ma-user/work/bucket-wulan-green/che
 
 export HF_HOME="$SFS_HF_HOME"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_HOME/hub}"
-export HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
+export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 export HF_HUB_DISABLE_PROGRESS_BARS="${HF_HUB_DISABLE_PROGRESS_BARS:-0}"
 export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-300}"
