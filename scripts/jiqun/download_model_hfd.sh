@@ -6,7 +6,7 @@ HFD_SCRIPT="$ROOT_DIR/scripts/jiqun/hfd.sh"
 
 MODEL="${MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}"
 LOCAL_DIR="${LOCAL_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}"
-HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
+HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 REVISION="${REVISION:-main}"
 
 if [[ ! -f "$HFD_SCRIPT" ]]; then
