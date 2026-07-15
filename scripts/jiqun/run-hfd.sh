@@ -6,7 +6,7 @@ HFD_SCRIPT="$ROOT_DIR/scripts/jiqun/hfd.sh"
 
 MODEL="${MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}"
 REVISION="${REVISION:-main}"
-HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
+HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 SFS_ROOT="${SFS_ROOT:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}"
 MODEL_DIR="${MODEL_DIR:-$SFS_ROOT/models/DeepSeek-R1-Distill-Llama-8B}"
 LOG_FILE="${LOG_FILE:-$MODEL_DIR/hfd.log}"
@@ -24,8 +24,11 @@ echo "[run-hfd] endpoint=$HF_ENDPOINT"
 echo "[run-hfd] model_dir=$MODEL_DIR"
 echo "[run-hfd] tool=wget"
 echo "[run-hfd] log_file=$LOG_FILE"
+echo "[run-hfd] proxy=disabled"
 
-env HF_ENDPOINT="$HF_ENDPOINT" \
+env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
+  -u http_proxy -u https_proxy -u all_proxy \
+  HF_ENDPOINT="$HF_ENDPOINT" \
   bash "$HFD_SCRIPT" "$MODEL" \
   --tool wget \
   --local-dir "$MODEL_DIR" \
