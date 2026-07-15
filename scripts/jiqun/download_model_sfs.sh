@@ -13,7 +13,7 @@ source .venv/bin/activate
 
 MODEL="${MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}"
 REVISION="${REVISION:-main}"
-MAX_WORKERS="${MAX_WORKERS:-2}"
+MAX_WORKERS="${MAX_WORKERS:-1}"
 SFS_HF_HOME="${SFS_HF_HOME:-${HF_HOME:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}}"
 
 export HF_HOME="$SFS_HF_HOME"
