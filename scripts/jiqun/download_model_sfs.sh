@@ -18,7 +18,8 @@ SFS_HF_HOME="${SFS_HF_HOME:-${HF_HOME:-/home/ma-user/work/bucket-wulan-green/che
 
 export HF_HOME="$SFS_HF_HOME"
 export HF_HUB_CACHE="${HF_HUB_CACHE:-$HF_HOME/hub}"
-export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+export HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 export HF_HUB_DISABLE_PROGRESS_BARS="${HF_HUB_DISABLE_PROGRESS_BARS:-0}"
 export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-300}"
 export MODEL REVISION MAX_WORKERS
@@ -34,6 +35,7 @@ echo "[download-model-sfs] revision=$REVISION"
 echo "[download-model-sfs] hf_home=$HF_HOME"
 echo "[download-model-sfs] hf_hub_cache=$HF_HUB_CACHE"
 echo "[download-model-sfs] endpoint=$HF_ENDPOINT"
+echo "[download-model-sfs] disable_xet=$HF_HUB_DISABLE_XET"
 echo "[download-model-sfs] max_workers=$MAX_WORKERS"
 echo "[download-model-sfs] download_timeout=$HF_HUB_DOWNLOAD_TIMEOUT"
 echo "[download-model-sfs] warning=SSL certificate verification is disabled" >&2
