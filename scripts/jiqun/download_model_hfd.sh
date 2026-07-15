@@ -5,8 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HFD_SCRIPT="$ROOT_DIR/scripts/jiqun/hfd.sh"
 
 MODEL="${MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}"
-MODEL_ROOT="${MODEL_ROOT:-/home/ma-user/work/sfsturbo/models}"
-LOCAL_DIR="${LOCAL_DIR:-$MODEL_ROOT/${MODEL##*/}}"
+LOCAL_DIR="${LOCAL_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}"
 HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
 REVISION="${REVISION:-main}"
 
