@@ -15,7 +15,7 @@ export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export HF_HOME="${HF_HOME:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}"
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 
-MODEL="${MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}"
+MODEL="${MODEL:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/models/DeepSeek-R1-Distill-Llama-8B}"
 CONFIG="${CONFIG:-configs/experiments/math500_official_b1024.yaml}"
 OUT="${OUT:-results/smoke.json}"
 ARMS="${ARMS:-fullkv,rkv@128}"
