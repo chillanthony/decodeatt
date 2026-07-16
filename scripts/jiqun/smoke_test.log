@@ -1,0 +1,37 @@
+[smoke] root=/data/cyb/cyb/decodeatt
+[smoke] model=/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/models/DeepSeek-R1-Distill-Llama-8B
+[smoke] hf_home=/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache
+[smoke] out=results/smoke.json
+
+=== Loading model with attn=sdpa for arms: fullkv ===
+Traceback (most recent call last):
+  File "/data/cyb/cyb/decodeatt/scripts/eval.py", line 257, in <module>
+    main()
+  File "/data/cyb/cyb/decodeatt/scripts/eval.py", line 228, in main
+    model, tokenizer = load_causal_lm(
+                       ^^^^^^^^^^^^^^^
+  File "/data/cyb/cyb/decodeatt/kvbench/models.py", line 17, in load_causal_lm
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/cyb/cyb/decodeatt/.venv/lib/python3.11/site-packages/transformers/models/auto/tokenization_auto.py", line 1156, in from_pretrained
+    return tokenizer_class.from_pretrained(pretrained_model_name_or_path, *inputs, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/cyb/cyb/decodeatt/.venv/lib/python3.11/site-packages/transformers/tokenization_utils_base.py", line 2113, in from_pretrained
+    return cls._from_pretrained(
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/cyb/cyb/decodeatt/.venv/lib/python3.11/site-packages/transformers/tokenization_utils_base.py", line 2340, in _from_pretrained
+    tokenizer_file_handle = json.load(tokenizer_file_handle)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ma-user/anaconda3/envs/dec/lib/python3.11/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+           ^^^^^^^^^^^^^^^^
+  File "/home/ma-user/anaconda3/envs/dec/lib/python3.11/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ma-user/anaconda3/envs/dec/lib/python3.11/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ma-user/anaconda3/envs/dec/lib/python3.11/json/decoder.py", line 353, in raw_decode
+    obj, end = self.scan_once(s, idx)
+               ^^^^^^^^^^^^^^^^^^^^^^
+json.decoder.JSONDecodeError: Unterminated string starting at: line 45131 column 7 (char 1019790)
