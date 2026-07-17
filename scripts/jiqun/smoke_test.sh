@@ -14,7 +14,11 @@ if [[ ! -d ".venv" ]]; then
   exit 1
 fi
 
-source .venv/bin/activate
+PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  echo "Missing executable python: $PYTHON_BIN" >&2
+  exit 1
+fi
 
 export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export HF_HOME="${HF_HOME:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}"
@@ -34,8 +38,9 @@ echo "[smoke] model=$MODEL"
 echo "[smoke] hf_home=$HF_HOME"
 echo "[smoke] out=$OUT"
 echo "[smoke] log_file=$LOG_FILE"
+echo "[smoke] python_bin=$PYTHON_BIN"
 
-python scripts/eval.py \
+"$PYTHON_BIN" scripts/eval.py \
   --config "$CONFIG" \
   --dataset sample \
   --n "$N" \
