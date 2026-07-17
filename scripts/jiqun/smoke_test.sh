@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
+LOG_FILE="${LOG_FILE:-$ROOT_DIR/scripts/jiqun/smoke_test.log}"
+mkdir -p "$(dirname "$LOG_FILE")"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 if [[ ! -d ".venv" ]]; then
   echo "Missing .venv. Run 'uv sync' in $ROOT_DIR first." >&2
   exit 1
@@ -28,6 +32,7 @@ echo "[smoke] root=$ROOT_DIR"
 echo "[smoke] model=$MODEL"
 echo "[smoke] hf_home=$HF_HOME"
 echo "[smoke] out=$OUT"
+echo "[smoke] log_file=$LOG_FILE"
 
 python scripts/eval.py \
   --config "$CONFIG" \
