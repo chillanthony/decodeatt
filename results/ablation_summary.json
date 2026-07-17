@@ -1,0 +1,79 @@
+{
+  "n": 8443,
+  "n_r": 2056,
+  "runs": [
+    {
+      "features": [
+        "entropy",
+        "cum_attn",
+        "position",
+        "concentration"
+      ],
+      "auc": 0.7845,
+      "std": 0.011
+    },
+    {
+      "features": [
+        "entropy",
+        "cum_attn",
+        "concentration"
+      ],
+      "auc": 0.6931,
+      "std": 0.0113
+    },
+    {
+      "features": [
+        "cum_attn",
+        "position",
+        "concentration"
+      ],
+      "auc": 0.7317,
+      "std": 0.008
+    },
+    {
+      "features": [
+        "entropy",
+        "position",
+        "concentration"
+      ],
+      "auc": 0.7779,
+      "std": 0.0117
+    },
+    {
+      "features": [
+        "entropy",
+        "cum_attn",
+        "position"
+      ],
+      "auc": 0.7145,
+      "std": 0.0176
+    },
+    {
+      "features": [
+        "entropy",
+        "concentration"
+      ],
+      "auc": 0.6932,
+      "std": 0.0113
+    },
+    {
+      "features": [
+        "entropy"
+      ],
+      "auc": 0.687,
+      "std": 0.0135
+    },
+    {
+      "features": [
+        "entropy",
+        "cum_attn",
+        "position",
+        "concentration",
+        "mri"
+      ],
+      "auc": 0.7845,
+      "std": 0.011
+    }
+  ],
+  "no_position_ok": true
+}

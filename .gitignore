@@ -7,8 +7,7 @@ decodeatt/
 __pycache__/
 *.pyc
 
-# data & results
+# data & large artifacts
 data/
-results/
 *.pt
 *.safetensors
