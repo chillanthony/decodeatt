@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 LOG_FILE="${LOG_FILE:-$ROOT_DIR/scripts/jiqun/smoke_test.log}"
 mkdir -p "$(dirname "$LOG_FILE")"
+: > "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 if [[ ! -d ".venv" ]]; then
