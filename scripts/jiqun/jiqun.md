@@ -10,7 +10,7 @@ cd /你的/decodeatt/代码目录
 mkdir -p "$HOME/.venvs/decodeatt" "$HOME/.cache/uv"
 export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/decodeatt"
 export UV_CACHE_DIR="$HOME/.cache/uv"
-
+( =打开安装了uv的conda环境)
 uv sync --frozen --python 3.11
 ```
 
@@ -21,11 +21,7 @@ uv sync --frozen --python 3.11
   'import torch, transformers; print(torch.__version__, torch.cuda.is_available())'
 ```
 
-验证成功后运行 smoke test：
-
-```bash
-bash scripts/jiqun/smoke_test.sh
-```
+验证成功后运行 smoke test
 
 ## 查看主目录中除 work 外的文件和文件夹大小
 

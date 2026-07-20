@@ -1,0 +1,160 @@
+Module                  Size  Used by
+tcp_diag               16384  0
+inet_diag              24576  1 tcp_diag
+act_police             16384  0
+cls_basic              16384  0
+sch_ingress            16384  0
+sch_htb                24576  0
+nfsv3                  49152  1
+rpcsec_gss_krb5        36864  0
+nfsv4                 675840  0
+dns_resolver           16384  1 nfsv4
+nfs                   311296  3 nfsv4,nfsv3
+fscache               380928  2 nfsv4,nfs
+nf_log_ipv4            16384  1
+nf_log_common          16384  1 nf_log_ipv4
+xt_LOG                 16384  1
+ipt_REJECT             16384  1
+nf_reject_ipv4         16384  1 ipt_REJECT
+xt_set                 16384  2
+ip_set_hash_net        36864  1
+iptable_raw            16384  1
+nv_peer_mem            16384  0
+nvidia_uvm           1449984  4
+nvidia              56709120  461 nvidia_uvm,nv_peer_mem
+macvlan                28672  0
+xt_multiport           16384  69
+ip6table_raw           16384  1
+ip_set_hash_netport    40960  2
+ip_set_hash_ipport     36864  1
+vport_vxlan          5263360  1
+ip_option              32768  8
+bum_extract            36864  8
+egress_policy          32768  8
+ingress_policy         32768  8
+bum                    32768  8
+ip6t_MASQUERADE        16384  1
+openvswitch           253952  27 ingress_policy,bum,vport_vxlan,egress_policy,ip_option,bum_extract
+gre                    16384  1 openvswitch
+nf_conntrack_netlink    49152  0
+xt_addrtype            16384  13
+xt_recent              20480  2
+xt_statistic           16384  20
+xt_nat                 16384  50
+br_netfilter           24576  0
+bridge                200704  1 br_netfilter
+stp                    16384  1 bridge
+llc                    16384  2 bridge,stp
+ipt_MASQUERADE         16384  5
+xt_mark                16384  12
+xt_comment             16384  286
+xt_conntrack           16384  15
+ip6table_filter        16384  1
+ip6table_mangle        16384  1
+iptable_filter         16384  1
+iptable_mangle         16384  1
+ip6table_nat           16384  1
+nf_conntrack_ipv6      20480  8
+nf_nat_ipv6            20480  3 ip6table_nat,ip6t_MASQUERADE,openvswitch
+ip6_tables             32768  4 ip6table_filter,ip6table_raw,ip6table_nat,ip6table_mangle
+iptable_nat            16384  1
+nf_nat_ipv4            16384  3 ipt_MASQUERADE,openvswitch,iptable_nat
+nf_nat                 36864  4 nf_nat_ipv6,nf_nat_ipv4,xt_nat,openvswitch
+ip_tables              28672  4 iptable_filter,iptable_raw,iptable_nat,iptable_mangle
+ip_set                 49152  8 ingress_policy,bum,xt_set,ip_set_hash_net,ip_set_hash_ipport,egress_policy,ip_set_hash_netport,bum_extract
+nfnetlink              16384  3 nf_conntrack_netlink,ip_set
+ip_vs_sh               16384  0
+ip_vs_wrr              16384  0
+ip_vs_rr               16384  0
+ip_vs                 180224  6 ip_vs_rr,ip_vs_sh,ip_vs_wrr
+nf_defrag_ipv6         20480  3 nf_conntrack_ipv6,openvswitch,ip_vs
+overlay               122880  47
+cuse                   16384  0
+fuse                  131072  4 cuse
+nls_utf8               16384  0
+isofs                  49152  0
+vfio_pci               57344  1
+vfio_virqfd            16384  1 vfio_pci
+vfio_iommu_type1       28672  0
+vfio                   36864  6 vfio_iommu_type1,vfio_pci
+rdma_ucm               32768  0
+rdma_cm               110592  1 rdma_ucm
+iw_cm                  53248  1 rdma_cm
+ib_ipoib              151552  0
+ib_cm                  57344  2 rdma_cm,ib_ipoib
+ib_umad                28672  0
+mlx5_ib               425984  0
+kbox                   69632  0
+ib_uverbs             151552  2 rdma_ucm,mlx5_ib
+sysmonitor            307200  1
+ib_core               397312  9 rdma_cm,ib_ipoib,nv_peer_mem,iw_cm,ib_umad,rdma_ucm,ib_uverbs,mlx5_ib,ib_cm
+kboxdriver             24576  1 kbox
+intel_rapl             24576  0
+dm_mod                151552  13
+i10nm_edac             24576  0
+nfit                   65536  1 i10nm_edac
+libnvdimm             184320  1 nfit
+x86_pkg_temp_thermal    16384  0
+intel_powerclamp       16384  0
+kvm_intel             294912  0
+kvm                   815104  1 kvm_intel
+irqbypass              16384  3 vfio_pci,kvm
+vfat                   24576  1
+crct10dif_pclmul       16384  1
+crc32_pclmul           16384  0
+fat                    77824  1 vfat
+ghash_clmulni_intel    16384  0
+intel_rapl_perf        20480  0
+mlx5_core            1695744  1 mlx5_ib
+tls                    77824  1 mlx5_core
+ipmi_si                65536  0
+intel_uncore          163840  0
+mlxdevm               180224  1 mlx5_core
+ipmi_devintf           20480  0
+auxiliary              16384  2 mlx5_ib,mlx5_core
+ipmi_msghandler       110592  2 ipmi_devintf,ipmi_si
+pcspkr                 16384  0
+mlx_compat             16384  12 rdma_cm,ib_ipoib,mlxdevm,iw_cm,auxiliary,ib_umad,ib_core,rdma_ucm,ib_uverbs,mlx5_ib,ib_cm,mlx5_core
+mlxfw                  28672  1 mlx5_core
+ses                    20480  0
+psample                20480  1 mlx5_core
+enclosure              16384  1 ses
+nvme                   45056  9
+nvme_core              94208  9 nvme
+joydev                 24576  0
+sg                     40960  0
+host_edma_drv          45056  0
+i2c_i801               28672  0
+ioatdma                61440  0
+mei_me                 45056  0
+dca                    16384  1 ioatdma
+wmi                    28672  0
+mei                   110592  1 mei_me
+acpi_pad              180224  0
+nf_conntrack_ipv4      20480  65
+nf_defrag_ipv4         16384  1 nf_conntrack_ipv4
+nf_conntrack          151552  13 xt_conntrack,nf_conntrack_ipv6,nf_conntrack_ipv4,nf_nat,ip6t_MASQUERADE,nf_nat_ipv6,ipt_MASQUERADE,nf_nat_ipv4,xt_nat,openvswitch,nf_conntrack_netlink,egress_policy,ip_vs
+libcrc32c              16384  4 nf_conntrack,nf_nat,openvswitch,ip_vs
+drm                   532480  1 nvidia
+nfsd                  417792  13
+ksecurec               20480  3 kboxdriver,kbox,sysmonitor
+auth_rpcgss            73728  2 nfsd,rpcsec_gss_krb5
+nfs_acl                16384  2 nfsd,nfsv3
+lockd                 110592  3 nfsd,nfsv3,nfs
+grace                  16384  2 nfsd,lockd
+sunrpc                442368  24 nfsd,nfsv4,auth_rpcgss,lockd,nfsv3,rpcsec_gss_krb5,nfs_acl,nfs
+ext4                  774144  5 kbox
+mbcache                16384  1 ext4
+jbd2                  139264  1 ext4
+sd_mod                 57344  3
+crc32c_intel           24576  7
+mpt3sas               274432  0
+raid_class             16384  1 mpt3sas
+scsi_transport_sas     45056  2 ses,mpt3sas
+virtio_net             53248  0
+net_failover           24576  1 virtio_net
+ahci                   40960  0
+failover               16384  1 net_failover
+virtio_scsi            20480  2
+libahci                40960  1 ahci
+libata                270336  2 libahci,ahci
