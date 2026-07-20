@@ -1,0 +1,210 @@
+Jul 20 15:49:17 os-node-created-5q6ks sh[10752]: [canal-agent][INFO] check success
+Jul 20 15:49:18 os-node-created-5q6ks sh[14275]: [docker][INFO] check success
+Jul 20 15:49:18 os-node-created-5q6ks sh[3377383]: ovs-vswitchd (Open vSwitch) 2.7.3
+Jul 20 15:49:18 os-node-created-5q6ks sh[3377385]: br_monitor
+Jul 20 15:49:18 os-node-created-5q6ks sh[3377385]: br_plc_5584fbd2
+Jul 20 15:49:18 os-node-created-5q6ks sh[3377385]: br_plc_6571d166
+Jul 20 15:49:18 os-node-created-5q6ks sh[3377385]: br_plc_75dbd5fd
+Jul 20 15:49:18 os-node-created-5q6ks sh[3377385]: br_plc_7fcec42b
+Jul 20 15:49:18 os-node-created-5q6ks sh[3377385]: br_plc_bab41a26
+Jul 20 15:49:18 os-node-created-5q6ks sh[3377385]: br_plc_fa9b47c4
+Jul 20 15:49:18 os-node-created-5q6ks sh[3377385]: br_tun_b0345198
+Jul 20 15:49:18 os-node-created-5q6ks sh[3377385]: overlay_br_int
+Jul 20 15:49:18 os-node-created-5q6ks sh[11146]: [Open vSwitch][INFO] check success
+Jul 20 15:49:20 os-node-created-5q6ks sh[10981]: [kube-proxy][INFO] check success
+Jul 20 15:49:24 os-node-created-5q6ks sh[11033]: [/usr/local/bin/kubelet][INFO] check success
+Jul 20 15:49:27 os-node-created-5q6ks cce-agent[10773]: I0720 15:49:27.429395   10773 klogger.go:20] start to work in daemon...
+Jul 20 15:49:27 os-node-created-5q6ks cce-agent[10773]: I0720 15:49:27.440039   10773 klogger.go:24] nothing change, do not need to do anything. hash value is 2903114997
+Jul 20 15:49:27 os-node-created-5q6ks cce-agent[10773]: I0720 15:49:27.440072   10773 klogger.go:20] no need warmup, skip
+Jul 20 15:49:27 os-node-created-5q6ks sh[10752]: [canal-agent][INFO] check success
+Jul 20 15:49:28 os-node-created-5q6ks sh[14275]: [docker][INFO] check success
+Jul 20 15:49:28 os-node-created-5q6ks sh[3381307]: ovs-vswitchd (Open vSwitch) 2.7.3
+Jul 20 15:49:28 os-node-created-5q6ks sh[3381309]: br_monitor
+Jul 20 15:49:28 os-node-created-5q6ks sh[3381309]: br_plc_5584fbd2
+Jul 20 15:49:28 os-node-created-5q6ks sh[3381309]: br_plc_6571d166
+Jul 20 15:49:28 os-node-created-5q6ks sh[3381309]: br_plc_75dbd5fd
+Jul 20 15:49:28 os-node-created-5q6ks sh[3381309]: br_plc_7fcec42b
+Jul 20 15:49:28 os-node-created-5q6ks sh[3381309]: br_plc_bab41a26
+Jul 20 15:49:28 os-node-created-5q6ks sh[3381309]: br_plc_fa9b47c4
+Jul 20 15:49:28 os-node-created-5q6ks sh[3381309]: br_tun_b0345198
+Jul 20 15:49:28 os-node-created-5q6ks sh[3381309]: overlay_br_int
+Jul 20 15:49:28 os-node-created-5q6ks sh[11146]: [Open vSwitch][INFO] check success
+Jul 20 15:49:30 os-node-created-5q6ks sh[10981]: [kube-proxy][INFO] check success
+Jul 20 15:49:34 os-node-created-5q6ks sh[11033]: [/usr/local/bin/kubelet][INFO] check success
+Jul 20 15:49:37 os-node-created-5q6ks sh[10752]: [canal-agent][INFO] check success
+Jul 20 15:49:38 os-node-created-5q6ks sh[14275]: [docker][INFO] check success
+Jul 20 15:49:38 os-node-created-5q6ks sh[3382084]: ovs-vswitchd (Open vSwitch) 2.7.3
+Jul 20 15:49:38 os-node-created-5q6ks sh[3382086]: br_monitor
+Jul 20 15:49:38 os-node-created-5q6ks sh[3382086]: br_plc_5584fbd2
+Jul 20 15:49:38 os-node-created-5q6ks sh[3382086]: br_plc_6571d166
+Jul 20 15:49:38 os-node-created-5q6ks sh[3382086]: br_plc_75dbd5fd
+Jul 20 15:49:38 os-node-created-5q6ks sh[3382086]: br_plc_7fcec42b
+Jul 20 15:49:38 os-node-created-5q6ks sh[3382086]: br_plc_bab41a26
+Jul 20 15:49:38 os-node-created-5q6ks sh[3382086]: br_plc_fa9b47c4
+Jul 20 15:49:38 os-node-created-5q6ks sh[3382086]: br_tun_b0345198
+Jul 20 15:49:38 os-node-created-5q6ks sh[3382086]: overlay_br_int
+Jul 20 15:49:38 os-node-created-5q6ks sh[11146]: [Open vSwitch][INFO] check success
+Jul 20 15:49:40 os-node-created-5q6ks sh[10981]: [kube-proxy][INFO] check success
+Jul 20 15:49:41 os-node-created-5q6ks rsyslogd[66338]: cannot connect to 127.0.0.1:28001: Connection refused [v8.2006.0 try https://www.rsyslog.com/e/2027 ]
+Jul 20 15:49:42 os-node-created-5q6ks rsyslogd[66338]: cannot connect to 127.0.0.1:28001: Connection refused [v8.2006.0 try https://www.rsyslog.com/e/2027 ]
+Jul 20 15:49:42 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:49:42.109659496+08:00" level=info msg=event Pid=3382213 containerID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd execID=6b83e5f6efdc084f1960da7562a3c3653e46ee20d2ce45e14b080469c7cfc2fb module=libcontainerd namespace=moby topic=/tasks/exec-started
+Jul 20 15:49:42 os-node-created-5q6ks dockerd[2649941]: time="2026-07-20T15:49:42.120779129+08:00" level=info msg="exit-del moby/4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd.3382213.0 error=<nil>"
+Jul 20 15:49:42 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:49:42.120853708+08:00" level=info msg=event ExitStatus=0 ExitedAt="2026-07-20 07:49:42.111580408 +0000 UTC" Pid=3382213 ProcessID=6b83e5f6efdc084f1960da7562a3c3653e46ee20d2ce45e14b080469c7cfc2fb containerID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd module=libcontainerd namespace=moby topic=/tasks/exit
+Jul 20 15:49:42 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:49:42.136359813+08:00" level=info msg="handled exit event processID=6b83e5f6efdc084f1960da7562a3c3653e46ee20d2ce45e14b080469c7cfc2fb containerID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd pid=3382213" module=libcontainerd namespace=moby
+Jul 20 15:49:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:49:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:49:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:49:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:49:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:49:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:49:43 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:49:43 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:49:43 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:49:44 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:49:44 os-node-created-5q6ks sh[11033]: [/usr/local/bin/kubelet][INFO] check success
+Jul 20 15:49:47 os-node-created-5q6ks sh[10752]: [canal-agent][INFO] check success
+Jul 20 15:49:48 os-node-created-5q6ks sh[14275]: [docker][INFO] check success
+Jul 20 15:49:49 os-node-created-5q6ks sh[3385514]: ovs-vswitchd (Open vSwitch) 2.7.3
+Jul 20 15:49:49 os-node-created-5q6ks sh[3385516]: br_monitor
+Jul 20 15:49:49 os-node-created-5q6ks sh[3385516]: br_plc_5584fbd2
+Jul 20 15:49:49 os-node-created-5q6ks sh[3385516]: br_plc_6571d166
+Jul 20 15:49:49 os-node-created-5q6ks sh[3385516]: br_plc_75dbd5fd
+Jul 20 15:49:49 os-node-created-5q6ks sh[3385516]: br_plc_7fcec42b
+Jul 20 15:49:49 os-node-created-5q6ks sh[3385516]: br_plc_bab41a26
+Jul 20 15:49:49 os-node-created-5q6ks sh[3385516]: br_plc_fa9b47c4
+Jul 20 15:49:49 os-node-created-5q6ks sh[3385516]: br_tun_b0345198
+Jul 20 15:49:49 os-node-created-5q6ks sh[3385516]: overlay_br_int
+Jul 20 15:49:49 os-node-created-5q6ks sh[11146]: [Open vSwitch][INFO] check success
+Jul 20 15:49:50 os-node-created-5q6ks sh[10981]: [kube-proxy][INFO] check success
+Jul 20 15:49:54 os-node-created-5q6ks sh[11033]: [/usr/local/bin/kubelet][INFO] check success
+Jul 20 15:49:57 os-node-created-5q6ks cce-agent[10773]: I0720 15:49:57.440792   10773 klogger.go:20] start to work in daemon...
+Jul 20 15:49:57 os-node-created-5q6ks cce-agent[10773]: I0720 15:49:57.450035   10773 klogger.go:24] nothing change, do not need to do anything. hash value is 2903114997
+Jul 20 15:49:57 os-node-created-5q6ks cce-agent[10773]: I0720 15:49:57.450098   10773 klogger.go:20] no need warmup, skip
+Jul 20 15:49:58 os-node-created-5q6ks sh[10752]: [canal-agent][INFO] check success
+Jul 20 15:49:58 os-node-created-5q6ks sh[14275]: [docker][INFO] check success
+Jul 20 15:49:59 os-node-created-5q6ks sh[3385785]: ovs-vswitchd (Open vSwitch) 2.7.3
+Jul 20 15:49:59 os-node-created-5q6ks sh[3385787]: br_monitor
+Jul 20 15:49:59 os-node-created-5q6ks sh[3385787]: br_plc_5584fbd2
+Jul 20 15:49:59 os-node-created-5q6ks sh[3385787]: br_plc_6571d166
+Jul 20 15:49:59 os-node-created-5q6ks sh[3385787]: br_plc_75dbd5fd
+Jul 20 15:49:59 os-node-created-5q6ks sh[3385787]: br_plc_7fcec42b
+Jul 20 15:49:59 os-node-created-5q6ks sh[3385787]: br_plc_bab41a26
+Jul 20 15:49:59 os-node-created-5q6ks sh[3385787]: br_plc_fa9b47c4
+Jul 20 15:49:59 os-node-created-5q6ks sh[3385787]: br_tun_b0345198
+Jul 20 15:49:59 os-node-created-5q6ks sh[3385787]: overlay_br_int
+Jul 20 15:49:59 os-node-created-5q6ks sh[11146]: [Open vSwitch][INFO] check success
+Jul 20 15:50:00 os-node-created-5q6ks sh[10981]: [kube-proxy][INFO] check success
+Jul 20 15:50:03 os-node-created-5q6ks kernel: [16526626.778969] sh (3385881): drop_caches: 3
+Jul 20 15:50:04 os-node-created-5q6ks sh[11033]: [/usr/local/bin/kubelet][INFO] check success
+Jul 20 15:50:08 os-node-created-5q6ks sh[10752]: [canal-agent][INFO] check success
+Jul 20 15:50:08 os-node-created-5q6ks sh[14275]: [docker][INFO] check success
+Jul 20 15:50:09 os-node-created-5q6ks sh[3386102]: ovs-vswitchd (Open vSwitch) 2.7.3
+Jul 20 15:50:09 os-node-created-5q6ks sh[3386104]: br_monitor
+Jul 20 15:50:09 os-node-created-5q6ks sh[3386104]: br_plc_5584fbd2
+Jul 20 15:50:09 os-node-created-5q6ks sh[3386104]: br_plc_6571d166
+Jul 20 15:50:09 os-node-created-5q6ks sh[3386104]: br_plc_75dbd5fd
+Jul 20 15:50:09 os-node-created-5q6ks sh[3386104]: br_plc_7fcec42b
+Jul 20 15:50:09 os-node-created-5q6ks sh[3386104]: br_plc_bab41a26
+Jul 20 15:50:09 os-node-created-5q6ks sh[3386104]: br_plc_fa9b47c4
+Jul 20 15:50:09 os-node-created-5q6ks sh[3386104]: br_tun_b0345198
+Jul 20 15:50:09 os-node-created-5q6ks sh[3386104]: overlay_br_int
+Jul 20 15:50:09 os-node-created-5q6ks sh[11146]: [Open vSwitch][INFO] check success
+Jul 20 15:50:10 os-node-created-5q6ks sh[10981]: [kube-proxy][INFO] check success
+Jul 20 15:50:11 os-node-created-5q6ks rsyslogd[66338]: cannot connect to 127.0.0.1:28001: Connection refused [v8.2006.0 try https://www.rsyslog.com/e/2027 ]
+Jul 20 15:50:11 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:50:11.771802183+08:00" level=info msg=event Pid=3386197 containerID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd execID=ef9fd3093346d339ad8564f7c491978290eaef9603afdce37360a5e107463dfa module=libcontainerd namespace=moby topic=/tasks/exec-started
+Jul 20 15:50:11 os-node-created-5q6ks dockerd[2649941]: time="2026-07-20T15:50:11.817359149+08:00" level=info msg="exit-del moby/4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd.3386197.0 error=<nil>"
+Jul 20 15:50:11 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:50:11.817463363+08:00" level=info msg=event ExitStatus=0 ExitedAt="2026-07-20 07:50:11.78991676 +0000 UTC" Pid=3386197 ProcessID=ef9fd3093346d339ad8564f7c491978290eaef9603afdce37360a5e107463dfa containerID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd module=libcontainerd namespace=moby topic=/tasks/exit
+Jul 20 15:50:11 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:50:11.834156457+08:00" level=info msg="handled exit event processID=ef9fd3093346d339ad8564f7c491978290eaef9603afdce37360a5e107463dfa containerID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd pid=3386197" module=libcontainerd namespace=moby
+Jul 20 15:50:12 os-node-created-5q6ks rsyslogd[66338]: cannot connect to 127.0.0.1:28001: Connection refused [v8.2006.0 try https://www.rsyslog.com/e/2027 ]
+Jul 20 15:50:15 os-node-created-5q6ks sh[11033]: [/usr/local/bin/kubelet][INFO] check success
+Jul 20 15:50:18 os-node-created-5q6ks sh[10752]: [canal-agent][INFO] check success
+Jul 20 15:50:18 os-node-created-5q6ks sh[14275]: [docker][INFO] check success
+Jul 20 15:50:19 os-node-created-5q6ks sh[3386419]: ovs-vswitchd (Open vSwitch) 2.7.3
+Jul 20 15:50:19 os-node-created-5q6ks sh[3386421]: br_monitor
+Jul 20 15:50:19 os-node-created-5q6ks sh[3386421]: br_plc_5584fbd2
+Jul 20 15:50:19 os-node-created-5q6ks sh[3386421]: br_plc_6571d166
+Jul 20 15:50:19 os-node-created-5q6ks sh[3386421]: br_plc_75dbd5fd
+Jul 20 15:50:19 os-node-created-5q6ks sh[3386421]: br_plc_7fcec42b
+Jul 20 15:50:19 os-node-created-5q6ks sh[3386421]: br_plc_bab41a26
+Jul 20 15:50:19 os-node-created-5q6ks sh[3386421]: br_plc_fa9b47c4
+Jul 20 15:50:19 os-node-created-5q6ks sh[3386421]: br_tun_b0345198
+Jul 20 15:50:19 os-node-created-5q6ks sh[3386421]: overlay_br_int
+Jul 20 15:50:19 os-node-created-5q6ks sh[11146]: [Open vSwitch][INFO] check success
+Jul 20 15:50:20 os-node-created-5q6ks sh[10981]: [kube-proxy][INFO] check success
+Jul 20 15:50:25 os-node-created-5q6ks sh[11033]: [/usr/local/bin/kubelet][INFO] check success
+Jul 20 15:50:27 os-node-created-5q6ks cce-agent[10773]: I0720 15:50:27.450689   10773 klogger.go:20] start to work in daemon...
+Jul 20 15:50:27 os-node-created-5q6ks cce-agent[10773]: I0720 15:50:27.469651   10773 klogger.go:24] nothing change, do not need to do anything. hash value is 2903114997
+Jul 20 15:50:27 os-node-created-5q6ks cce-agent[10773]: I0720 15:50:27.469672   10773 klogger.go:20] no need warmup, skip
+Jul 20 15:50:28 os-node-created-5q6ks sh[10752]: [canal-agent][INFO] check success
+Jul 20 15:50:28 os-node-created-5q6ks sh[14275]: [docker][INFO] check success
+Jul 20 15:50:29 os-node-created-5q6ks sh[3386703]: ovs-vswitchd (Open vSwitch) 2.7.3
+Jul 20 15:50:29 os-node-created-5q6ks sh[3386705]: br_monitor
+Jul 20 15:50:29 os-node-created-5q6ks sh[3386705]: br_plc_5584fbd2
+Jul 20 15:50:29 os-node-created-5q6ks sh[3386705]: br_plc_6571d166
+Jul 20 15:50:29 os-node-created-5q6ks sh[3386705]: br_plc_75dbd5fd
+Jul 20 15:50:29 os-node-created-5q6ks sh[3386705]: br_plc_7fcec42b
+Jul 20 15:50:29 os-node-created-5q6ks sh[3386705]: br_plc_bab41a26
+Jul 20 15:50:29 os-node-created-5q6ks sh[3386705]: br_plc_fa9b47c4
+Jul 20 15:50:29 os-node-created-5q6ks sh[3386705]: br_tun_b0345198
+Jul 20 15:50:29 os-node-created-5q6ks sh[3386705]: overlay_br_int
+Jul 20 15:50:29 os-node-created-5q6ks sh[11146]: [Open vSwitch][INFO] check success
+Jul 20 15:50:30 os-node-created-5q6ks sh[10981]: [kube-proxy][INFO] check success
+Jul 20 15:50:35 os-node-created-5q6ks sh[11033]: [/usr/local/bin/kubelet][INFO] check success
+Jul 20 15:50:38 os-node-created-5q6ks sh[10752]: [canal-agent][INFO] check success
+Jul 20 15:50:38 os-node-created-5q6ks sh[14275]: [docker][INFO] check success
+Jul 20 15:50:39 os-node-created-5q6ks sh[3387477]: ovs-vswitchd (Open vSwitch) 2.7.3
+Jul 20 15:50:39 os-node-created-5q6ks sh[3387480]: br_monitor
+Jul 20 15:50:39 os-node-created-5q6ks sh[3387480]: br_plc_5584fbd2
+Jul 20 15:50:39 os-node-created-5q6ks sh[3387480]: br_plc_6571d166
+Jul 20 15:50:39 os-node-created-5q6ks sh[3387480]: br_plc_75dbd5fd
+Jul 20 15:50:39 os-node-created-5q6ks sh[3387480]: br_plc_7fcec42b
+Jul 20 15:50:39 os-node-created-5q6ks sh[3387480]: br_plc_bab41a26
+Jul 20 15:50:39 os-node-created-5q6ks sh[3387480]: br_plc_fa9b47c4
+Jul 20 15:50:39 os-node-created-5q6ks sh[3387480]: br_tun_b0345198
+Jul 20 15:50:39 os-node-created-5q6ks sh[3387480]: overlay_br_int
+Jul 20 15:50:39 os-node-created-5q6ks sh[11146]: [Open vSwitch][INFO] check success
+Jul 20 15:50:40 os-node-created-5q6ks sh[10981]: [kube-proxy][INFO] check success
+Jul 20 15:50:41 os-node-created-5q6ks rsyslogd[66338]: cannot connect to 127.0.0.1:28001: Connection refused [v8.2006.0 try https://www.rsyslog.com/e/2027 ]
+Jul 20 15:50:41 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:50:41.838234443+08:00" level=info msg=event Pid=3387577 containerID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd execID=417e6ea240efffc8d88f2232730080bac2415aa021625fbae6aca20eb21d9000 module=libcontainerd namespace=moby topic=/tasks/exec-started
+Jul 20 15:50:41 os-node-created-5q6ks dockerd[2649941]: time="2026-07-20T15:50:41.849880066+08:00" level=info msg="exit-del moby/4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd.3387577.0 error=<nil>"
+Jul 20 15:50:41 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:50:41.849941879+08:00" level=info msg=event ExitStatus=0 ExitedAt="2026-07-20 07:50:41.840446838 +0000 UTC" Pid=3387577 ProcessID=417e6ea240efffc8d88f2232730080bac2415aa021625fbae6aca20eb21d9000 containerID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd module=libcontainerd namespace=moby topic=/tasks/exit
+Jul 20 15:50:41 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:50:41.866861481+08:00" level=info msg="handled exit event processID=417e6ea240efffc8d88f2232730080bac2415aa021625fbae6aca20eb21d9000 containerID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd pid=3387577" module=libcontainerd namespace=moby
+Jul 20 15:50:42 os-node-created-5q6ks rsyslogd[66338]: cannot connect to 127.0.0.1:28001: Connection refused [v8.2006.0 try https://www.rsyslog.com/e/2027 ]
+Jul 20 15:50:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:50:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:50:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:50:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:50:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:50:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:50:42 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:50:43 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:50:43 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:50:43 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:50:43 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:50:44 os-node-created-5q6ks systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:50:45 os-node-created-5q6ks sh[11033]: [/usr/local/bin/kubelet][INFO] check success
+Jul 20 15:50:48 os-node-created-5q6ks sh[10752]: [canal-agent][INFO] check success
+Jul 20 15:50:48 os-node-created-5q6ks sh[14275]: [docker][INFO] check success
+Jul 20 15:50:49 os-node-created-5q6ks sh[3390946]: ovs-vswitchd (Open vSwitch) 2.7.3
+Jul 20 15:50:49 os-node-created-5q6ks sh[3390948]: br_monitor
+Jul 20 15:50:49 os-node-created-5q6ks sh[3390948]: br_plc_5584fbd2
+Jul 20 15:50:49 os-node-created-5q6ks sh[3390948]: br_plc_6571d166
+Jul 20 15:50:49 os-node-created-5q6ks sh[3390948]: br_plc_75dbd5fd
+Jul 20 15:50:49 os-node-created-5q6ks sh[3390948]: br_plc_7fcec42b
+Jul 20 15:50:49 os-node-created-5q6ks sh[3390948]: br_plc_bab41a26
+Jul 20 15:50:49 os-node-created-5q6ks sh[3390948]: br_plc_fa9b47c4
+Jul 20 15:50:49 os-node-created-5q6ks sh[3390948]: br_tun_b0345198
+Jul 20 15:50:49 os-node-created-5q6ks sh[3390948]: overlay_br_int
+Jul 20 15:50:49 os-node-created-5q6ks sh[11146]: [Open vSwitch][INFO] check success
+Jul 20 15:50:50 os-node-created-5q6ks sh[10981]: [kube-proxy][INFO] check success
+Jul 20 15:50:55 os-node-created-5q6ks sh[11033]: [/usr/local/bin/kubelet][INFO] check success
+Jul 20 15:50:57 os-node-created-5q6ks cce-agent[10773]: I0720 15:50:57.470696   10773 klogger.go:20] start to work in daemon...
+Jul 20 15:50:57 os-node-created-5q6ks cce-agent[10773]: I0720 15:50:57.479460   10773 klogger.go:24] nothing change, do not need to do anything. hash value is 2903114997
+Jul 20 15:50:57 os-node-created-5q6ks cce-agent[10773]: I0720 15:50:57.479480   10773 klogger.go:20] no need warmup, skip
+Jul 20 15:50:57 os-node-created-5q6ks dockerd[2649941]: time="2026-07-20T15:50:57.894253943+08:00" level=info msg="exit-del moby/4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd.3376976.1 error=<nil>"
+Jul 20 15:50:57 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:50:57.894343191+08:00" level=info msg=event ExitStatus=1 ExitedAt="2026-07-20 07:50:57.884561406 +0000 UTC" Pid=3376976 ProcessID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd containerID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd module=libcontainerd namespace=moby topic=/tasks/exit
+Jul 20 15:50:57 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:50:57.894400404+08:00" level=info msg="handle container 4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd exit event pid=3376976"
+Jul 20 15:50:57 os-node-created-5q6ks dockerd[2649941]: time="2026-07-20T15:50:57.906525023+08:00" level=info msg="shim reaped" id=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd
+Jul 20 15:50:57 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:50:57.916687342+08:00" level=info msg=event ExitStatus=1 ExitedAt="2026-07-20 07:50:57.884561406 +0000 UTC" Pid=3376976 containerID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd module=libcontainerd namespace=moby topic=/tasks/delete
+Jul 20 15:50:57 os-node-created-5q6ks systemd[1]: var-lib-docker-overlay2-1cc0f6f41538f21085023713ead798c26208a76ecf997c37dabeb2b63459d2cf-merged.mount: Succeeded.
+Jul 20 15:50:57 os-node-created-5q6ks dockerd[2649849]: time="2026-07-20T15:50:57.921719360+08:00" level=info msg="handled exit event processID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd containerID=4077e9c987e46b552fd593f2604e9b0f23d17601763087092d515288d088d1fd pid=3376976" module=libcontainerd namespace=moby
