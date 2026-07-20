@@ -11,8 +11,8 @@
      "gen_len": 128,
      "n_evict": 0,
      "final_cache_len": 166,
-     "elapsed_sec": 5.917316026985645,
-     "tokens_per_sec": 21.631428745103683,
+     "elapsed_sec": 5.257940948009491,
+     "tokens_per_sec": 24.34413038595597,
      "peak_memory_bytes": 16096119296,
      "mean_compression_ratio": 1.0,
      "evict_events": [],
@@ -359,13 +359,13 @@
      "max_effective_compression_ratio": 1.0,
      "cache_len_curve": [],
      "effective_cache_len_curve": [],
-     "prefill_sec": 1.2787688300013542,
-     "decode_sec": 4.638547196984291,
-     "decode_forward_sec": 3.168757773935795,
+     "prefill_sec": 1.0952304974198341,
+     "decode_sec": 4.162710450589657,
+     "decode_forward_sec": 2.966164104640484,
      "attention_observation_sec": 0.0,
      "eviction_sec_total": 0.0,
      "eviction_sec_mean": 0.0,
-     "other_decode_sec": 1.4697894230484962
+     "other_decode_sec": 1.196546345949173
     }
    }
   }
@@ -378,8 +378,8 @@
    "mean_gen_len": 128.0,
    "mean_final_cache_len": 166.0,
    "mean_n_evict": 0.0,
-   "mean_elapsed_sec": 5.917316026985645,
-   "mean_tokens_per_sec": 21.631428745103683,
+   "mean_elapsed_sec": 5.257940948009491,
+   "mean_tokens_per_sec": 24.34413038595597,
    "mean_compression_ratio": 1.0,
    "max_peak_memory_bytes": 16096119296,
    "mean_effective_cache_len": 166.0,
@@ -400,13 +400,13 @@
    "max_head_budget_max": 166.0,
    "mean_head_budget_entropy": 5.545176982879639,
    "mean_num_underfilled_heads": 0.0,
-   "mean_prefill_sec": 1.2787688300013542,
-   "mean_decode_sec": 4.638547196984291,
-   "mean_decode_forward_sec": 3.168757773935795,
+   "mean_prefill_sec": 1.0952304974198341,
+   "mean_decode_sec": 4.162710450589657,
+   "mean_decode_forward_sec": 2.966164104640484,
    "mean_attention_observation_sec": 0.0,
    "mean_eviction_sec_total": 0.0,
    "mean_eviction_sec_mean": 0.0,
-   "mean_other_decode_sec": 1.4697894230484962
+   "mean_other_decode_sec": 1.196546345949173
   }
  }
 }

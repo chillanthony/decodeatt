@@ -11,8 +11,8 @@
      "gen_len": 128,
      "n_evict": 1,
      "final_cache_len": 128,
-     "elapsed_sec": 4.273426935076714,
-     "tokens_per_sec": 29.952542056905962,
+     "elapsed_sec": 4.160904221236706,
+     "tokens_per_sec": 30.762544195731518,
      "peak_memory_bytes": 16098883072,
      "mean_compression_ratio": 0.7710843373493976,
      "evict_events": [
@@ -34,7 +34,7 @@
        "head_budget_max": 128.0,
        "head_budget_entropy": 5.545177459716797,
        "num_underfilled_heads": 0,
-       "eviction_sec": 0.1524757444858551
+       "eviction_sec": 0.11325471103191376
       }
      ],
      "mean_effective_cache_len": 128.0,
@@ -384,13 +384,13 @@
      "effective_cache_len_curve": [
       128.0
      ],
-     "prefill_sec": 0.06694501638412476,
-     "decode_sec": 4.206481918692589,
-     "decode_forward_sec": 3.402678333222866,
-     "attention_observation_sec": 0.1036006361246109,
-     "eviction_sec_total": 0.1524757444858551,
-     "eviction_sec_mean": 0.1524757444858551,
-     "other_decode_sec": 0.5477272048592567
+     "prefill_sec": 0.11245223879814148,
+     "decode_sec": 4.048451982438564,
+     "decode_forward_sec": 3.313006930053234,
+     "attention_observation_sec": 0.10458357632160187,
+     "eviction_sec_total": 0.11325471103191376,
+     "eviction_sec_mean": 0.11325471103191376,
+     "other_decode_sec": 0.5176067650318146
     }
    }
   }
@@ -403,8 +403,8 @@
    "mean_gen_len": 128.0,
    "mean_final_cache_len": 128.0,
    "mean_n_evict": 1.0,
-   "mean_elapsed_sec": 4.273426935076714,
-   "mean_tokens_per_sec": 29.952542056905962,
+   "mean_elapsed_sec": 4.160904221236706,
+   "mean_tokens_per_sec": 30.762544195731518,
    "mean_compression_ratio": 0.7710843373493976,
    "max_peak_memory_bytes": 16098883072,
    "mean_effective_cache_len": 128.0,
@@ -425,13 +425,13 @@
    "max_head_budget_max": 128.0,
    "mean_head_budget_entropy": 5.545177459716797,
    "mean_num_underfilled_heads": 0.0,
-   "mean_prefill_sec": 0.06694501638412476,
-   "mean_decode_sec": 4.206481918692589,
-   "mean_decode_forward_sec": 3.402678333222866,
-   "mean_attention_observation_sec": 0.1036006361246109,
-   "mean_eviction_sec_total": 0.1524757444858551,
-   "mean_eviction_sec_mean": 0.1524757444858551,
-   "mean_other_decode_sec": 0.5477272048592567
+   "mean_prefill_sec": 0.11245223879814148,
+   "mean_decode_sec": 4.048451982438564,
+   "mean_decode_forward_sec": 3.313006930053234,
+   "mean_attention_observation_sec": 0.10458357632160187,
+   "mean_eviction_sec_total": 0.11325471103191376,
+   "mean_eviction_sec_mean": 0.11325471103191376,
+   "mean_other_decode_sec": 0.5176067650318146
   }
  }
 }

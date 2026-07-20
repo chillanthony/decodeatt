@@ -30,7 +30,7 @@ bash scripts/jiqun/smoke_test.sh
 ## 查看 ma-user 所有的一级文件和文件夹大小
 
 ```bash
-find /ma-user/work -mindepth 1 -maxdepth 1 -user ma-user -exec du -shx {} + 2>/dev/null | sort -h
+find /home/ma-user/work -mindepth 1 -maxdepth 1 -user ma-user -exec du -shx {} + 2>/dev/null | sort -h
 ```
 
 该命令会筛选 `/ma-user/work` 下所有者为 `ma-user` 的一级文件和文件夹，并按大小升序显示。如果服务器的实际持久化路径是 `/home/ma-user/work`，需要将命令中的路径相应替换。
