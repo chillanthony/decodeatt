@@ -59,6 +59,7 @@ echo "[math500-b1024-n20] python_bin=$PYTHON_BIN"
 "$PYTHON_BIN" -m torch.distributed.run \
   --standalone \
   --nproc-per-node="$NPROC_PER_NODE" \
+  -- \
   scripts/eval.py \
   --distributed \
   --config "$CONFIG" \
