@@ -33,6 +33,7 @@ echo "[download-math500] datasets_cache=$HF_DATASETS_CACHE"
 echo "[download-math500] log_file=$LOG_FILE"
 echo "[download-math500] python_bin=$PYTHON_BIN"
 echo "[download-math500] proxy=inherited"
+echo "[download-math500] ssl_verify=false"
 
 env \
   HF_HOME="$HF_HOME" \
@@ -45,10 +46,22 @@ from __future__ import annotations
 
 import sys
 
+import requests
 from datasets import load_dataset
+from huggingface_hub import configure_http_backend
+from urllib3 import disable_warnings
+from urllib3.exceptions import InsecureRequestWarning
+
+
+def backend_factory() -> requests.Session:
+    session = requests.Session()
+    session.verify = False
+    return session
 
 
 repo, split, revision = sys.argv[1:]
+disable_warnings(InsecureRequestWarning)
+configure_http_backend(backend_factory=backend_factory)
 dataset = load_dataset(repo, split=split, revision=revision)
 print(f"[download-math500] downloaded_rows={len(dataset)}")
 print(f"[download-math500] columns={dataset.column_names}")
@@ -56,4 +69,4 @@ print(f"[download-math500] cache_files={dataset.cache_files}")
 PY
 
 echo "[download-math500] done"
-echo "Run offline with: HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 scripts/jiqun/math500_official_b1024_n20.sh"
+echo "Run offline with: scripts/jiqun/math500_official_b1024_n20.sh"

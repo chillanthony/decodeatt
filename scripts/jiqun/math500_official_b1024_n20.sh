@@ -24,6 +24,8 @@ fi
 export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export HF_HOME="${HF_HOME:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}"
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+export HF_HUB_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
 
 MODEL="${MODEL:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/models/DeepSeek-R1-Distill-Llama-8B}"
 CONFIG="${CONFIG:-configs/experiments/math500_official_b1024.yaml}"
@@ -44,6 +46,8 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 echo "[math500-b1024-n20] root=$ROOT_DIR"
 echo "[math500-b1024-n20] model=$MODEL"
 echo "[math500-b1024-n20] hf_home=$HF_HOME"
+echo "[math500-b1024-n20] hf_hub_offline=$HF_HUB_OFFLINE"
+echo "[math500-b1024-n20] hf_datasets_offline=$HF_DATASETS_OFFLINE"
 echo "[math500-b1024-n20] config=$CONFIG"
 echo "[math500-b1024-n20] dataset=$DATASET"
 echo "[math500-b1024-n20] n=$N"
