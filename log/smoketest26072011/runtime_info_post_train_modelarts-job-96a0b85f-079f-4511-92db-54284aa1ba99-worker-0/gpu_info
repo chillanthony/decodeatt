@@ -1,7 +1,7 @@
 
 ==============NVSMI LOG==============
 
-Timestamp                                 : Mon Jul 20 12:13:00 2026
+Timestamp                                 : Mon Jul 20 12:40:22 2026
 Driver Version                            : 535.183.01
 CUDA Version                              : 12.2
 
@@ -74,14 +74,14 @@ GPU 00000000:75:00.0
             Firmware                      : N/A
         Replays Since Reset               : 0
         Replay Number Rollovers           : 0
-        Tx Throughput                     : 61000 KB/s
+        Tx Throughput                     : 5000 KB/s
         Rx Throughput                     : 0 KB/s
         Atomic Caps Inbound               : N/A
         Atomic Caps Outbound              : N/A
     Fan Speed                             : N/A
     Performance State                     : P0
     Clocks Event Reasons
-        Idle                              : Active
+        Idle                              : Not Active
         Applications Clocks Setting       : Not Active
         SW Power Cap                      : Not Active
         HW Slowdown                       : Not Active
@@ -168,7 +168,7 @@ GPU 00000000:75:00.0
         Memory Current Temp               : 31 C
         Memory Max Operating Temp         : 95 C
     GPU Power Readings
-        Power Draw                        : 57.00 W
+        Power Draw                        : 79.65 W
         Current Power Limit               : 400.00 W
         Requested Power Limit             : 400.00 W
         Default Power Limit               : 400.00 W
@@ -182,10 +182,10 @@ GPU 00000000:75:00.0
         Min Power Limit                   : N/A
         Max Power Limit                   : N/A
     Clocks
-        Graphics                          : 210 MHz
-        SM                                : 210 MHz
+        Graphics                          : 1410 MHz
+        SM                                : 1410 MHz
         Memory                            : 1593 MHz
-        Video                             : 585 MHz
+        Video                             : 1275 MHz
     Applications Clocks
         Graphics                          : 1155 MHz
         Memory                            : 1593 MHz
@@ -205,7 +205,7 @@ GPU 00000000:75:00.0
         Auto Boost                        : N/A
         Auto Boost Default                : N/A
     Voltage
-        Graphics                          : 756.250 mV
+        Graphics                          : 931.250 mV
     Fabric
         State                             : N/A
         Status                            : N/A

@@ -9,7 +9,7 @@ nfsv3                  49152  1
 rpcsec_gss_krb5        36864  0
 nfsv4                 675840  0
 dns_resolver           16384  1 nfsv4
-nfs                   311296  3 nfsv4,nfsv3
+nfs                   311296  4 nfsv4,nfsv3
 fscache               380928  2 nfsv4,nfs
 nf_log_ipv4            16384  1
 nf_log_common          16384  1 nf_log_ipv4
@@ -20,8 +20,8 @@ xt_set                 16384  2
 ip_set_hash_net        36864  1
 iptable_raw            16384  1
 nv_peer_mem            16384  0
-nvidia_uvm           1449984  4
-nvidia              56709120  461 nvidia_uvm,nv_peer_mem
+nvidia_uvm           1449984  6
+nvidia              56709120  464 nvidia_uvm,nv_peer_mem
 macvlan                28672  0
 xt_multiport           16384  69
 ip6table_raw           16384  1
@@ -142,7 +142,7 @@ auth_rpcgss            73728  2 nfsd,rpcsec_gss_krb5
 nfs_acl                16384  2 nfsd,nfsv3
 lockd                 110592  3 nfsd,nfsv3,nfs
 grace                  16384  2 nfsd,lockd
-sunrpc                442368  24 nfsd,nfsv4,auth_rpcgss,lockd,nfsv3,rpcsec_gss_krb5,nfs_acl,nfs
+sunrpc                442368  27 nfsd,nfsv4,auth_rpcgss,lockd,nfsv3,rpcsec_gss_krb5,nfs_acl,nfs
 ext4                  774144  5 kbox
 mbcache                16384  1 ext4
 jbd2                  139264  1 ext4
