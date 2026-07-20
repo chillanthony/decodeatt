@@ -9,12 +9,8 @@ mkdir -p "$(dirname "$LOG_FILE")"
 : > "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-if [[ ! -d ".venv" ]]; then
-  echo "Missing .venv. Run 'uv sync' in $ROOT_DIR first." >&2
-  exit 1
-fi
-
-PYTHON_BIN="${PYTHON_BIN:-$ROOT_DIR/.venv/bin/python}"
+VENV_DIR="${VENV_DIR:-/home/ma-user/.venvs/decodeatt}"
+PYTHON_BIN="${PYTHON_BIN:-$VENV_DIR/bin/python}"
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Missing executable python: $PYTHON_BIN" >&2
   exit 1
