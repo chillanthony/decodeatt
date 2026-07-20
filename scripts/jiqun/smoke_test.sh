@@ -9,7 +9,7 @@ mkdir -p "$(dirname "$LOG_FILE")"
 : > "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-VENV_DIR="${VENV_DIR:-/home/ma-user/work/.venvs/decodeatt}"
+VENV_DIR="${VENV_DIR:-$HOME/.venvs/decodeatt}"
 PYTHON_BIN="${PYTHON_BIN:-$VENV_DIR/bin/python}"
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Missing executable python: $PYTHON_BIN" >&2
