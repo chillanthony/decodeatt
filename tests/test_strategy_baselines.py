@@ -7,7 +7,7 @@ from kvbench.policies import parse_arm, parse_arms
 from kv_eviction.runner_token import _cache_length_summary, _compact_cache_update, _should_collect_observation, _token_samples
 from kv_eviction.strategies.base import SelectionContext
 from kv_eviction.strategies.token import get_policy, policy_names
-from scripts.eval import _arm_attn_backend
+from scripts.eval import _allocate_group_ranks, _arm_attn_backend
 
 
 def _ctx(n: int, budget: int, recent: int = 4, sink: int = 2, params: dict | None = None):
@@ -163,6 +163,23 @@ def test_auto_attention_backend_selection():
     assert _arm_attn_backend("fullkv", "eager", "sdpa") == "eager"
 
 
+def test_distributed_rank_allocation_balances_attention_groups():
+    groups = {
+        "sdpa": ["fullkv", "streamingllm"],
+        "eager": ["snapkv", "h2o", "rkv"],
+    }
+    assert _allocate_group_ranks(groups, 8) == [
+        ("sdpa", 0, 3),
+        ("sdpa", 1, 3),
+        ("sdpa", 2, 3),
+        ("eager", 0, 5),
+        ("eager", 1, 5),
+        ("eager", 2, 5),
+        ("eager", 3, 5),
+        ("eager", 4, 5),
+    ]
+
+
 if __name__ == "__main__":
     test_registry_contains_official_baselines()
     test_fullkv_keeps_everything_and_parses()
@@ -175,4 +192,5 @@ if __name__ == "__main__":
     test_debug_token_samples_can_be_disabled()
     test_legacy_tuple_cache_can_be_summarized_and_compacted()
     test_auto_attention_backend_selection()
+    test_distributed_rank_allocation_balances_attention_groups()
     print("Strategy baseline tests passed")

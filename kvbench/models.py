@@ -10,7 +10,7 @@ _DTYPE = {
 }
 
 
-def load_causal_lm(model_name: str, dtype: str = "bfloat16", device_map: str = "cuda",
+def load_causal_lm(model_name: str, dtype: str = "bfloat16", device_map: str | dict = "cuda",
                    attn_implementation: str = "eager"):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -34,4 +34,3 @@ def build_input_ids(tokenizer, question: str, device):
     else:
         ids = tokenizer(question, return_tensors="pt").input_ids
     return ids.to(device)
-

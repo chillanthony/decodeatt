@@ -33,10 +33,21 @@ def run_generation_eval(
     debug_dir: str | Path | None = None,
     debug_topk: int = 0,
     policy_params: dict | None = None,
+    shard_rank: int = 0,
+    shard_world_size: int = 1,
+    progress_prefix: str = "",
 ) -> dict:
+    if shard_world_size < 1:
+        raise ValueError("shard_world_size must be at least 1")
+    if shard_rank < 0 or shard_rank >= shard_world_size:
+        raise ValueError(
+            f"shard_rank must be in [0, {shard_world_size}), got {shard_rank}"
+        )
+
     problems = load_problems(dataset, n)
     if only_ids:
         problems = [problem for problem in problems if problem["id"] in only_ids]
+    problems = problems[shard_rank::shard_world_size]
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +131,8 @@ def run_generation_eval(
                 **{key: result[key] for key in extra_metric_keys if key in result},
             }
             print(
-                f"[{index + 1}/{len(problems)}] {problem['id']} {arm.name:12s} "
+                f"{progress_prefix}[{index + 1}/{len(problems)}] "
+                f"{problem['id']} {arm.name:12s} "
                 f"ok={ok} len={len(result['gen_ids'])} cache={result['final_cache_len']} "
                 f"tok/s={result['tokens_per_sec']:.2f}",
                 flush=True,
