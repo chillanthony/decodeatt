@@ -1,0 +1,136 @@
+CA 'mlx5_0'
+	CA type: MT4125
+	Number of ports: 1
+	Firmware version: 22.31.2006
+	Hardware version: 0
+	Node GUID: 0x1070fd0300c96dc8
+	System image GUID: 0x1070fd0300c96dc8
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 100
+		Base lid: 0
+		LMC: 0
+		SM lid: 0
+		Capability mask: 0x00010000
+		Port GUID: 0x1270fdfffec96dc8
+		Link layer: Ethernet
+CA 'mlx5_1'
+	CA type: MT4125
+	Number of ports: 1
+	Firmware version: 22.31.2006
+	Hardware version: 0
+	Node GUID: 0x1070fd0300c96dc9
+	System image GUID: 0x1070fd0300c96dc8
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 100
+		Base lid: 0
+		LMC: 0
+		SM lid: 0
+		Capability mask: 0x00010000
+		Port GUID: 0x1270fdfffec96dc9
+		Link layer: Ethernet
+CA 'mlx5_2'
+	CA type: MT4125
+	Number of ports: 1
+	Firmware version: 22.31.2006
+	Hardware version: 0
+	Node GUID: 0x1070fd0300c96db0
+	System image GUID: 0x1070fd0300c96db0
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 100
+		Base lid: 0
+		LMC: 0
+		SM lid: 0
+		Capability mask: 0x00010000
+		Port GUID: 0x1270fdfffec96db0
+		Link layer: Ethernet
+CA 'mlx5_3'
+	CA type: MT4125
+	Number of ports: 1
+	Firmware version: 22.31.2006
+	Hardware version: 0
+	Node GUID: 0x1070fd0300c96db1
+	System image GUID: 0x1070fd0300c96db0
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 100
+		Base lid: 0
+		LMC: 0
+		SM lid: 0
+		Capability mask: 0x00010000
+		Port GUID: 0x1270fdfffec96db1
+		Link layer: Ethernet
+CA 'mlx5_4'
+	CA type: MT4125
+	Number of ports: 1
+	Firmware version: 22.31.2006
+	Hardware version: 0
+	Node GUID: 0x1070fd0300cbc3e6
+	System image GUID: 0x1070fd0300cbc3e6
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 100
+		Base lid: 0
+		LMC: 0
+		SM lid: 0
+		Capability mask: 0x00010000
+		Port GUID: 0x1270fdfffecbc3e6
+		Link layer: Ethernet
+CA 'mlx5_5'
+	CA type: MT4125
+	Number of ports: 1
+	Firmware version: 22.31.2006
+	Hardware version: 0
+	Node GUID: 0x1070fd0300cbc3e7
+	System image GUID: 0x1070fd0300cbc3e6
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 100
+		Base lid: 0
+		LMC: 0
+		SM lid: 0
+		Capability mask: 0x00010000
+		Port GUID: 0x1270fdfffecbc3e7
+		Link layer: Ethernet
+CA 'mlx5_6'
+	CA type: MT4125
+	Number of ports: 1
+	Firmware version: 22.31.2006
+	Hardware version: 0
+	Node GUID: 0x1070fd0300c96df0
+	System image GUID: 0x1070fd0300c96df0
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 100
+		Base lid: 0
+		LMC: 0
+		SM lid: 0
+		Capability mask: 0x00010000
+		Port GUID: 0x1270fdfffec96df0
+		Link layer: Ethernet
+CA 'mlx5_7'
+	CA type: MT4125
+	Number of ports: 1
+	Firmware version: 22.31.2006
+	Hardware version: 0
+	Node GUID: 0x1070fd0300c96df1
+	System image GUID: 0x1070fd0300c96df0
+	Port 1:
+		State: Active
+		Physical state: LinkUp
+		Rate: 100
+		Base lid: 0
+		LMC: 0
+		SM lid: 0
+		Capability mask: 0x00010000
+		Port GUID: 0x1270fdfffec96df1
+		Link layer: Ethernet
