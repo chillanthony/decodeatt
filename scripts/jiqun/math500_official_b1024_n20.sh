@@ -32,12 +32,43 @@ CONFIG="${CONFIG:-configs/experiments/math500_official_b1024.yaml}"
 DATASET="${DATASET:-math500}"
 N="${N:-20}"
 MAX_NEW="${MAX_NEW:-4096}"
-NPROC_PER_NODE="${NPROC_PER_NODE:-8}"
 
 CUDA_COUNT="$("$PYTHON_BIN" -c 'import torch; print(torch.cuda.device_count())')"
+NPROC_PER_NODE="${NPROC_PER_NODE:-$CUDA_COUNT}"
+NNODES="${NNODES:-1}"
+NODE_RANK="${NODE_RANK:-0}"
+MASTER_PORT="${MASTER_PORT:-29500}"
+
+if (( NPROC_PER_NODE < 1 )); then
+  echo "NPROC_PER_NODE must be at least 1, got $NPROC_PER_NODE" >&2
+  exit 1
+fi
 if (( CUDA_COUNT < NPROC_PER_NODE )); then
   echo "Need at least $NPROC_PER_NODE visible CUDA devices, found $CUDA_COUNT" >&2
   exit 1
+fi
+if (( NNODES < 1 )); then
+  echo "NNODES must be at least 1, got $NNODES" >&2
+  exit 1
+fi
+if (( NODE_RANK < 0 || NODE_RANK >= NNODES )); then
+  echo "NODE_RANK must be in [0, $NNODES), got $NODE_RANK" >&2
+  exit 1
+fi
+
+if (( NNODES == 1 )); then
+  LAUNCH_ARGS=(--standalone)
+else
+  if [[ -z "${MASTER_ADDR:-}" ]]; then
+    echo "MASTER_ADDR is required when NNODES > 1" >&2
+    exit 1
+  fi
+  LAUNCH_ARGS=(
+    --nnodes="$NNODES"
+    --node-rank="$NODE_RANK"
+    --master-addr="$MASTER_ADDR"
+    --master-port="$MASTER_PORT"
+  )
 fi
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
@@ -52,6 +83,8 @@ echo "[math500-b1024-n20] config=$CONFIG"
 echo "[math500-b1024-n20] dataset=$DATASET"
 echo "[math500-b1024-n20] n=$N"
 echo "[math500-b1024-n20] max_new=$MAX_NEW"
+echo "[math500-b1024-n20] nnodes=$NNODES"
+echo "[math500-b1024-n20] node_rank=$NODE_RANK"
 echo "[math500-b1024-n20] nproc_per_node=$NPROC_PER_NODE"
 echo "[math500-b1024-n20] cuda_count=$CUDA_COUNT"
 echo "[math500-b1024-n20] output_dir=$OUTPUT_DIR"
@@ -61,7 +94,7 @@ echo "[math500-b1024-n20] log_file=$LOG_FILE"
 echo "[math500-b1024-n20] python_bin=$PYTHON_BIN"
 
 "$PYTHON_BIN" -m torch.distributed.run \
-  --standalone \
+  "${LAUNCH_ARGS[@]}" \
   --nproc-per-node="$NPROC_PER_NODE" \
   -- \
   scripts/eval.py \
