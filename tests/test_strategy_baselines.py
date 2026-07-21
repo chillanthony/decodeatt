@@ -7,7 +7,7 @@ from kvbench.policies import parse_arm, parse_arms
 from kv_eviction.runner_token import _cache_length_summary, _compact_cache_update, _should_collect_observation, _token_samples
 from kv_eviction.strategies.base import SelectionContext
 from kv_eviction.strategies.token import get_policy, policy_names
-from scripts.eval import _allocate_group_ranks, _arm_attn_backend
+from scripts.eval import _allocate_group_ranks, _arm_attn_backend, _claim_next_problem
 
 
 def _ctx(n: int, budget: int, recent: int = 4, sink: int = 2, params: dict | None = None):
@@ -180,6 +180,18 @@ def test_distributed_rank_allocation_balances_attention_groups():
     ]
 
 
+def test_distributed_problem_claims_are_atomic_counter_indices():
+    class _Store:
+        value = 0
+
+        def add(self, _key, increment):
+            self.value += increment
+            return self.value
+
+    store = _Store()
+    assert [_claim_next_problem(store, "queue") for _ in range(4)] == [0, 1, 2, 3]
+
+
 if __name__ == "__main__":
     test_registry_contains_official_baselines()
     test_fullkv_keeps_everything_and_parses()
@@ -193,4 +205,5 @@ if __name__ == "__main__":
     test_legacy_tuple_cache_can_be_summarized_and_compacted()
     test_auto_attention_backend_selection()
     test_distributed_rank_allocation_balances_attention_groups()
+    test_distributed_problem_claims_are_atomic_counter_indices()
     print("Strategy baseline tests passed")

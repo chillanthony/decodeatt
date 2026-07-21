@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Callable
 
 from kv_eviction.runner_token import generate_token_evict
 
@@ -36,6 +37,7 @@ def run_generation_eval(
     shard_rank: int = 0,
     shard_world_size: int = 1,
     progress_prefix: str = "",
+    claim_problem_index: Callable[[], int | None] | None = None,
 ) -> dict:
     if shard_world_size < 1:
         raise ValueError("shard_world_size must be at least 1")
@@ -43,18 +45,38 @@ def run_generation_eval(
         raise ValueError(
             f"shard_rank must be in [0, {shard_world_size}), got {shard_rank}"
         )
+    if claim_problem_index is not None and (shard_rank != 0 or shard_world_size != 1):
+        raise ValueError("dynamic problem claiming cannot be combined with static sharding")
 
     problems = load_problems(dataset, n)
     if only_ids:
         problems = [problem for problem in problems if problem["id"] in only_ids]
-    problems = problems[shard_rank::shard_world_size]
+    if claim_problem_index is None:
+        problems = problems[shard_rank::shard_world_size]
+
+        def next_problem():
+            for local_index, problem in enumerate(problems, start=1):
+                yield local_index, len(problems), problem
+
+    else:
+
+        def next_problem():
+            while True:
+                problem_index = claim_problem_index()
+                if problem_index is None:
+                    return
+                if problem_index < 0:
+                    raise IndexError(f"claimed negative problem index {problem_index}")
+                if problem_index >= len(problems):
+                    return
+                yield problem_index + 1, len(problems), problems[problem_index]
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     debug_dir = Path(debug_dir) if debug_dir else None
 
     records = []
-    for index, problem in enumerate(problems):
+    for progress_index, progress_total, problem in next_problem():
         row = {"id": problem["id"], "gold": problem["answer"], "arms": {}}
         input_ids = build_input_ids(tokenizer, problem["question"], next(model.parameters()).device)
         for arm in arms:
@@ -131,7 +153,7 @@ def run_generation_eval(
                 **{key: result[key] for key in extra_metric_keys if key in result},
             }
             print(
-                f"{progress_prefix}[{index + 1}/{len(problems)}] "
+                f"{progress_prefix}[{progress_index}/{progress_total}] "
                 f"{problem['id']} {arm.name:12s} "
                 f"ok={ok} len={len(result['gen_ids'])} cache={result['final_cache_len']} "
                 f"tok/s={result['tokens_per_sec']:.2f}",

@@ -5,6 +5,7 @@ import argparse
 import gc
 import json
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import torch
@@ -166,6 +167,11 @@ def _distributed_shard_path(out_path: Path, rank: int, backend: str) -> Path:
     return shard_dir / f"{out_path.stem}.rank{rank}.{backend}{out_path.suffix}"
 
 
+def _claim_next_problem(store, queue_key: str) -> int:
+    """Atomically claim the next zero-based problem index from a torch Store."""
+    return int(store.add(queue_key, 1)) - 1
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/experiments/math500_official_b1024.yaml")
@@ -200,6 +206,12 @@ def main():
         "--distributed",
         action="store_true",
         help="Shard attention groups and problems across torchrun ranks.",
+    )
+    parser.add_argument(
+        "--distributed-timeout-minutes",
+        type=int,
+        default=120,
+        help="Timeout for distributed control-plane synchronization, default 120 minutes.",
     )
     parser.add_argument("--only-ids", default="")
     parser.add_argument("--debug-dir", default=None)
@@ -271,18 +283,27 @@ def main():
             raise SystemExit("torch.distributed is not available in this PyTorch build")
         if env_world_size <= 1:
             raise SystemExit("--distributed must be launched with torchrun and WORLD_SIZE > 1")
+        if args.distributed_timeout_minutes < 1:
+            raise SystemExit("--distributed-timeout-minutes must be at least 1")
 
         local_rank = int(os.environ.get("LOCAL_RANK", "0"))
         if torch.cuda.is_available():
             torch.cuda.set_device(local_rank)
-        dist_backend = "nccl" if torch.cuda.is_available() else "gloo"
-        torch.distributed.init_process_group(backend=dist_backend)
+        # Ranks run independent inference jobs; collectives are control-plane barriers only.
+        # Gloo avoids tying those long, imbalanced waits to NCCL's GPU watchdog.
+        dist_backend = "gloo"
+        torch.distributed.init_process_group(
+            backend=dist_backend,
+            timeout=timedelta(minutes=args.distributed_timeout_minutes),
+        )
         rank = torch.distributed.get_rank()
         world_size = torch.distributed.get_world_size()
         assignments = _allocate_group_ranks(groups, world_size)
         attn_backend, group_rank, group_world_size = assignments[rank]
         group_arms = groups[attn_backend]
         shard_out = _distributed_shard_path(out_path, rank, attn_backend)
+        store = torch.distributed.distributed_c10d._get_default_store()
+        queue_key = f"kvbench:next_problem:{attn_backend}"
 
         if torch.cuda.is_available():
             distributed_device_map: str | dict = {"": f"cuda:{local_rank}"}
@@ -292,11 +313,19 @@ def main():
         try:
             # Populate the shared dataset cache once before the other ranks read it.
             if rank == 0:
+                for backend in groups:
+                    store.set(f"kvbench:next_problem:{backend}", "0")
                 load_problems(eval_kwargs["dataset"], eval_kwargs["n"])
             torch.distributed.barrier()
 
+            def claim_problem_index() -> int:
+                return _claim_next_problem(store, queue_key)
+
             print(
                 f"\n=== rank={rank}/{world_size} local_rank={local_rank} "
+                f"control_backend={dist_backend} "
+                f"timeout_min={args.distributed_timeout_minutes} "
+                f"scheduler=dynamic "
                 f"attn={attn_backend} group_shard={group_rank}/{group_world_size} "
                 f"arms={', '.join(arm.name for arm in group_arms)} ===",
                 flush=True,
@@ -312,8 +341,7 @@ def main():
                 tokenizer,
                 arms=group_arms,
                 out_path=shard_out,
-                shard_rank=group_rank,
-                shard_world_size=group_world_size,
+                claim_problem_index=claim_problem_index,
                 progress_prefix=f"[rank {rank}] ",
                 **eval_kwargs,
             )
