@@ -202,6 +202,11 @@ def main():
     parser.add_argument("--top-p", type=float, default=None)
     parser.add_argument("--greedy", action="store_true")
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--num-return-sequences", type=int, default=None)
+    parser.add_argument("--seed-offset", type=int, default=None)
+    parser.add_argument("--problem-batch-size", type=int, default=None)
+    parser.add_argument("--prompt-bucket-size", type=int, default=None)
     parser.add_argument(
         "--distributed",
         action="store_true",
@@ -266,6 +271,17 @@ def main():
         temperature=pick("temperature", 0.6, ("generation", "temperature")),
         top_p=pick("top_p", 0.95, ("generation", "top_p")),
         seed=pick("seed", 0, ("generation", "seed")),
+        batch_size=pick("batch_size", 1, ("generation", "batch_size")),
+        num_return_sequences=pick(
+            "num_return_sequences", 1, ("generation", "num_return_sequences")
+        ),
+        seed_offset=pick("seed_offset", 0, ("generation", "seed_offset")),
+        problem_batch_size=pick(
+            "problem_batch_size", 1, ("generation", "problem_batch_size")
+        ),
+        prompt_bucket_size=pick(
+            "prompt_bucket_size", 0, ("generation", "prompt_bucket_size")
+        ),
         only_ids=set(only_ids.split(",")) if only_ids else None,
         debug_dir=args.debug_dir or _config_value(cfg, "debug_dir", ("debug", "dir"), None),
         debug_topk=pick("debug_topk", 0, ("debug", "topk")),
