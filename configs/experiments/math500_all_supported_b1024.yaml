@@ -21,6 +21,11 @@ generation:
   temperature: 0.6
   top_p: 0.95
   seed: 0
+  batch_size: 1
+  num_return_sequences: 1
+  seed_offset: 0
+  problem_batch_size: 1
+  prompt_bucket_size: 0
 
 eviction:
   recent: 8

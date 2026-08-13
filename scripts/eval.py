@@ -4,12 +4,15 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import os
+from datetime import timedelta
 from pathlib import Path
 
 import torch
 import yaml
 
 from kvbench.evaluator import run_generation_eval
+from kvbench.datasets import load_problems
 from kvbench.models import load_causal_lm
 from kvbench.policies import parse_arms
 from kvbench.metrics import summarize_accuracy
@@ -125,6 +128,50 @@ def _merge_payloads(payloads: list[dict], out_path: str | Path) -> dict:
     return merged
 
 
+def _allocate_group_ranks(groups: dict[str, list], world_size: int) -> list[tuple[str, int, int]]:
+    """Assign ranks to attention groups in proportion to their arm counts."""
+    items = list(groups.items())
+    if world_size < len(items):
+        raise ValueError(
+            f"distributed evaluation needs at least {len(items)} ranks for "
+            f"{len(items)} attention groups, got {world_size}"
+        )
+
+    counts = [1] * len(items)
+    remaining = world_size - len(items)
+    if remaining:
+        total_weight = sum(len(group_arms) for _, group_arms in items)
+        quotas = [remaining * len(group_arms) / total_weight for _, group_arms in items]
+        floors = [int(quota) for quota in quotas]
+        counts = [count + floor for count, floor in zip(counts, floors)]
+        leftover = remaining - sum(floors)
+        fractional_order = sorted(
+            range(len(items)),
+            key=lambda index: (quotas[index] - floors[index], len(items[index][1])),
+            reverse=True,
+        )
+        for index in fractional_order[:leftover]:
+            counts[index] += 1
+
+    assignments: list[tuple[str, int, int]] = []
+    for (backend, _), group_world_size in zip(items, counts):
+        assignments.extend(
+            (backend, group_rank, group_world_size)
+            for group_rank in range(group_world_size)
+        )
+    return assignments
+
+
+def _distributed_shard_path(out_path: Path, rank: int, backend: str) -> Path:
+    shard_dir = out_path.parent / f"{out_path.stem}.shards"
+    return shard_dir / f"{out_path.stem}.rank{rank}.{backend}{out_path.suffix}"
+
+
+def _claim_next_problem(store, queue_key: str) -> int:
+    """Atomically claim the next zero-based problem index from a torch Store."""
+    return int(store.add(queue_key, 1)) - 1
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/experiments/math500_official_b1024.yaml")
@@ -155,6 +202,22 @@ def main():
     parser.add_argument("--top-p", type=float, default=None)
     parser.add_argument("--greedy", action="store_true")
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--num-return-sequences", type=int, default=None)
+    parser.add_argument("--seed-offset", type=int, default=None)
+    parser.add_argument("--problem-batch-size", type=int, default=None)
+    parser.add_argument("--prompt-bucket-size", type=int, default=None)
+    parser.add_argument(
+        "--distributed",
+        action="store_true",
+        help="Shard attention groups and problems across torchrun ranks.",
+    )
+    parser.add_argument(
+        "--distributed-timeout-minutes",
+        type=int,
+        default=120,
+        help="Timeout for distributed control-plane synchronization, default 120 minutes.",
+    )
     parser.add_argument("--only-ids", default="")
     parser.add_argument("--debug-dir", default=None)
     parser.add_argument("--debug-topk", type=int, default=None)
@@ -208,6 +271,17 @@ def main():
         temperature=pick("temperature", 0.6, ("generation", "temperature")),
         top_p=pick("top_p", 0.95, ("generation", "top_p")),
         seed=pick("seed", 0, ("generation", "seed")),
+        batch_size=pick("batch_size", 1, ("generation", "batch_size")),
+        num_return_sequences=pick(
+            "num_return_sequences", 1, ("generation", "num_return_sequences")
+        ),
+        seed_offset=pick("seed_offset", 0, ("generation", "seed_offset")),
+        problem_batch_size=pick(
+            "problem_batch_size", 1, ("generation", "problem_batch_size")
+        ),
+        prompt_bucket_size=pick(
+            "prompt_bucket_size", 0, ("generation", "prompt_bucket_size")
+        ),
         only_ids=set(only_ids.split(",")) if only_ids else None,
         debug_dir=args.debug_dir or _config_value(cfg, "debug_dir", ("debug", "dir"), None),
         debug_topk=pick("debug_topk", 0, ("debug", "topk")),
@@ -217,6 +291,95 @@ def main():
     groups: dict[str, list] = {}
     for arm in arms:
         groups.setdefault(_arm_attn_backend(arm.backend, requested_attn, fast_attn), []).append(arm)
+
+    env_world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    distributed = args.distributed or env_world_size > 1
+    if distributed:
+        if not torch.distributed.is_available():
+            raise SystemExit("torch.distributed is not available in this PyTorch build")
+        if env_world_size <= 1:
+            raise SystemExit("--distributed must be launched with torchrun and WORLD_SIZE > 1")
+        if args.distributed_timeout_minutes < 1:
+            raise SystemExit("--distributed-timeout-minutes must be at least 1")
+
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+        if torch.cuda.is_available():
+            torch.cuda.set_device(local_rank)
+        # Ranks run independent inference jobs; collectives are control-plane barriers only.
+        # Gloo avoids tying those long, imbalanced waits to NCCL's GPU watchdog.
+        dist_backend = "gloo"
+        torch.distributed.init_process_group(
+            backend=dist_backend,
+            timeout=timedelta(minutes=args.distributed_timeout_minutes),
+        )
+        rank = torch.distributed.get_rank()
+        world_size = torch.distributed.get_world_size()
+        assignments = _allocate_group_ranks(groups, world_size)
+        attn_backend, group_rank, group_world_size = assignments[rank]
+        group_arms = groups[attn_backend]
+        shard_out = _distributed_shard_path(out_path, rank, attn_backend)
+        store = torch.distributed.distributed_c10d._get_default_store()
+        queue_key = f"kvbench:next_problem:{attn_backend}"
+
+        if torch.cuda.is_available():
+            distributed_device_map: str | dict = {"": f"cuda:{local_rank}"}
+        else:
+            distributed_device_map = "cpu"
+
+        try:
+            # Populate the shared dataset cache once before the other ranks read it.
+            if rank == 0:
+                for backend in groups:
+                    store.set(f"kvbench:next_problem:{backend}", "0")
+                load_problems(eval_kwargs["dataset"], eval_kwargs["n"])
+            torch.distributed.barrier()
+
+            def claim_problem_index() -> int:
+                return _claim_next_problem(store, queue_key)
+
+            print(
+                f"\n=== rank={rank}/{world_size} local_rank={local_rank} "
+                f"control_backend={dist_backend} "
+                f"timeout_min={args.distributed_timeout_minutes} "
+                f"scheduler=dynamic "
+                f"attn={attn_backend} group_shard={group_rank}/{group_world_size} "
+                f"arms={', '.join(arm.name for arm in group_arms)} ===",
+                flush=True,
+            )
+            model, tokenizer = load_causal_lm(
+                model_name,
+                dtype=pick("dtype", "bfloat16", ("model", "dtype")),
+                device_map=distributed_device_map,
+                attn_implementation=attn_backend,
+            )
+            run_generation_eval(
+                model,
+                tokenizer,
+                arms=group_arms,
+                out_path=shard_out,
+                claim_problem_index=claim_problem_index,
+                progress_prefix=f"[rank {rank}] ",
+                **eval_kwargs,
+            )
+            del model, tokenizer
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            torch.distributed.barrier()
+            if rank == 0:
+                shard_payloads = []
+                for shard_rank, (backend, _, _) in enumerate(assignments):
+                    shard_path = _distributed_shard_path(out_path, shard_rank, backend)
+                    shard_payloads.append(json.loads(shard_path.read_text()))
+                payload = _merge_payloads(shard_payloads, out_path)
+                print("\n=== Distributed KV eviction eval ===")
+                print(json.dumps(payload["summary"], ensure_ascii=False, indent=1))
+                print(f"\nMerged {world_size} rank shards into {out_path}")
+            torch.distributed.barrier()
+        finally:
+            torch.distributed.destroy_process_group()
+        return
 
     payloads = []
     for attn_backend, group_arms in groups.items():

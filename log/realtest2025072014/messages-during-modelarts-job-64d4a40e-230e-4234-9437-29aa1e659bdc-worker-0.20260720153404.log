@@ -1,0 +1,23 @@
+Jul 20 15:34:04 os-node-created-b5nts sh[11333]: [/usr/local/bin/kubelet][INFO] check success
+Jul 20 15:34:06 os-node-created-b5nts sh[14373]: [docker][INFO] check success
+Jul 20 15:34:07 os-node-created-b5nts systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Jul 20 15:34:09 os-node-created-b5nts sh[11273]: [kube-proxy][INFO] check success
+Jul 20 15:34:09 os-node-created-b5nts sh[131360]: ovs-vswitchd (Open vSwitch) 2.7.3
+Jul 20 15:34:09 os-node-created-b5nts sh[131362]: br_monitor
+Jul 20 15:34:09 os-node-created-b5nts sh[131362]: br_plc_3e7c5122
+Jul 20 15:34:09 os-node-created-b5nts sh[131362]: br_plc_4aa53fe6
+Jul 20 15:34:09 os-node-created-b5nts sh[131362]: br_plc_934c41ee
+Jul 20 15:34:09 os-node-created-b5nts sh[131362]: br_plc_dba12412
+Jul 20 15:34:09 os-node-created-b5nts sh[131362]: br_plc_dc132129
+Jul 20 15:34:09 os-node-created-b5nts sh[131362]: br_plc_ef36e119
+Jul 20 15:34:09 os-node-created-b5nts sh[131362]: br_tun_b0345198
+Jul 20 15:34:09 os-node-created-b5nts sh[131362]: overlay_br_int
+Jul 20 15:34:09 os-node-created-b5nts sh[11471]: [Open vSwitch][INFO] check success
+Jul 20 15:34:10 os-node-created-b5nts sh[11077]: [canal-agent][INFO] check success
+Jul 20 15:34:14 os-node-created-b5nts sh[11333]: [/usr/local/bin/kubelet][INFO] check success
+Jul 20 15:34:15 os-node-created-b5nts dockerd[1062511]: time="2026-07-20T15:34:15.218363918+08:00" level=info msg="exit-del moby/49ff9eb0e1d559f69db800d0f928257aa10553472ed355d555770584ab59d6d8.125639.2 error=<nil>"
+Jul 20 15:34:15 os-node-created-b5nts dockerd[1062428]: time="2026-07-20T15:34:15.218420730+08:00" level=info msg=event ExitStatus=2 ExitedAt="2026-07-20 07:34:15.208199547 +0000 UTC" Pid=125639 ProcessID=49ff9eb0e1d559f69db800d0f928257aa10553472ed355d555770584ab59d6d8 containerID=49ff9eb0e1d559f69db800d0f928257aa10553472ed355d555770584ab59d6d8 module=libcontainerd namespace=moby topic=/tasks/exit
+Jul 20 15:34:15 os-node-created-b5nts dockerd[1062428]: time="2026-07-20T15:34:15.218473556+08:00" level=info msg="handle container 49ff9eb0e1d559f69db800d0f928257aa10553472ed355d555770584ab59d6d8 exit event pid=125639"
+Jul 20 15:34:15 os-node-created-b5nts dockerd[1062511]: time="2026-07-20T15:34:15.230458916+08:00" level=info msg="shim reaped" id=49ff9eb0e1d559f69db800d0f928257aa10553472ed355d555770584ab59d6d8
+Jul 20 15:34:15 os-node-created-b5nts dockerd[1062428]: time="2026-07-20T15:34:15.240096600+08:00" level=info msg=event ExitStatus=2 ExitedAt="2026-07-20 07:34:15.208199547 +0000 UTC" Pid=125639 containerID=49ff9eb0e1d559f69db800d0f928257aa10553472ed355d555770584ab59d6d8 module=libcontainerd namespace=moby topic=/tasks/delete
+Jul 20 15:34:15 os-node-created-b5nts systemd[1]: var-lib-docker-overlay2-c780d21b2bf4dbb67fe6383db0656720aefe6335fa7c94bd46cfc7a2b46eff47-merged.mount: Succeeded.

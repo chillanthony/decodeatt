@@ -112,6 +112,49 @@ PYTHONPATH=. uv run python scripts/eval.py \
   --config configs/onestrategy/rkv.yaml
 ```
 
+## 同题多候选 batch
+
+正式 pass@1 评测可以在每张 GPU 上并行生成同一道题的多个独立候选：
+
+```bash
+PYTHONPATH=. uv run python scripts/eval.py \
+  --config configs/experiments/math500_official_b1024.yaml \
+  --batch-size 16 \
+  --num-return-sequences 64
+```
+
+`batch_size` 是单次 GPU micro-batch，`num_return_sequences` 是每题总候选数；
+候选随机种子依次为 `seed + seed_offset + candidate_idx`。最后不足一个完整
+micro-batch 的候选会自动使用较小 batch。`batch_size=1`、
+`num_return_sequences=1` 保持原有行为。
+
+## 跨题 batch
+
+每道题只采样一次时，可以把不同题目按 prompt token 长度排序后共同生成：
+
+```bash
+PYTHONPATH=. uv run python scripts/eval.py \
+  --config configs/experiments/math500_official_b1024.yaml \
+  --problem-batch-size 8 \
+  --prompt-bucket-size 32
+```
+
+`problem_batch_size` 是一次并行的题目数；`prompt_bucket_size` 是每次预取并按
+prompt 长度排序的题目数，设为 `0` 时单进程默认使用
+`4 * problem_batch_size`，多卡动态调度默认使用 `problem_batch_size`，避免单个
+rank 提前领取过多题目。不同长度 prompt 使用左侧 padding、独立 position ids
+和有效 KV mask；提前 EOS 的请求继续占据 batch 槽位，但后续 filler KV 会被
+mask 掉。
+
+跨题 batch 可以与同题多候选组合。此时一次 forward 的最大请求数为：
+
+$$
+\text{problem\_batch\_size} \times \text{batch\_size}
+$$
+
+例如 `problem_batch_size=4`、`batch_size=8`、`num_return_sequences=64` 时，
+每次最多并行 32 条轨迹，每组题目分 8 个候选 micro-batch 完成。
+
 ## R-KV parity test
 
 ```bash

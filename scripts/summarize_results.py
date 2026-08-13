@@ -31,7 +31,13 @@ def _safe_div(num: float | int | None, den: float | int | None) -> float | None:
 
 
 def _rows_for_arm(records: list[dict[str, Any]], arm: str) -> list[dict[str, Any]]:
-    return [record["arms"][arm] for record in records if arm in record.get("arms", {})]
+    rows = []
+    for record in records:
+        if arm not in record.get("arms", {}):
+            continue
+        arm_row = record["arms"][arm]
+        rows.extend(arm_row.get("candidates") or [arm_row])
+    return rows
 
 
 def _accuracy(rows: list[dict[str, Any]]) -> float | None:

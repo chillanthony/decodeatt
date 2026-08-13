@@ -1,6 +1,7 @@
 decodeatt
 decodeatt/
 .claude/
+note/
 
 # Python / uv
 .venv/

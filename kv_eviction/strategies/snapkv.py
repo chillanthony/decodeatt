@@ -12,11 +12,16 @@ def select_snapkv(cache, attn_history, n, budget, params, return_debug=False):
     window_size = int(params.get("window_size", params.get("alpha", 32)))
     kernel_size = int(params.get("kernel_size", params.get("pool_kernel", 7)))
     pooling = str(params.get("pooling", "avgpool"))
+    valid_mask = params.get("_valid_mask")
     if budget - window_size <= 0:
         raise ValueError("SnapKV budget must be greater than window_size")
+    batch_size = int(cache.layers[0].keys.shape[0])
+    batched = batch_size > 1
     if n < budget:
         idx = [
-            torch.arange(n, device=device).expand(layer.keys.shape[1], -1)
+            torch.arange(n, device=device).expand(
+                (batch_size, layer.keys.shape[1], n) if batched else (layer.keys.shape[1], n)
+            )
             for layer in cache.layers
         ]
         if return_debug:
@@ -25,7 +30,7 @@ def select_snapkv(cache, attn_history, n, budget, params, return_debug=False):
 
     n_cand = n - window_size
     per_layer = []
-    score_acc = torch.zeros(n, dtype=torch.float32, device=device)
+    score_acc = torch.zeros((batch_size, n) if batched else (n,), dtype=torch.float32, device=device)
     score_count = 0
     for layer_idx, layer in enumerate(cache.layers):
         kv_heads = layer.keys.shape[1]
@@ -38,22 +43,35 @@ def select_snapkv(cache, attn_history, n, budget, params, return_debug=False):
             kernel_size,
             device,
             pooling,
+            valid_mask,
         )
+        if valid_mask is not None:
+            candidate_valid = valid_mask[..., :n_cand].to(device=device, dtype=torch.bool)
+            importance = importance.masked_fill(
+                ~candidate_valid.unsqueeze(1) if batched else ~candidate_valid,
+                torch.finfo(importance.dtype).min,
+            )
         selected = torch.topk(importance, k=budget - window_size, dim=-1).indices
-        recent = torch.arange(n_cand, n, device=device).expand(kv_heads, -1)
+        recent = torch.arange(n_cand, n, device=device).expand(
+            (batch_size, kv_heads, window_size) if batched else (kv_heads, window_size)
+        )
         per_layer.append(torch.cat([selected, recent], dim=-1))
-        score_acc[:n_cand] += importance.sum(0)
+        if batched:
+            score_acc[:, :n_cand] += importance.sum(1)
+        else:
+            score_acc[:n_cand] += importance.sum(0)
         score_count += kv_heads
     policy_score = score_acc / max(score_count, 1)
-    policy_score[n_cand:] = float("inf")
+    policy_score[..., n_cand:] = float("inf")
     if return_debug:
         return per_layer, _debug(per_layer, policy_score)
     return per_layer
 
 
 def _debug(idx, policy_score):
+    representative = idx[0][0] if idx[0].ndim == 2 else idx[0][0, 0]
     return {
-        "backend_keep": idx[0][0],
+        "backend_keep": representative,
         "anchor_extra": torch.empty(0, dtype=torch.long, device=policy_score.device),
         "sig_score": None,
         "policy_score": policy_score,

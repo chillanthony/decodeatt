@@ -103,7 +103,12 @@ def summarize_accuracy(records: list[dict]) -> dict:
     arms = sorted({arm for row in records for arm in row["arms"]})
     summary = {}
     for arm in arms:
-        rows = [row["arms"][arm] for row in records if arm in row["arms"]]
+        arm_rows = [row["arms"][arm] for row in records if arm in row["arms"]]
+        rows = [
+            candidate
+            for row in arm_rows
+            for candidate in (row.get("candidates") or [row])
+        ]
         correct = sum(bool(row["ok"]) for row in rows)
 
         def mean_field(key: str, default: float = 0.0) -> float:
@@ -120,6 +125,8 @@ def summarize_accuracy(records: list[dict]) -> dict:
 
         summary[arm] = {
             "accuracy": correct / len(rows) if rows else 0.0,
+            "pass_at_1": correct / len(rows) if rows else 0.0,
+            "num_problems": len(arm_rows),
             "correct": correct,
             "total": len(rows),
             "mean_gen_len": sum(row["gen_len"] for row in rows) / len(rows) if rows else 0.0,
