@@ -1,0 +1,48 @@
+[aime24_rkv_b1536_s4_1gpu_smoke] root=/data/cyb/cyb/decodeatt
+[aime24_rkv_b1536_s4_1gpu_smoke] model=/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/models/DeepSeek-R1-Distill-Llama-8B
+[aime24_rkv_b1536_s4_1gpu_smoke] dataset=aime n=1
+[aime24_rkv_b1536_s4_1gpu_smoke] arms=rkv@1536 max_new=256
+[aime24_rkv_b1536_s4_1gpu_smoke] batch_size=4 num_return_sequences=4
+[aime24_rkv_b1536_s4_1gpu_smoke] problem_batch_size=1
+[aime24_rkv_b1536_s4_1gpu_smoke] cuda_visible_devices=0 cuda_count=1
+[aime24_rkv_b1536_s4_1gpu_smoke] hf_home=/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache hf_endpoint=https://hf-mirror.com
+[aime24_rkv_b1536_s4_1gpu_smoke] hf_hub_offline=0 hf_datasets_offline=0
+[aime24_rkv_b1536_s4_1gpu_smoke] out=/data/cyb/cyb/decodeatt/runs/aime24_rkv_b1536_s4_1gpu_smoke/result/aime24_rkv_b1536_s4_1gpu_smoke.json
+[aime24_rkv_b1536_s4_1gpu_smoke] log_file=/data/cyb/cyb/decodeatt/runs/aime24_rkv_b1536_s4_1gpu_smoke/output/aime24_rkv_b1536_s4_1gpu_smoke.log
+
+=== Loading model with attn=eager for arms: rkv@1536 ===
+`torch_dtype` is deprecated! Use `dtype` instead!
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:42<00:42, 42.91s/it]Loading checkpoint shards: 100%|██████████| 2/2 [01:21<00:00, 40.36s/it]Loading checkpoint shards: 100%|██████████| 2/2 [01:21<00:00, 40.74s/it]
+'(MaxRetryError("HTTPSConnectionPool(host='hf-mirror.com', port=443): Max retries exceeded with url: /datasets/Maxwell-Jia/AIME_2024/resolve/main/README.md (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1016)')))"), '(Request ID: 9764e485-8717-4695-a40d-8e9b2c900e4c)')' thrown while requesting HEAD https://hf-mirror.com/datasets/Maxwell-Jia/AIME_2024/resolve/main/README.md
+Retrying in 1s [Retry 1/5].
+'(MaxRetryError("HTTPSConnectionPool(host='hf-mirror.com', port=443): Max retries exceeded with url: /datasets/Maxwell-Jia/AIME_2024/resolve/main/README.md (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1016)')))"), '(Request ID: e58ef782-7dca-4941-ac73-de1ed00fe8aa)')' thrown while requesting HEAD https://hf-mirror.com/datasets/Maxwell-Jia/AIME_2024/resolve/main/README.md
+Retrying in 2s [Retry 2/5].
+'(MaxRetryError("HTTPSConnectionPool(host='hf-mirror.com', port=443): Max retries exceeded with url: /datasets/Maxwell-Jia/AIME_2024/resolve/main/README.md (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1016)')))"), '(Request ID: c69e27cb-cc67-417b-b78c-94410785dac4)')' thrown while requesting HEAD https://hf-mirror.com/datasets/Maxwell-Jia/AIME_2024/resolve/main/README.md
+Retrying in 4s [Retry 3/5].
+'(MaxRetryError("HTTPSConnectionPool(host='hf-mirror.com', port=443): Max retries exceeded with url: /datasets/Maxwell-Jia/AIME_2024/resolve/main/README.md (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1016)')))"), '(Request ID: 44600a29-f430-4f85-b0a6-46eedbdef5d5)')' thrown while requesting HEAD https://hf-mirror.com/datasets/Maxwell-Jia/AIME_2024/resolve/main/README.md
+Retrying in 8s [Retry 4/5].
+'(MaxRetryError("HTTPSConnectionPool(host='hf-mirror.com', port=443): Max retries exceeded with url: /datasets/Maxwell-Jia/AIME_2024/resolve/main/README.md (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1016)')))"), '(Request ID: 384b4552-ad3a-4c10-ab1e-c8f10ccec1e4)')' thrown while requesting HEAD https://hf-mirror.com/datasets/Maxwell-Jia/AIME_2024/resolve/main/README.md
+Retrying in 8s [Retry 5/5].
+'(MaxRetryError("HTTPSConnectionPool(host='hf-mirror.com', port=443): Max retries exceeded with url: /datasets/Maxwell-Jia/AIME_2024/resolve/main/README.md (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1016)')))"), '(Request ID: 31abca8c-22ae-4352-b6e6-2c86d29b7a02)')' thrown while requesting HEAD https://hf-mirror.com/datasets/Maxwell-Jia/AIME_2024/resolve/main/README.md
+Traceback (most recent call last):
+  File "/data/cyb/cyb/decodeatt/scripts/eval.py", line 420, in <module>
+    main()
+  File "/data/cyb/cyb/decodeatt/scripts/eval.py", line 401, in main
+    run_generation_eval(
+  File "/data/cyb/cyb/decodeatt/kvbench/evaluator.py", line 64, in run_generation_eval
+    problems = load_problems(dataset, n)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/cyb/cyb/decodeatt/kvbench/datasets.py", line 54, in load_problems
+    ds = load_dataset(repo, split=split)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ma-user/.venvs/decodeatt/lib/python3.11/site-packages/datasets/load.py", line 1698, in load_dataset
+    builder_instance = load_dataset_builder(
+                       ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ma-user/.venvs/decodeatt/lib/python3.11/site-packages/datasets/load.py", line 1325, in load_dataset_builder
+    dataset_module = dataset_module_factory(
+                     ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ma-user/.venvs/decodeatt/lib/python3.11/site-packages/datasets/load.py", line 1217, in dataset_module_factory
+    raise e1 from None
+  File "/home/ma-user/.venvs/decodeatt/lib/python3.11/site-packages/datasets/load.py", line 1159, in dataset_module_factory
+    raise ConnectionError(f"Couldn't reach '{path}' on the Hub ({e.__class__.__name__})") from e
+ConnectionError: Couldn't reach 'Maxwell-Jia/AIME_2024' on the Hub (SSLError)
