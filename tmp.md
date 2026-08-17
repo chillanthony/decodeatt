@@ -167,6 +167,44 @@ sort -nr |
 head -20
 ```
 
+### 最大对象不大时检查总 push 包
+
+如果最大对象是 `1110993` 字节，它约为 `1.06 MiB`，远低于 GitHub 的单对象硬限制 `100 MiB`，因此基本可以排除“单个文件过大”。但大量小文件或大量历史对象仍可能让单次 push 过大；GitHub 对单次 push 强制执行 `2 GiB` 上限。
+
+检查待推送提交数：
+
+```bash
+git rev-list --count '@{upstream}'..HEAD
+```
+
+检查待推送对象数：
+
+```bash
+git rev-list --objects '@{upstream}'..HEAD | wc -l
+```
+
+估算压缩后的 push 包大小：
+
+```bash
+git rev-list --objects '@{upstream}'..HEAD |
+cut -d' ' -f1 |
+git pack-objects --stdout 2>/dev/null |
+wc -c |
+awk '{printf "%.2f MiB\n", $1/1048576}'
+```
+
+结果判断：
+
+- 接近或超过 `2048 MiB`：命中 GitHub 单次 push 的 `2 GiB` 限制，需要拆分推送。
+- 达到几百 MiB：可能是代理、网络或网关在上传阶段中断，可换网络或改用 SSH 验证。
+- 只有几十 MiB：基本可以排除大小问题，应重新检查代理、HTTP credential 和服务器返回的 `remote:` 信息。
+- 如果输出明确出现 `Git LFS`：继续检查 LFS 状态和认证。
+
+GitHub 官方说明：
+
+- [Repository limits](https://docs.github.com/en/repositories/creating-and-managing-repositories/repository-limits)
+- [Troubleshooting the 2 GiB push limit](https://docs.github.com/en/get-started/using-git/troubleshooting-the-2-gb-push-limit)
+
 如果错误输出明确提到 Git LFS，再检查：
 
 ```bash
