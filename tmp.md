@@ -239,3 +239,103 @@ GIT_TERMINAL_PROMPT=1 git push origin HEAD
 ```
 
 如果仍然失败，再执行读取/写入权限测试、代理检查和大文件检查，并保留完整的 `remote:` 输出。
+
+## 9. dry-run 成功但实际 push 失败
+
+如果待推送压缩包只有约 `0.11 MiB`、对象数也很少，同时下面的 dry-run 可以成功：
+
+```bash
+git push --dry-run origin HEAD
+```
+
+那么可以排除普通 Git 大文件和基础写权限问题。dry-run 不会真正上传对象，因此实际 push 仍可能在 Git LFS、HTTP 请求体上传、代理转发或仓库内容检查阶段失败。
+
+### 9.1 强制使用 HTTP/1.1
+
+先进行一次临时测试：
+
+```bash
+git -c http.version=HTTP/1.1 push origin HEAD
+```
+
+如果成功，将配置应用到当前仓库：
+
+```bash
+git config http.version HTTP/1.1
+```
+
+### 9.2 检查 Git LFS
+
+```bash
+git lfs status
+git lfs push --dry-run origin HEAD
+```
+
+如果提示没有 `git lfs` 命令，说明当前环境没有使用 Git LFS 客户端，可以跳过。如果 LFS 明确返回 403，查看最近日志：
+
+```bash
+git lfs logs last
+```
+
+### 9.3 检查工作流文件权限
+
+```bash
+git diff --name-only '@{upstream}'..HEAD |
+grep '^\.github/workflows/'
+```
+
+如果有输出，确认 PAT 具有相应权限：
+
+- Classic PAT：需要 `workflow` scope。
+- Fine-grained PAT：需要 `Workflows: Read and write`。
+
+### 9.4 临时绕过代理
+
+macOS 或 Linux：
+
+```bash
+env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY \
+    -u http_proxy -u https_proxy -u all_proxy \
+git -c http.proxy= -c http.version=HTTP/1.1 push origin HEAD
+```
+
+如果这样能够成功，问题来自代理、VPN 或其他网络中间层。
+
+### 9.5 生成精简诊断日志
+
+```bash
+GIT_TRACE=1 \
+GIT_TRACE_CURL=1 \
+GIT_TRACE_CURL_NO_DATA=1 \
+git push origin HEAD 2>push-trace.log
+```
+
+提取关键行：
+
+```bash
+grep -Ei 'HTTP/|server:|via:|x-github|remote:|error|fatal|lfs' \
+push-trace.log
+```
+
+分享日志前必须删除包含 `Authorization`、cookie、用户名、代理凭据或 token 的内容。
+
+### 9.6 改用 SSH 绕过 Git Smart HTTP
+
+如果已经在 GitHub 配置 SSH key：
+
+```bash
+ssh -T git@github.com
+git remote set-url origin git@github.com:OWNER/REPOSITORY.git
+git push origin HEAD
+```
+
+如果 SSH 的 22 端口不可用，可通过 443 端口连接：
+
+```bash
+ssh -T -p 443 git@ssh.github.com
+git remote set-url origin \
+ssh://git@ssh.github.com:443/OWNER/REPOSITORY.git
+git push origin HEAD
+```
+
+这种情况下的推荐尝试顺序是：HTTP/1.1、LFS 检查、工作流权限、绕过代理、诊断日志，最后切换到 SSH。
