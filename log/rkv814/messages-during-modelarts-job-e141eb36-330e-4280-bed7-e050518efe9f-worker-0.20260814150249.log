@@ -1,0 +1,55 @@
+Aug 14 15:02:49 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:49 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:50 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:50 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:50 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:50 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:50 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:50 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:50 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:50 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:50 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:50 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:51 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:51 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:51 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:51 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:51 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:51 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:51 os-node-created-2m6cs sh[3155414]: ovs-vswitchd (Open vSwitch) 2.7.3
+Aug 14 15:02:52 os-node-created-2m6cs sh[3155417]: br_monitor
+Aug 14 15:02:52 os-node-created-2m6cs sh[3155417]: br_plc_24ca996c
+Aug 14 15:02:52 os-node-created-2m6cs sh[3155417]: br_plc_25158f9e
+Aug 14 15:02:52 os-node-created-2m6cs sh[3155417]: br_plc_37a8447c
+Aug 14 15:02:52 os-node-created-2m6cs sh[3155417]: br_plc_6463a9c1
+Aug 14 15:02:52 os-node-created-2m6cs sh[3155417]: br_plc_78684948
+Aug 14 15:02:52 os-node-created-2m6cs sh[3155417]: br_plc_845c0049
+Aug 14 15:02:52 os-node-created-2m6cs sh[3155417]: br_tun_b0345198
+Aug 14 15:02:52 os-node-created-2m6cs sh[3155417]: overlay_br_int
+Aug 14 15:02:52 os-node-created-2m6cs sh[10959]: [Open vSwitch][INFO] check success
+Aug 14 15:02:52 os-node-created-2m6cs sh[10842]: [/usr/local/bin/kubelet][INFO] check success
+Aug 14 15:02:52 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:52 os-node-created-2m6cs rsyslogd[1559784]: doEnqSingleObject: queue FULL, iQueueSize=16612 MaxQueueSize=0 - waiting 50ms to drain.
+Aug 14 15:02:52 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:52 os-node-created-2m6cs rsyslogd[1559784]: cannot connect to 127.0.0.1:28001: Connection refused [v8.2006.0 try https://www.rsyslog.com/e/2027 ]
+Aug 14 15:02:52 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:53 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:53 os-node-created-2m6cs rsyslogd[1559784]: cannot connect to 127.0.0.1:28001: Connection refused [v8.2006.0 try https://www.rsyslog.com/e/2027 ]
+Aug 14 15:02:53 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:53 os-node-created-2m6cs sh[15848]: [docker][INFO] check success
+Aug 14 15:02:54 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:55 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:55 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:55 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:55 os-node-created-2m6cs sh[10777]: [kube-proxy][INFO] check success
+Aug 14 15:02:55 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:55 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:02:56 os-node-created-2m6cs sh[10566]: [canal-agent][INFO] check success
+Aug 14 15:03:00 os-node-created-2m6cs systemd[1]: Configuration file /etc/systemd/system/docker.service.d/override.conf is marked world-inaccessible. This has no effect as configuration data is accessible via APIs without restrictions. Proceeding anyway.
+Aug 14 15:03:00 os-node-created-2m6cs dockerd[3785541]: time="2026-08-14T15:03:00.768764870+08:00" level=info msg="exit-del moby/e8cfeab4bde3f68ff958dfda744fbd7920fa81995f7edbc5eaa099543113a297.3154398.127 error=<nil>"
+Aug 14 15:03:00 os-node-created-2m6cs dockerd[3785469]: time="2026-08-14T15:03:00.768848666+08:00" level=info msg=event ExitStatus=127 ExitedAt="2026-08-14 07:03:00.758233551 +0000 UTC" Pid=3154398 ProcessID=e8cfeab4bde3f68ff958dfda744fbd7920fa81995f7edbc5eaa099543113a297 containerID=e8cfeab4bde3f68ff958dfda744fbd7920fa81995f7edbc5eaa099543113a297 module=libcontainerd namespace=moby topic=/tasks/exit
+Aug 14 15:03:00 os-node-created-2m6cs dockerd[3785469]: time="2026-08-14T15:03:00.768912223+08:00" level=info msg="handle container e8cfeab4bde3f68ff958dfda744fbd7920fa81995f7edbc5eaa099543113a297 exit event pid=3154398"
+Aug 14 15:03:00 os-node-created-2m6cs dockerd[3785541]: time="2026-08-14T15:03:00.782242684+08:00" level=info msg="shim reaped" id=e8cfeab4bde3f68ff958dfda744fbd7920fa81995f7edbc5eaa099543113a297
+Aug 14 15:03:00 os-node-created-2m6cs dockerd[3785469]: time="2026-08-14T15:03:00.791944210+08:00" level=info msg=event ExitStatus=127 ExitedAt="2026-08-14 07:03:00.758233551 +0000 UTC" Pid=3154398 containerID=e8cfeab4bde3f68ff958dfda744fbd7920fa81995f7edbc5eaa099543113a297 module=libcontainerd namespace=moby topic=/tasks/delete
+Aug 14 15:03:00 os-node-created-2m6cs systemd[1]: var-lib-docker-overlay2-66c8648c39cae167a6312292e3f00ca6e2e17c3a83a1f361cc9bf9444c9d38e4-merged.mount: Succeeded.
+Aug 14 15:03:00 os-node-created-2m6cs dockerd[3785469]: time="2026-08-14T15:03:00.801260788+08:00" level=info msg="handled exit event processID=e8cfeab4bde3f68ff958dfda744fbd7920fa81995f7edbc5eaa099543113a297 containerID=e8cfeab4bde3f68ff958dfda744fbd7920fa81995f7edbc5eaa099543113a297 pid=3154398" module=libcontainerd namespace=moby
