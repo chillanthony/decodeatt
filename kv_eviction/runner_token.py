@@ -421,6 +421,41 @@ def _cache_length_summary(cache, physical_len: int) -> dict:
     }
 
 
+def _batch_cache_length_summaries(cache, valid_mask: torch.Tensor) -> list[dict]:
+    """Summarize the effective cache length of every request in a static batch."""
+    cache_view = _cache_view(cache)
+    heads_per_layer = (
+        [int(layer.keys.shape[1]) for layer in cache_view.layers]
+        if cache_view is not None else [1]
+    )
+    num_heads = sum(heads_per_layer)
+    summaries = []
+    for row in range(valid_mask.shape[0]):
+        effective_len = int(valid_mask[row].sum())
+        lengths = torch.full(
+            (num_heads,), float(effective_len), device=valid_mask.device
+        )
+        total = float(lengths.sum())
+        probs = lengths / max(total, 1e-12)
+        entropy = float(-(probs * probs.clamp_min(1e-12).log()).sum())
+        summaries.append({
+            "mean_effective_cache_len": float(effective_len),
+            "max_effective_cache_len": float(effective_len),
+            "min_effective_cache_len": float(effective_len),
+            "total_effective_kv_tokens": total,
+            "effective_kv_tokens_per_layer_head": [
+                [effective_len] * heads for heads in heads_per_layer
+            ],
+            "head_budget_mean": float(effective_len),
+            "head_budget_std": 0.0,
+            "head_budget_min": float(effective_len),
+            "head_budget_max": float(effective_len),
+            "head_budget_entropy": entropy,
+            "num_underfilled_heads": 0,
+        })
+    return summaries
+
+
 def _mean(values: list[float], default: float = 0.0) -> float:
     return sum(values) / len(values) if values else default
 
@@ -992,7 +1027,7 @@ def generate_token_evict_batch(
     generated = [[] for _ in range(batch_size)]
     attn_history = []
     n_evict = 0
-    evict_events = []
+    evict_events = [[] for _ in range(batch_size)]
     decode_forward_sec = 0.0
     attention_observation_sec = 0.0
     eviction_sec_total = 0.0
@@ -1083,6 +1118,9 @@ def generate_token_evict_batch(
         if track and (step + 1) % evict_every == 0 and over_trigger:
             eviction_start = time.perf_counter()
             before_n = n
+            before_summaries = _batch_cache_length_summaries(
+                cache, valid_cache_mask[:, :before_n]
+            )
             idx = _select_tokens_batch(
                 imp[:, :n],
                 cum_imp[:, :n],
@@ -1112,26 +1150,60 @@ def generate_token_evict_batch(
             valid_cache_mask[:, :n] = torch.gather(
                 valid_cache_mask[:, :before_n], 1, representative
             )
+            after_summaries = _batch_cache_length_summaries(
+                cache, valid_cache_mask[:, :n]
+            )
             if policy.needs_attn_history:
                 attn_history = []
             n_evict += 1
             event_sec = time.perf_counter() - eviction_start
             eviction_sec_total += event_sec
-            evict_events.append({
-                "step": step + 1,
-                "cache_len_before": int(before_n),
-                "cache_len_after": int(n),
-                "compression_ratio": float(n / max(before_n, 1)),
-                "evicted": int(before_n - n),
-                "eviction_sec": event_sec,
-            })
+            for row in range(batch_size):
+                before_summary = before_summaries[row]
+                after_summary = after_summaries[row]
+                evict_events[row].append({
+                    "step": step + 1,
+                    "cache_len_before": int(before_n),
+                    "cache_len_after": int(n),
+                    "compression_ratio": float(n / max(before_n, 1)),
+                    "evicted": int(before_n - n),
+                    "effective_cache_len_before_mean": before_summary["mean_effective_cache_len"],
+                    "effective_cache_len_after_mean": after_summary["mean_effective_cache_len"],
+                    "effective_cache_len_before_max": before_summary["max_effective_cache_len"],
+                    "effective_cache_len_after_max": after_summary["max_effective_cache_len"],
+                    "effective_compression_ratio": float(
+                        after_summary["total_effective_kv_tokens"]
+                        / max(before_summary["total_effective_kv_tokens"], 1.0)
+                    ),
+                    "effective_evicted": float(
+                        before_summary["total_effective_kv_tokens"]
+                        - after_summary["total_effective_kv_tokens"]
+                    ),
+                    "head_budget_mean": after_summary["head_budget_mean"],
+                    "head_budget_std": after_summary["head_budget_std"],
+                    "head_budget_min": after_summary["head_budget_min"],
+                    "head_budget_max": after_summary["head_budget_max"],
+                    "head_budget_entropy": after_summary["head_budget_entropy"],
+                    "num_underfilled_heads": after_summary["num_underfilled_heads"],
+                    "eviction_sec": event_sec,
+                })
 
     elapsed = time.perf_counter() - start_time
     peak_memory = torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None
     batch_total_tokens = sum(len(ids) for ids in generated)
     amortized_elapsed = elapsed / batch_size
+    final_summaries = _batch_cache_length_summaries(cache, valid_cache_mask[:, :n])
     candidates = []
     for row, ids in enumerate(generated):
+        row_events = evict_events[row]
+        compression_ratios = [event["compression_ratio"] for event in row_events]
+        effective_compression_ratios = [
+            event["effective_compression_ratio"] for event in row_events
+        ]
+        total_evicted_tokens = sum(event["evicted"] for event in row_events)
+        total_effective_evicted_tokens = sum(
+            event["effective_evicted"] for event in row_events
+        )
         candidates.append({
             "text": tokenizer.decode(ids, skip_special_tokens=True),
             "gen_ids": ids,
@@ -1144,16 +1216,38 @@ def generate_token_evict_batch(
             "batch_elapsed_sec": elapsed,
             "batch_tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
             "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
-            "mean_compression_ratio": (
-                sum(event["compression_ratio"] for event in evict_events) / len(evict_events)
-                if evict_events else 1.0
+            "mean_compression_ratio": _mean(compression_ratios, 1.0),
+            "evict_events": row_events,
+            **final_summaries[row],
+            "total_evicted_tokens": int(total_evicted_tokens),
+            "total_effective_evicted_tokens": float(total_effective_evicted_tokens),
+            "mean_evicted_per_event": _mean(
+                [event["evicted"] for event in row_events]
             ),
-            "evict_events": evict_events,
+            "mean_effective_evicted_per_event": _mean(
+                [event["effective_evicted"] for event in row_events]
+            ),
+            "min_compression_ratio": min(compression_ratios) if compression_ratios else 1.0,
+            "max_compression_ratio": max(compression_ratios) if compression_ratios else 1.0,
+            "mean_effective_compression_ratio": _mean(effective_compression_ratios, 1.0),
+            "min_effective_compression_ratio": (
+                min(effective_compression_ratios) if effective_compression_ratios else 1.0
+            ),
+            "max_effective_compression_ratio": (
+                max(effective_compression_ratios) if effective_compression_ratios else 1.0
+            ),
+            "cache_len_curve": [event["cache_len_after"] for event in row_events],
+            "effective_cache_len_curve": [
+                event["effective_cache_len_after_mean"] for event in row_events
+            ],
             "prefill_sec": prefill_sec / batch_size,
             "decode_sec": max(0.0, elapsed - prefill_sec) / batch_size,
             "decode_forward_sec": decode_forward_sec / batch_size,
             "attention_observation_sec": attention_observation_sec / batch_size,
             "eviction_sec_total": eviction_sec_total / batch_size,
+            "eviction_sec_mean": (
+                eviction_sec_total / (batch_size * n_evict) if n_evict else 0.0
+            ),
             "other_decode_sec": max(
                 0.0,
                 elapsed - prefill_sec - decode_forward_sec

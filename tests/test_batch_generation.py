@@ -212,6 +212,57 @@ def test_heterogeneous_batch_masks_finished_requests():
     assert [item["prompt_len"] for item in result["candidates"]] == [2, 3]
 
 
+def test_batched_generation_reports_eviction_metrics():
+    class _Tokenizer:
+        eos_token_id = None
+        pad_token_id = 0
+
+        def decode(self, ids, skip_special_tokens=True):
+            return " ".join(map(str, ids))
+
+    class _Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.marker = torch.nn.Parameter(torch.zeros(()))
+
+        def forward(self, input_ids, past_key_values=None, **_kwargs):
+            batch, length = input_ids.shape
+            if past_key_values is None:
+                keys = torch.zeros(batch, 1, length, 1)
+                values = torch.zeros_like(keys)
+                past_key_values = _Cache([_Layer(keys, values)])
+            else:
+                layer = past_key_values.layers[0]
+                added = torch.zeros(batch, 1, length, 1)
+                layer.keys = torch.cat([layer.keys, added], dim=2)
+                layer.values = torch.cat([layer.values, added], dim=2)
+            logits = torch.zeros(batch, length, 4)
+            logits[:, -1, 1] = 1.0
+            return SimpleNamespace(logits=logits, past_key_values=past_key_values)
+
+    result = generate_token_evict_batch(
+        _Model(),
+        _Tokenizer(),
+        torch.tensor([[3, 3, 3]]),
+        batch_size=2,
+        backend="window",
+        budget=4,
+        recent=1,
+        sink=1,
+        evict_every=2,
+        obs_window=0,
+        max_new=8,
+        do_sample=False,
+        seeds=[0, 1],
+    )
+    for candidate in result["candidates"]:
+        assert candidate["n_evict"] > 0
+        assert candidate["total_evicted_tokens"] > 0
+        assert candidate["total_effective_evicted_tokens"] > 0
+        assert candidate["mean_effective_cache_len"] > 0
+        assert len(candidate["effective_cache_len_curve"]) == candidate["n_evict"]
+
+
 def test_cross_problem_evaluator_restores_order_and_candidates():
     class _Tokenizer:
         chat_template = None
