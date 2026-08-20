@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-RUN_NAME="${RUN_NAME:-aime24_rkv_b1536_s4_8gpu}"
+RUN_NAME="${RUN_NAME:-aime24_rkv_b1536_s4_multigpu}"
 RUN_DIR="${RUN_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/$RUN_NAME}"
 OUTPUT_DIR="${OUTPUT_DIR:-$RUN_DIR/output}"
 RESULT_DIR="${RESULT_DIR:-$RUN_DIR/result}"
@@ -43,16 +43,12 @@ PROBLEM_BATCH_SIZE="${PROBLEM_BATCH_SIZE:-1}"
 LOG_MODE="${LOG_MODE:-brief}"
 
 CUDA_COUNT="$("$PYTHON_BIN" -c 'import torch; print(torch.cuda.device_count())')"
-NPROC_PER_NODE="${NPROC_PER_NODE:-8}"
+NPROC_PER_NODE="${NPROC_PER_NODE:-$CUDA_COUNT}"
 MASTER_PORT="${MASTER_PORT:-29500}"
 TIMEOUT_MINUTES="${TIMEOUT_MINUTES:-720}"
 
-if (( NPROC_PER_NODE != 8 )); then
-  echo "This reproduction is configured for exactly 8 processes/GPUs; got NPROC_PER_NODE=$NPROC_PER_NODE" >&2
-  exit 1
-fi
-if (( CUDA_COUNT < NPROC_PER_NODE )); then
-  echo "Need at least $NPROC_PER_NODE visible CUDA devices, found $CUDA_COUNT" >&2
+if (( NPROC_PER_NODE < 1 || NPROC_PER_NODE > CUDA_COUNT )); then
+  echo "Invalid GPU count: requested=$NPROC_PER_NODE visible=$CUDA_COUNT" >&2
   exit 1
 fi
 
