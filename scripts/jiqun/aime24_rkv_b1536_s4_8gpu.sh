@@ -25,8 +25,9 @@ fi
 export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export HF_HOME="${HF_HOME:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}"
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
-export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-0}"
-export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-0}"
+export HF_HUB_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
@@ -39,6 +40,7 @@ MAX_NEW="${MAX_NEW:-32768}"
 BATCH_SIZE="${BATCH_SIZE:-4}"
 NUM_RETURN_SEQUENCES="${NUM_RETURN_SEQUENCES:-4}"
 PROBLEM_BATCH_SIZE="${PROBLEM_BATCH_SIZE:-1}"
+LOG_MODE="${LOG_MODE:-brief}"
 
 CUDA_COUNT="$("$PYTHON_BIN" -c 'import torch; print(torch.cuda.device_count())')"
 NPROC_PER_NODE="${NPROC_PER_NODE:-8}"
@@ -60,9 +62,11 @@ echo "[$RUN_NAME] dataset=$DATASET n=$N"
 echo "[$RUN_NAME] arms=$ARMS max_new=$MAX_NEW"
 echo "[$RUN_NAME] batch_size=$BATCH_SIZE num_return_sequences=$NUM_RETURN_SEQUENCES"
 echo "[$RUN_NAME] problem_batch_size=$PROBLEM_BATCH_SIZE"
+echo "[$RUN_NAME] log_mode=$LOG_MODE"
 echo "[$RUN_NAME] nproc_per_node=$NPROC_PER_NODE cuda_count=$CUDA_COUNT"
 echo "[$RUN_NAME] hf_home=$HF_HOME hf_endpoint=$HF_ENDPOINT"
 echo "[$RUN_NAME] hf_hub_offline=$HF_HUB_OFFLINE hf_datasets_offline=$HF_DATASETS_OFFLINE"
+echo "[$RUN_NAME] hf_datasets_cache=$HF_DATASETS_CACHE"
 echo "[$RUN_NAME] out=$OUT"
 echo "[$RUN_NAME] log_file=$LOG_FILE"
 
@@ -83,6 +87,7 @@ echo "[$RUN_NAME] log_file=$LOG_FILE"
   --batch-size "$BATCH_SIZE" \
   --num-return-sequences "$NUM_RETURN_SEQUENCES" \
   --problem-batch-size "$PROBLEM_BATCH_SIZE" \
+  --log-mode "$LOG_MODE" \
   --out "$OUT"
 
 echo "[$RUN_NAME] done"

@@ -73,6 +73,29 @@ PYTHONPATH=. uv run python scripts/eval.py \
 - `prefill_sec` / `decode_sec` / `decode_forward_sec` /
   `attention_observation_sec` / `eviction_sec_total`: 时间开销拆分。
 
+### 简要结果模式
+
+正式跑大量候选时，可启用 `brief` 模式，让最终结果文件只保存各策略的汇总
+指标，不保存逐题生成文本、候选列表、cache 曲线或逐次 eviction 事件。文件大小
+基本只随策略数量增长，通常为几 KB 到几十 KB：
+
+```bash
+PYTHONPATH=. uv run python scripts/eval.py \
+  --config configs/experiments/math500_official_b1024.yaml \
+  --log-mode brief
+```
+
+也可以写进 YAML：
+
+```yaml
+experiment:
+  out: results/math500_official_b1024.json
+  log_mode: brief
+```
+
+默认值为 `full`，保持原有完整结果格式。`brief` 模式仍会计算同样的 accuracy、
+pass@1、速度、显存、压缩率和 eviction 汇总指标。
+
 策略超参可在完整实验配置的 `policy_defaults` 或单个 arm 的 `params` 里配置，例如：
 
 ```yaml

@@ -13,6 +13,29 @@ from kvbench.models import build_input_ids, pad_input_ids
 from kvbench.policies import EvalArm
 
 
+_LOG_MODES = {"full", "brief"}
+
+
+def _result_payload(records: list[dict], log_mode: str, *, final: bool) -> dict:
+    """Build the on-disk payload without changing the in-memory evaluation data."""
+    if log_mode == "brief":
+        return {
+            "log_mode": "brief",
+            "num_problems": len(records),
+            "summary": summarize_accuracy(records),
+        }
+    payload = {"records": records}
+    if final:
+        payload["summary"] = summarize_accuracy(records)
+    return payload
+
+
+def _write_result(out_path: Path, records: list[dict], log_mode: str, *, final: bool) -> dict:
+    payload = _result_payload(records, log_mode, final=final)
+    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
+    return payload
+
+
 def run_generation_eval(
     model,
     tokenizer,
@@ -43,6 +66,7 @@ def run_generation_eval(
     shard_world_size: int = 1,
     progress_prefix: str = "",
     claim_problem_index: Callable[[], int | None] | None = None,
+    log_mode: str = "full",
 ) -> dict:
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
@@ -60,6 +84,8 @@ def run_generation_eval(
         )
     if claim_problem_index is not None and (shard_rank != 0 or shard_world_size != 1):
         raise ValueError("dynamic problem claiming cannot be combined with static sharding")
+    if log_mode not in _LOG_MODES:
+        raise ValueError(f"log_mode must be one of {sorted(_LOG_MODES)}, got {log_mode!r}")
 
     problems = load_problems(dataset, n)
     if only_ids:
@@ -117,6 +143,7 @@ def run_generation_eval(
             temperature=temperature,
             top_p=top_p,
             policy_params=policy_params,
+            log_mode=log_mode,
         )
 
     records = []
@@ -185,85 +212,27 @@ def run_generation_eval(
                     candidate_results.extend(batch_result["candidates"])
                 candidate_start += micro_batch_size
 
-            evaluated_candidates = []
-            for candidate_idx, result in enumerate(candidate_results):
-                pred = extract_answer(result["text"])
-                ok = is_correct(pred, problem["answer"])
-                evaluated_candidates.append({
-                    "candidate_idx": candidate_idx,
-                    "seed": seed + seed_offset + candidate_idx,
-                    "ok": ok,
-                    "pred": pred,
-                    "raw_output": result["text"],
-                    "gen_len": len(result["gen_ids"]),
-                    **{key: value for key, value in result.items() if key not in {"text", "gen_ids"}},
-                })
+            row["arms"][arm.name] = _arm_payload(
+                candidate_results,
+                problem["answer"],
+                seed,
+                seed_offset,
+                log_mode=log_mode,
+            )
+            arm_result = row["arms"][arm.name]
             result = candidate_results[0]
-            pred = evaluated_candidates[0]["pred"]
-            ok = evaluated_candidates[0]["ok"]
-            extra_metric_keys = [
-                "mean_effective_cache_len",
-                "max_effective_cache_len",
-                "min_effective_cache_len",
-                "total_effective_kv_tokens",
-                "effective_kv_tokens_per_layer_head",
-                "head_budget_mean",
-                "head_budget_std",
-                "head_budget_min",
-                "head_budget_max",
-                "head_budget_entropy",
-                "num_underfilled_heads",
-                "total_evicted_tokens",
-                "total_effective_evicted_tokens",
-                "mean_evicted_per_event",
-                "mean_effective_evicted_per_event",
-                "min_compression_ratio",
-                "max_compression_ratio",
-                "mean_effective_compression_ratio",
-                "min_effective_compression_ratio",
-                "max_effective_compression_ratio",
-                "cache_len_curve",
-                "effective_cache_len_curve",
-                "prefill_sec",
-                "decode_sec",
-                "decode_forward_sec",
-                "attention_observation_sec",
-                "eviction_sec_total",
-                "eviction_sec_mean",
-                "other_decode_sec",
-            ]
-            row["arms"][arm.name] = {
-                "ok": ok,
-                "pred": pred,
-                "raw_output": result["text"],
-                "gen_len": len(result["gen_ids"]),
-                "n_evict": result["n_evict"],
-                "final_cache_len": result["final_cache_len"],
-                "elapsed_sec": result["elapsed_sec"],
-                "tokens_per_sec": result["tokens_per_sec"],
-                "peak_memory_bytes": result["peak_memory_bytes"],
-                "mean_compression_ratio": result["mean_compression_ratio"],
-                "evict_events": result["evict_events"],
-                "num_return_sequences": num_return_sequences,
-                "pass_at_1": sum(candidate["ok"] for candidate in evaluated_candidates) / len(evaluated_candidates),
-                "candidates": evaluated_candidates,
-                **{key: result[key] for key in extra_metric_keys if key in result},
-            }
             print(
                 f"{progress_prefix}[{progress_index}/{progress_total}] "
                 f"{problem['id']} {arm.name:12s} "
-                f"ok={ok} pass@1={row['arms'][arm.name]['pass_at_1']:.3f} "
+                f"ok={arm_result['ok']} pass@1={arm_result['pass_at_1']:.3f} "
                 f"candidates={num_return_sequences} len={len(result['gen_ids'])} cache={result['final_cache_len']} "
                 f"tok/s={result['tokens_per_sec']:.2f}",
                 flush=True,
             )
         records.append(row)
-        out_path.write_text(json.dumps({"records": records}, ensure_ascii=False, indent=1))
+        _write_result(out_path, records, log_mode, final=False)
 
-    summary = summarize_accuracy(records)
-    payload = {"records": records, "summary": summary}
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
-    return payload
+    return _write_result(out_path, records, log_mode, final=True)
 
 
 _EXTRA_METRIC_KEYS = [
@@ -299,31 +268,68 @@ _EXTRA_METRIC_KEYS = [
 ]
 
 
-def _evaluated_candidates(candidate_results, gold: str, seed: int, seed_offset: int):
+def _evaluated_candidates(
+    candidate_results,
+    gold: str,
+    seed: int,
+    seed_offset: int,
+    *,
+    log_mode: str,
+):
     evaluated = []
     for candidate_idx, result in enumerate(candidate_results):
         pred = extract_answer(result["text"])
         ok = is_correct(pred, gold)
-        evaluated.append({
+        candidate = {
             "candidate_idx": candidate_idx,
             "seed": seed + seed_offset + candidate_idx,
             "ok": ok,
             "pred": pred,
-            "raw_output": result["text"],
             "gen_len": len(result["gen_ids"]),
-            **{key: value for key, value in result.items() if key not in {"text", "gen_ids"}},
-        })
+        }
+        if log_mode == "full":
+            candidate["raw_output"] = result["text"]
+            candidate.update(
+                {key: value for key, value in result.items() if key not in {"text", "gen_ids"}}
+            )
+        else:
+            # Brief mode keeps only scalar fields needed to compute the exact summary.
+            candidate.update({
+                key: result[key]
+                for key in (
+                    "n_evict",
+                    "final_cache_len",
+                    "elapsed_sec",
+                    "tokens_per_sec",
+                    "peak_memory_bytes",
+                    "mean_compression_ratio",
+                )
+            })
+            candidate.update({
+                key: value
+                for key, value in result.items()
+                if key not in {"text", "gen_ids"} and isinstance(value, (int, float, bool))
+            })
+        evaluated.append(candidate)
     return evaluated
 
 
-def _arm_payload(candidate_results, gold: str, seed: int, seed_offset: int):
-    evaluated = _evaluated_candidates(candidate_results, gold, seed, seed_offset)
+def _arm_payload(
+    candidate_results,
+    gold: str,
+    seed: int,
+    seed_offset: int,
+    *,
+    log_mode: str = "full",
+):
+    evaluated = _evaluated_candidates(
+        candidate_results, gold, seed, seed_offset, log_mode=log_mode
+    )
     first_result = candidate_results[0]
     first = evaluated[0]
-    return {
+    payload = {
         "ok": first["ok"],
         "pred": first["pred"],
-        "raw_output": first_result["text"],
         "gen_len": len(first_result["gen_ids"]),
         "n_evict": first_result["n_evict"],
         "final_cache_len": first_result["final_cache_len"],
@@ -331,12 +337,21 @@ def _arm_payload(candidate_results, gold: str, seed: int, seed_offset: int):
         "tokens_per_sec": first_result["tokens_per_sec"],
         "peak_memory_bytes": first_result["peak_memory_bytes"],
         "mean_compression_ratio": first_result["mean_compression_ratio"],
-        "evict_events": first_result["evict_events"],
         "num_return_sequences": len(evaluated),
         "pass_at_1": sum(candidate["ok"] for candidate in evaluated) / len(evaluated),
         "candidates": evaluated,
-        **{key: first_result[key] for key in _EXTRA_METRIC_KEYS if key in first_result},
     }
+    if log_mode == "full":
+        payload["raw_output"] = first_result["text"]
+        payload["evict_events"] = first_result["evict_events"]
+        payload.update({key: first_result[key] for key in _EXTRA_METRIC_KEYS if key in first_result})
+    else:
+        payload.update({
+            key: value
+            for key, value in first_result.items()
+            if key not in {"text", "gen_ids"} and isinstance(value, (int, float, bool))
+        })
+    return payload
 
 
 def _take_window(iterator, size: int):
@@ -373,6 +388,7 @@ def _run_cross_problem_eval(
     temperature,
     top_p,
     policy_params,
+    log_mode="full",
 ):
     """Evaluate length-bucketed heterogeneous prompts in static batches."""
     device = next(model.parameters()).device
@@ -449,7 +465,11 @@ def _run_cross_problem_eval(
 
                 for problem_idx, record in enumerate(group_records):
                     record["arms"][arm.name] = _arm_payload(
-                        per_problem_results[problem_idx], record["gold"], seed, seed_offset
+                        per_problem_results[problem_idx],
+                        record["gold"],
+                        seed,
+                        seed_offset,
+                        log_mode=log_mode,
                     )
 
             for record in group_records:
@@ -465,12 +485,10 @@ def _run_cross_problem_eval(
             serializable = []
             for record in sorted(records_with_order, key=lambda item: item["_order"]):
                 serializable.append({key: value for key, value in record.items() if not key.startswith("_")})
-            out_path.write_text(json.dumps({"records": serializable}, ensure_ascii=False, indent=1))
+            _write_result(out_path, serializable, log_mode, final=False)
 
     records = [
         {key: value for key, value in record.items() if not key.startswith("_")}
         for record in sorted(records_with_order, key=lambda item: item["_order"])
     ]
-    payload = {"records": records, "summary": summarize_accuracy(records)}
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
-    return payload
+    return _write_result(out_path, records, log_mode, final=True)

@@ -106,7 +106,77 @@ def _arm_attn_backend(backend: str, requested_attn: str, fast_attn: str) -> str:
     return fast_attn if backend in _FAST_ATTN_BACKENDS else "eager"
 
 
-def _merge_payloads(payloads: list[dict], out_path: str | Path) -> dict:
+_SUMMARY_MIN_FIELDS = {
+    "min_compression_ratio",
+    "min_effective_compression_ratio",
+    "min_head_budget_min",
+}
+_SUMMARY_MAX_FIELDS = {
+    "max_peak_memory_bytes",
+    "max_effective_cache_len",
+    "max_compression_ratio",
+    "max_effective_compression_ratio",
+    "max_head_budget_max",
+}
+
+
+def _merge_brief_summaries(payloads: list[dict]) -> dict:
+    chunks_by_arm: dict[str, list[dict]] = {}
+    for payload in payloads:
+        for arm, summary in payload.get("summary", {}).items():
+            chunks_by_arm.setdefault(arm, []).append(summary)
+
+    merged = {}
+    for arm, chunks in chunks_by_arm.items():
+        total = sum(int(chunk.get("total", 0)) for chunk in chunks)
+        correct = sum(int(chunk.get("correct", 0)) for chunk in chunks)
+        num_problems = sum(int(chunk.get("num_problems", 0)) for chunk in chunks)
+        keys = {key for chunk in chunks for key in chunk}
+        arm_summary = {
+            "accuracy": correct / total if total else 0.0,
+            "pass_at_1": correct / total if total else 0.0,
+            "num_problems": num_problems,
+            "correct": correct,
+            "total": total,
+        }
+        for key in keys - set(arm_summary):
+            values = [
+                (chunk[key], int(chunk.get("total", 0)))
+                for chunk in chunks
+                if isinstance(chunk.get(key), (int, float))
+            ]
+            if not values:
+                continue
+            if key in _SUMMARY_MIN_FIELDS:
+                arm_summary[key] = min(value for value, _ in values)
+            elif key in _SUMMARY_MAX_FIELDS:
+                arm_summary[key] = max(value for value, _ in values)
+            else:
+                weight = sum(count for _, count in values)
+                arm_summary[key] = (
+                    sum(value * count for value, count in values) / weight if weight else 0.0
+                )
+        merged[arm] = arm_summary
+    return merged
+
+
+def _merge_payloads(
+    payloads: list[dict], out_path: str | Path, log_mode: str = "full"
+) -> dict:
+    if log_mode == "brief":
+        summary = _merge_brief_summaries(payloads)
+        merged = {
+            "log_mode": "brief",
+            "num_problems": max(
+                (arm.get("num_problems", 0) for arm in summary.values()), default=0
+            ),
+            "summary": summary,
+        }
+        out_path = Path(out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(merged, ensure_ascii=False, indent=1))
+        return merged
+
     rows_by_id: dict[str, dict] = {}
     order: list[str] = []
     for payload in payloads:
@@ -228,6 +298,12 @@ def main():
         help="Override strategy parameter as policy.key=value, e.g. rkv.redundancy_lambda=0.7",
     )
     parser.add_argument("--out", default=None)
+    parser.add_argument(
+        "--log-mode",
+        choices=["full", "brief"],
+        default=None,
+        help="Result detail level: full keeps generations/events; brief writes summary only.",
+    )
     args = parser.parse_args()
 
     cfg = _load_config(args.config)
@@ -254,6 +330,9 @@ def main():
     requested_attn = pick("attn", "auto", ("model", "attn"))
     fast_attn = pick("fast_attn", "sdpa", ("model", "fast_attn"))
     out_path = Path(pick("out", "results/eval.json", ("experiment", "out")))
+    log_mode = pick("log_mode", "full", ("experiment", "log_mode"))
+    if log_mode not in {"full", "brief"}:
+        raise SystemExit(f"invalid log_mode {log_mode!r}; expected 'full' or 'brief'")
     config_only_ids = _config_value(cfg, "only_ids", ("data", "only_ids"), None)
     only_ids = args.only_ids or config_only_ids or ""
     eval_kwargs = dict(
@@ -286,6 +365,7 @@ def main():
         debug_dir=args.debug_dir or _config_value(cfg, "debug_dir", ("debug", "dir"), None),
         debug_topk=pick("debug_topk", 0, ("debug", "topk")),
         policy_params=policy_defaults,
+        log_mode=log_mode,
     )
 
     groups: dict[str, list] = {}
@@ -372,7 +452,7 @@ def main():
                 for shard_rank, (backend, _, _) in enumerate(assignments):
                     shard_path = _distributed_shard_path(out_path, shard_rank, backend)
                     shard_payloads.append(json.loads(shard_path.read_text()))
-                payload = _merge_payloads(shard_payloads, out_path)
+                payload = _merge_payloads(shard_payloads, out_path, log_mode=log_mode)
                 print("\n=== Distributed KV eviction eval ===")
                 print(json.dumps(payload["summary"], ensure_ascii=False, indent=1))
                 print(f"\nMerged {world_size} rank shards into {out_path}")
@@ -411,7 +491,11 @@ def main():
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    payload = payloads[0] if len(payloads) == 1 else _merge_payloads(payloads, out_path)
+    payload = (
+        payloads[0]
+        if len(payloads) == 1
+        else _merge_payloads(payloads, out_path, log_mode=log_mode)
+    )
     print("\n=== KV eviction eval ===")
     print(json.dumps(payload["summary"], ensure_ascii=False, indent=1))
 
