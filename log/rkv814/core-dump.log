@@ -1,2 +1,0 @@
-time="2026-08-17T13:45:00+08:00" level=info msg="start watch core dump path /tmp/core-file file create" file="core_file_watch.go:62" Command=core-dump Component=ma-training-toolkit Container=modelarts-training Platform=ModelArts-Service
-time="2026-08-17T14:57:21+08:00" level=info msg="file create in core dump path /tmp/core-file watcher is exiting" file="core_file_watch.go:67" Command=core-dump Component=ma-training-toolkit Container=modelarts-training Platform=ModelArts-Service
