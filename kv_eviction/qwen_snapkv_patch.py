@@ -27,9 +27,9 @@ class QwenSnapKVController:
     def __init__(
         self,
         budget: int,
-        window_size: int = 32,
+        window_size: int = 8,
         kernel_size: int = 7,
-        pooling: str = "avgpool",
+        pooling: str = "maxpool",
     ):
         if budget <= window_size:
             raise ValueError("SnapKV budget must be greater than window_size")

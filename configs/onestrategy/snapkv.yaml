@@ -31,9 +31,10 @@ eviction:
 
 policy_defaults:
   snapkv:
-    window_size: 32
+    # R-KV paper baseline: 8 observation tokens, kernel 7, max pooling.
+    window_size: 8
     kernel_size: 7
-    pooling: avgpool
+    pooling: maxpool
 
 arms:
   - id: snapkv_b1024

@@ -36,9 +36,9 @@ eviction:
 
 policy_defaults:
   snapkv:
-    window_size: 32
+    window_size: 8
     kernel_size: 7
-    pooling: avgpool
+    pooling: maxpool
   streamingllm:
     first_tokens: 4
   rkv:

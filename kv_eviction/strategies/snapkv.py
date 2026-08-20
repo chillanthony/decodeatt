@@ -9,9 +9,9 @@ from .rkv_official import rkv_importance
 
 def select_snapkv(cache, attn_history, n, budget, params, return_debug=False):
     device = cache.layers[0].keys.device
-    window_size = int(params.get("window_size", params.get("alpha", 32)))
+    window_size = int(params.get("window_size", params.get("alpha", 8)))
     kernel_size = int(params.get("kernel_size", params.get("pool_kernel", 7)))
-    pooling = str(params.get("pooling", "avgpool"))
+    pooling = str(params.get("pooling", "maxpool"))
     valid_mask = params.get("_valid_mask")
     if budget - window_size <= 0:
         raise ValueError("SnapKV budget must be greater than window_size")
@@ -87,7 +87,7 @@ class SnapKVPolicy(TokenEvictionPolicy):
         return ctx.importance
 
     def observation_window(self, params: dict, default: int) -> int:
-        return int(params.get("window_size", params.get("alpha", 32)))
+        return int(params.get("window_size", params.get("alpha", 8)))
 
     def select_from_cache(
         self,
