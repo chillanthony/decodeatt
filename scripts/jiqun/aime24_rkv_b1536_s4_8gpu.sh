@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 RUN_NAME="${RUN_NAME:-aime24_rkv_b1536_s4_8gpu}"
-RUN_DIR="${RUN_DIR:-$ROOT_DIR/runs/$RUN_NAME}"
+RUN_DIR="${RUN_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/$RUN_NAME}"
 OUTPUT_DIR="${OUTPUT_DIR:-$RUN_DIR/output}"
 RESULT_DIR="${RESULT_DIR:-$RUN_DIR/result}"
 LOG_FILE="${LOG_FILE:-$OUTPUT_DIR/$RUN_NAME.log}"
