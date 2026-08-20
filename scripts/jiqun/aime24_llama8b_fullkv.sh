@@ -2,4 +2,4 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$SCRIPT_DIR/_aime24_llama8b_arm.sh" fullkv
+exec bash "$SCRIPT_DIR/_aime24_llama8b_arm.sh" fullkv

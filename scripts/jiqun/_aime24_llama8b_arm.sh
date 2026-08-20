@@ -52,4 +52,4 @@ if [[ "${DRY_RUN:-0}" == "1" ]]; then
   exit 0
 fi
 
-exec "$ROOT_DIR/scripts/jiqun/aime24_rkv_b1536_s4_multigpu.sh"
+exec bash "$ROOT_DIR/scripts/jiqun/aime24_rkv_b1536_s4_multigpu.sh"

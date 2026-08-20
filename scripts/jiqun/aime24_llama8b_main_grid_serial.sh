@@ -41,7 +41,7 @@ for index in "${!SCRIPTS[@]}"; do
   (
     unset RUN_NAME RUN_DIR OUTPUT_DIR RESULT_DIR LOG_FILE OUT CONFIG ARMS
     export NUM_RETURN_SEQUENCES="$SAMPLES" RUNS_ROOT
-    "$ROOT_DIR/$script"
+    bash "$ROOT_DIR/$script"
   )
   result_path="$RUNS_ROOT/$run_name/result/$run_name.json"
   if [[ ! -s "$result_path" ]]; then
