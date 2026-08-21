@@ -41,6 +41,12 @@ for index in "${!SCRIPTS[@]}"; do
   (
     unset RUN_NAME RUN_DIR OUTPUT_DIR RESULT_DIR LOG_FILE OUT CONFIG ARMS
     export NUM_RETURN_SEQUENCES="$SAMPLES" RUNS_ROOT
+    # fullkv has an unbounded cache; keep its micro-batch small to stay within
+    # 80GB on the A100. Sparse-cache arms inherit the outer BATCH_SIZE.
+    if [[ "$script" == *fullkv* ]]; then
+      export BATCH_SIZE="${FULLKV_BATCH_SIZE:-8}"
+      unset PROBLEM_BATCH_SIZE
+    fi
     bash "$ROOT_DIR/$script"
   )
   result_path="$RUNS_ROOT/$run_name/result/$run_name.json"
