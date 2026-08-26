@@ -23,7 +23,7 @@ VLLM_COMMIT="${VLLM_COMMIT:-752a3a504485790a2e8491cacbb35c137339ad34}"
 # Keep the patched source tree and its environment on persistent storage.
 VLLM_BUILD_SRC="/home/ma-user/work/decodeatt-vllm-src"
 RKV_VENV="/home/ma-user/.venvs/rkv-fast/bin/python"
-PYTHON_BIN="/home/ma-user/.venv/decodeatt/bin/python"
+PYTHON_BIN="/home/ma-user/.venvs/decodeatt/bin/python"
 PIP_INDEX_URL="https://mirrors.aliyun.com/pypi/simple"
 VLLM_SRC="$VLLM_BUILD_SRC"
 PATCH="$EFF/patch/rkv-vllm-0.25.1.patch"
