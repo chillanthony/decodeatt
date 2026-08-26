@@ -244,6 +244,16 @@ BUDGETS=512,1024,1536,2048,2560 \
   bash scripts/jiqun/tideprobe_sparse_cliff.sh
 ```
 
+## 实验 2–4 串行运行
+
+实验 1 完成后，可依次运行实验 2 的标准分组 Pilot、实验 3 和实验 4：
+
+```bash
+bash scripts/jiqun/tideprobe_experiments_2_4_serial_8xa100.sh
+```
+
+脚本会检查 FullKV trace 和 `transition_events.jsonl` 是否存在，任一阶段失败时立即停止。实验 3 和实验 4 共用 `EVICTION_STRATEGIES` 与 `EVICTION_BUDGETS`，确保分析矩阵一致。实验 2 的逐层细扫仍需先查看 Pilot 汇总，再按实际敏感层组单独运行。
+
 ## 最小实验矩阵
 
 ### Pilot
