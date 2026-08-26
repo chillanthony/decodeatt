@@ -9,8 +9,6 @@
 #
 # Usage:
 #   bash scripts/jiqun/rkv_fast_build.sh
-#   VLLM_BUILD_SRC=/abs/path bash scripts/jiqun/rkv_fast_build.sh   # clone elsewhere
-#   VLLM_BUILD_SUFFIX=-debug bash scripts/jiqun/rkv_fast_build.sh   # venv name suffix
 #
 set -euo pipefail
 
@@ -22,17 +20,13 @@ VLLM_REPO="${VLLM_REPO:-https://github.com/vllm-project/vllm.git}"
 VLLM_TAG="${VLLM_TAG:-v0.25.1}"
 VLLM_COMMIT="${VLLM_COMMIT:-752a3a504485790a2e8491cacbb35c137339ad34}"
 
-# If VLLM_BUILD_SRC and RKV_VENV are unset they default INSIDE the repo tree
-# (efficiency/), which does not persist on the image platform. On the cluster
-# set them under /home/ma-user/ (the only persistent mount), e.g.:
-#   VLLM_BUILD_SRC=/home/ma-user/work/.../vllm-src \
-#   RKV_VENV=/home/ma-user/work/.../.venv-rkv/bin/python \
-#     bash scripts/jiqun/rkv_fast_build.sh
-VLLM_SRC="${VLLM_BUILD_SRC:-$EFF/.vllm-src}"
+# Keep the patched source tree and its environment on persistent storage.
+VLLM_BUILD_SRC="/home/ma-user/work/decodeatt-vllm-src"
+RKV_VENV="/home/ma-user/.venv/rkv-fast/bin/python"
+VLLM_SRC="$VLLM_BUILD_SRC"
 PATCH="$EFF/patch/rkv-vllm-0.25.1.patch"
 RKV_SRC="$EFF/src/rkv"
-VENV_SUFFIX="${VLLM_BUILD_SUFFIX:-}"
-VENV_BIN="${RKV_VENV:-$EFF/.venv-rkv$VENV_SUFFIX/bin/python}"
+VENV_BIN="$RKV_VENV"
 VENV="$(dirname "$(dirname "$VENV_BIN")")"   # strip /bin/python -> venv root
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then

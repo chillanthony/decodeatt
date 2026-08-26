@@ -11,6 +11,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+RKV_VENV="/home/ma-user/.venv/rkv-fast/bin/python"
+export RKV_VENV
 
 SINGLE=1
 DP=1
@@ -32,17 +34,10 @@ if [[ "$DP" == "1" ]]; then
 fi
 
 echo "===== summarizing ====="
-# Prefer the build venv's interpreter (avoids relying on `python` being on PATH).
-PY=""
-for cand in "${RKV_VENV:-}" "$ROOT_DIR/efficiency/.venv-rkv/bin/python" python3 python; do
-  [[ -n "$cand" ]] || continue
-  if command -v "$cand" >/dev/null 2>&1 || [[ -x "$cand" ]]; then
-    PY="$cand"
-    break
-  fi
-done
-if [[ -z "$PY" ]]; then
-  echo "ERROR: no python interpreter found; activate the build venv first." >&2
+# Use the persistent patched-vLLM environment configured above.
+PY="$RKV_VENV"
+if [[ ! -x "$PY" ]]; then
+  echo "ERROR: patched-vLLM interpreter not found: $PY" >&2
   exit 1
 fi
 "$PY" "$ROOT_DIR/scripts/jiqun/rkv_fast_summarize.py" \
