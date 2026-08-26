@@ -173,7 +173,7 @@ def main(argv: list[str] | None = None) -> None:
     model_name = _pick(args.model, config, ("model", "name"))
     dtype = _pick(args.dtype, config, ("model", "dtype"), "bfloat16")
     trace_dir = Path(
-        _pick(args.trace_dir, config, ("diagnostics", "trace_dir"), "/home/ma-user/work/trace")
+        _pick(args.trace_dir, config, ("diagnostics", "trace_dir"), "/home/ma-user/work/bucket-wulan-green/chenyanbo/trace")
     )
     signals_dir = Path(
         _pick(

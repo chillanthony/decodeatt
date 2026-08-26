@@ -88,7 +88,7 @@ def main(argv: list[str] | None = None) -> None:
             args.trace_dir,
             config,
             ("diagnostics", "trace_dir"),
-            "/home/ma-user/work/trace",
+            "/home/ma-user/work/bucket-wulan-green/chenyanbo/trace",
         )
     )
     events_path = Path(

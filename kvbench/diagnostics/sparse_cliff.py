@@ -326,7 +326,7 @@ def main(argv: list[str] | None = None) -> None:
             )
         ),
         trace_dir=Path(
-            _pick(args.trace_dir, config, ("diagnostics", "trace_dir"), Path("/home/ma-user/work/trace"))
+            _pick(args.trace_dir, config, ("diagnostics", "trace_dir"), Path("/home/ma-user/work/bucket-wulan-green/chenyanbo/trace"))
         ),
         events_path=Path(
             _pick(

@@ -190,7 +190,7 @@ def main(argv: list[str] | None = None) -> None:
     dtype = _pick(args.dtype, config, ("model", "dtype"), "bfloat16")
     attn = _pick(args.attn, config, ("model", "fast_attn"), "sdpa")
     trace_dir = Path(
-        _pick(args.trace_dir, config, ("diagnostics", "trace_dir"), "/home/ma-user/work/trace")
+        _pick(args.trace_dir, config, ("diagnostics", "trace_dir"), "/home/ma-user/work/bucket-wulan-green/chenyanbo/trace")
     )
     trace_dir.mkdir(parents=True, exist_ok=True)
 

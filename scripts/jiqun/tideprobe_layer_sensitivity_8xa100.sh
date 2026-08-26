@@ -20,7 +20,7 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
 MODEL="${MODEL:-$HF_HOME/models/DeepSeek-R1-Distill-Llama-8B}"
 CONFIG="${CONFIG:-configs/experiments/tideprobe_step1.yaml}"
-TRACE_DIR="${TRACE_DIR:-/home/ma-user/work/trace}"
+TRACE_DIR="${TRACE_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/trace}"
 EVENTS="${EVENTS:-runs/tideprobe_step1/transition_events.jsonl}"
 OUT_DIR="${OUT_DIR:-runs/tideprobe_step1/layer_sensitivity}"
 SCAN_MODE="${SCAN_MODE:-group}"

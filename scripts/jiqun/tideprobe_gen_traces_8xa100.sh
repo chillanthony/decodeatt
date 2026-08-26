@@ -22,7 +22,7 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
 MODEL="${MODEL:-$HF_HOME/models/DeepSeek-R1-Distill-Llama-8B}"
 CONFIG="${CONFIG:-configs/experiments/tideprobe_step1.yaml}"
-TRACE_DIR="${TRACE_DIR:-/home/ma-user/work/trace}"
+TRACE_DIR="${TRACE_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/trace}"
 N="${N:-10}"
 MAX_NEW="${MAX_NEW:-32768}"
 SEED="${SEED:-0}"

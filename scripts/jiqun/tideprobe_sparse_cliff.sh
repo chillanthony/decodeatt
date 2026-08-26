@@ -15,7 +15,7 @@ export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 CONFIG="${CONFIG:-configs/experiments/tideprobe_step1.yaml}"
 RAW_DIR="${RAW_DIR:-runs/tideprobe_step1/eviction_alignment_raw}"
-TRACE_DIR="${TRACE_DIR:-/home/ma-user/work/trace}"
+TRACE_DIR="${TRACE_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/trace}"
 EVENTS="${EVENTS:-runs/tideprobe_step1/transition_events.jsonl}"
 STRATEGIES="${STRATEGIES:-rkv,snapkv,window,random}"
 BUDGETS="${BUDGETS:-512,1024,1536}"

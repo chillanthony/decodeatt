@@ -28,7 +28,7 @@ FullKV 固定轨迹
 2. 统一 `gen_traces.py` 与当前 KVBench 的模型、数据和 prompt 配置。
 3. 生成 8–10 条 AIME FullKV 轨迹，并保存 token、logit entropy 和 FullKV 逐 token NLL。
 
-产物默认保存到 `/home/ma-user/work/trace/`（可通过 `TRACE_DIR` 环境变量覆盖）。预计开发 0.5 天，GPU 运行 2–4 小时。
+产物默认保存到 `/home/ma-user/work/bucket-wulan-green/chenyanbo/trace/`（可通过 `TRACE_DIR` 环境变量覆盖）。预计开发 0.5 天，GPU 运行 2–4 小时。
 
 ### 完成情况
 
@@ -280,7 +280,7 @@ Pilot 有清晰信号后，再扩展到 AIME 30 题和约 50 条 MATH-500 轨迹
 ## 产物
 
 ```text
-/home/ma-user/work/trace/
+/home/ma-user/work/bucket-wulan-green/chenyanbo/trace/
   aime-*.pt
 
 runs/tideprobe_step1/
