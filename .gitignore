@@ -13,3 +13,8 @@ __pycache__/
 data/
 *.pt
 *.safetensors
+
+# vendored patched-vLLM build tree + its venv (built on the GPU node)
+efficiency/.vllm-src/
+efficiency/.venv-rkv/
+efficiency/.venv-rkv-*/
