@@ -23,6 +23,8 @@ VLLM_COMMIT="${VLLM_COMMIT:-752a3a504485790a2e8491cacbb35c137339ad34}"
 # Keep the patched source tree and its environment on persistent storage.
 VLLM_BUILD_SRC="/home/ma-user/work/decodeatt-vllm-src"
 RKV_VENV="/home/ma-user/.venvs/rkv-fast/bin/python"
+PYTHON_BIN="/home/ma-user/.venv/decodeatt/bin/python"
+PIP_INDEX_URL="https://mirrors.aliyun.com/pypi/simple"
 VLLM_SRC="$VLLM_BUILD_SRC"
 PATCH="$EFF/patch/rkv-vllm-0.25.1.patch"
 RKV_SRC="$EFF/src/rkv"
@@ -47,6 +49,10 @@ if ! command -v nvidia-smi >/dev/null 2>&1; then
 fi
 if [[ -z "${CUDA_HOME:-}" ]]; then
   echo "WARNING: CUDA_HOME not set; vLLM's build may not find cuDNN/its toolchain." >&2
+fi
+if [[ ! -x "$PYTHON_BIN" ]]; then
+  echo "ERROR: Python interpreter not found: $PYTHON_BIN" >&2
+  exit 1
 fi
 
 if [[ -e "$VLLM_SRC" ]]; then
@@ -75,7 +81,9 @@ git -C "$VLLM_SRC" apply --whitespace=nowarn "$PATCH"
 echo "         patch applied cleanly"
 
 echo ">> [4/4] Creating venv + installing patched vLLM (this is the long step)"
-python3 -m venv "$VENV"
+"$PYTHON_BIN" -m venv "$VENV"
+export PIP_INDEX_URL
+unset PIP_NO_INDEX
 "$VENV/bin/pip" install --upgrade pip
 # vLLM pins its torch/CUDA; install the tree's own requirements first so the
 # editable install resolves against the intended versions, then the tree.

@@ -60,6 +60,8 @@ On the GPU node (8×A100/A800, CUDA toolchain present):
 
 ```bash
 # 1. Build the patched vLLM (long; builds from source).
+# The script uses Python 3.11 from /home/ma-user/.venv/decodeatt and the
+# Aliyun PyPI mirror for torch==2.11.0.
 bash scripts/jiqun/rkv_fast_build.sh
 
 # 2. Activate the persistent build venv created by the script.
