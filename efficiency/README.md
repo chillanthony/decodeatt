@@ -62,8 +62,8 @@ On the GPU node (8×A100/A800, CUDA toolchain present):
 # 1. Build the patched vLLM (long; builds from source).
 bash scripts/jiqun/rkv_fast_build.sh
 
-# 2. Activate the build venv the script created.
-source efficiency/.venv-rkv/bin/activate
+# 2. Activate the persistent build venv created by the script.
+source /home/ma-user/.venvs/rkv-fast/bin/activate
 
 # 3. Single-GPU sweep (your model + AIME).
 bash scripts/jiqun/rkv_fast_bench_single.sh

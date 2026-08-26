@@ -22,7 +22,7 @@ VLLM_COMMIT="${VLLM_COMMIT:-752a3a504485790a2e8491cacbb35c137339ad34}"
 
 # Keep the patched source tree and its environment on persistent storage.
 VLLM_BUILD_SRC="/home/ma-user/work/decodeatt-vllm-src"
-RKV_VENV="/home/ma-user/.venv/rkv-fast/bin/python"
+RKV_VENV="/home/ma-user/.venvs/rkv-fast/bin/python"
 VLLM_SRC="$VLLM_BUILD_SRC"
 PATCH="$EFF/patch/rkv-vllm-0.25.1.patch"
 RKV_SRC="$EFF/src/rkv"
@@ -50,7 +50,7 @@ if [[ -z "${CUDA_HOME:-}" ]]; then
 fi
 
 if [[ -e "$VLLM_SRC" ]]; then
-  echo "ERROR: $VLLM_SRC already exists. Remove it or set VLLM_BUILD_SRC." >&2
+  echo "ERROR: $VLLM_SRC already exists. Remove it before rebuilding." >&2
   exit 1
 fi
 

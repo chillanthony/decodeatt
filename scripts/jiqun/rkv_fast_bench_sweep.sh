@@ -11,7 +11,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RKV_VENV="/home/ma-user/.venv/rkv-fast/bin/python"
+RKV_VENV="/home/ma-user/.venvs/rkv-fast/bin/python"
 export RKV_VENV
 
 SINGLE=1
