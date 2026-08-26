@@ -39,7 +39,8 @@ mkdir -p "$OUT_DIR"
 # the user has on PATH (works if they `source efficiency/.venv-rkv/bin/activate`).
 PY="${PYTHON:-}"
 if [[ -z "$PY" ]]; then
-  for cand in "$ROOT_DIR/efficiency/.venv-rkv/bin/python" python python3; do
+  for cand in "${RKV_VENV:-}" "$ROOT_DIR/efficiency/.venv-rkv/bin/python" python python3; do
+    [[ -n "$cand" ]] || continue
     if command -v "$cand" >/dev/null 2>&1 || [[ -x "$cand" ]]; then
       PY="$cand"
       break

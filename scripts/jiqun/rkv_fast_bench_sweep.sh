@@ -34,7 +34,8 @@ fi
 echo "===== summarizing ====="
 # Prefer the build venv's interpreter (avoids relying on `python` being on PATH).
 PY=""
-for cand in "$ROOT_DIR/efficiency/.venv-rkv/bin/python" python3 python; do
+for cand in "${RKV_VENV:-}" "$ROOT_DIR/efficiency/.venv-rkv/bin/python" python3 python; do
+  [[ -n "$cand" ]] || continue
   if command -v "$cand" >/dev/null 2>&1 || [[ -x "$cand" ]]; then
     PY="$cand"
     break

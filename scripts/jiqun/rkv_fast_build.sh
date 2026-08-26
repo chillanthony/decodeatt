@@ -22,17 +22,25 @@ VLLM_REPO="${VLLM_REPO:-https://github.com/vllm-project/vllm.git}"
 VLLM_TAG="${VLLM_TAG:-v0.25.1}"
 VLLM_COMMIT="${VLLM_COMMIT:-752a3a504485790a2e8491cacbb35c137339ad34}"
 
+# If VLLM_BUILD_SRC and RKV_VENV are unset they default INSIDE the repo tree
+# (efficiency/), which does not persist on the image platform. On the cluster
+# set them under /home/ma-user/ (the only persistent mount), e.g.:
+#   VLLM_BUILD_SRC=/home/ma-user/work/.../vllm-src \
+#   RKV_VENV=/home/ma-user/work/.../.venv-rkv/bin/python \
+#     bash scripts/jiqun/rkv_fast_build.sh
 VLLM_SRC="${VLLM_BUILD_SRC:-$EFF/.vllm-src}"
 PATCH="$EFF/patch/rkv-vllm-0.25.1.patch"
 RKV_SRC="$EFF/src/rkv"
 VENV_SUFFIX="${VLLM_BUILD_SUFFIX:-}"
-VENV="$EFF/.venv-rkv$VENV_SUFFIX"
+VENV_BIN="${RKV_VENV:-$EFF/.venv-rkv$VENV_SUFFIX/bin/python}"
+VENV="$(dirname "$(dirname "$VENV_BIN")")"   # strip /bin/python -> venv root
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then
   echo "vllm_src=$VLLM_SRC"
   echo "patch=$PATCH"
   echo "rkv_src=$RKV_SRC"
-  echo "venv=$VENV"
+  echo "venv_bin=$VENV_BIN"
+  echo "venv_root=$VENV"
   exit 0
 fi
 
