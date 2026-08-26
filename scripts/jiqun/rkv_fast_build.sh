@@ -25,6 +25,8 @@ VLLM_BUILD_SRC="/home/ma-user/work/decodeatt-vllm-src"
 RKV_VENV="/home/ma-user/.venvs/rkv-fast/bin/python"
 PYTHON_BIN="/home/ma-user/.venvs/decodeatt/bin/python"
 PIP_INDEX_URL="https://mirrors.aliyun.com/pypi/simple"
+# pip's trusted-host mode disables TLS certificate verification for this mirror.
+PIP_TRUSTED_HOST="mirrors.aliyun.com"
 VLLM_SRC="$VLLM_BUILD_SRC"
 PATCH="$EFF/patch/rkv-vllm-0.25.1.patch"
 RKV_SRC="$EFF/src/rkv"
@@ -83,6 +85,7 @@ echo "         patch applied cleanly"
 echo ">> [4/4] Creating venv + installing patched vLLM (this is the long step)"
 "$PYTHON_BIN" -m venv "$VENV"
 export PIP_INDEX_URL
+export PIP_TRUSTED_HOST
 unset PIP_NO_INDEX
 "$VENV/bin/pip" install --upgrade pip
 # vLLM pins its torch/CUDA; install the tree's own requirements first so the
