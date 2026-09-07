@@ -18,3 +18,18 @@ data/
 efficiency/.vllm-src/
 efficiency/.venv-rkv/
 efficiency/.venv-rkv-*/
+
+# Experiment outputs
+runs/
+results/
+*.log
+
+# Local tooling and test artifacts
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# macOS
+.DS_Store
