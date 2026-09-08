@@ -21,7 +21,7 @@ STRATEGIES="${STRATEGIES:-rkv,snapkv,window,random}"
 BUDGETS="${BUDGETS:-512,1024,1536}"
 
 echo "[tideprobe] sparse cliff strategies=$STRATEGIES budgets=$BUDGETS"
-"$PYTHON_BIN" scripts/analyze_sparse_cliff.py \
+"$PYTHON_BIN" -m kvbench.diagnostics.sparse_cliff \
   --config "$CONFIG" \
   --raw-dir "$RAW_DIR" \
   --trace-dir "$TRACE_DIR" \

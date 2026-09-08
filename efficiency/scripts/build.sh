@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# rkv_fast_build.sh — build the patched-vLLM R-KV tree for the "fast" branch.
+# Build the patched-vLLM R-KV tree for the fast branch.
 #
 # Pinned upstream vLLM v0.25.1 (commit 752a3a50...), exactly as zefancai/R-KV
 # vendors it. Copies efficiency/src/rkv/* into the tree, applies efficiency/patch/
@@ -8,7 +8,7 @@
 # (so the build never touches the decodeatt research env).
 #
 # Usage:
-#   bash scripts/jiqun/rkv_fast_build.sh
+#   bash efficiency/scripts/build.sh
 #
 set -euo pipefail
 
@@ -101,6 +101,6 @@ venv (activate before benchmarking):
   source $VENV/bin/activate
 
 Next: run the benchmark.
-  bash scripts/jiqun/rkv_fast_bench_single.sh
-  bash scripts/jiqun/rkv_fast_bench_dp8.sh
+  bash efficiency/scripts/bench_single.sh
+  bash efficiency/scripts/bench_dp.sh
 EOF

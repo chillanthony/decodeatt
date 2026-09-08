@@ -4,7 +4,36 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-RUN_NAME="${RUN_NAME:-math500_llama8b_rkv_b1024_s4_multigpu}"
+if (( $# != 1 )); then
+  echo "Usage: $0 {aime24|math500}" >&2
+  exit 2
+fi
+
+DATASET_KEY="$1"
+SAMPLES="${NUM_RETURN_SEQUENCES:-4}"
+case "$DATASET_KEY" in
+  aime24)
+    DEFAULT_DATASET="aime"
+    DEFAULT_N=30
+    DEFAULT_MAX_NEW=32768
+    DEFAULT_ARMS="rkv@1536"
+    DEFAULT_RUN_NAME="aime24_rkv_b1536_s${SAMPLES}_multigpu"
+    ;;
+  math500)
+    DEFAULT_DATASET="math500"
+    DEFAULT_N=500
+    DEFAULT_MAX_NEW=16384
+    DEFAULT_ARMS="rkv@1024"
+    DEFAULT_RUN_NAME="math500_llama8b_rkv_b1024_s${SAMPLES}_multigpu"
+    ;;
+  *)
+    echo "Unsupported dataset: $DATASET_KEY" >&2
+    exit 2
+    ;;
+esac
+
+DATASET="${DATASET:-$DEFAULT_DATASET}"
+RUN_NAME="${RUN_NAME:-$DEFAULT_RUN_NAME}"
 RUNS_ROOT="${RUNS_ROOT:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs}"
 RUN_DIR="${RUN_DIR:-$RUNS_ROOT/$RUN_NAME}"
 OUTPUT_DIR="${OUTPUT_DIR:-$RUN_DIR/output}"
@@ -32,19 +61,19 @@ export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
-MODEL="${MODEL:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/models/DeepSeek-R1-Distill-Llama-8B}"
+MODEL="${MODEL:-$HF_HOME/models/DeepSeek-R1-Distill-Llama-8B}"
 CONFIG="${CONFIG:-configs/onestrategy/rkv.yaml}"
-DATASET="math500"
-N="${N:-500}"
-ARMS="${ARMS:-rkv@1024}"
-MAX_NEW="${MAX_NEW:-16384}"
+N="${N:-$DEFAULT_N}"
+ARMS="${ARMS:-$DEFAULT_ARMS}"
+MAX_NEW="${MAX_NEW:-$DEFAULT_MAX_NEW}"
 BATCH_SIZE="${BATCH_SIZE:-4}"
-NUM_RETURN_SEQUENCES="${NUM_RETURN_SEQUENCES:-4}"
+NUM_RETURN_SEQUENCES="$SAMPLES"
 PROBLEM_BATCH_SIZE="${PROBLEM_BATCH_SIZE:-1}"
 LOG_MODE="${LOG_MODE:-brief}"
 
-echo "[$RUN_NAME] checking cached HuggingFaceH4/MATH-500 test split"
-if ! "$PYTHON_BIN" - <<'PY'
+if [[ "$DATASET_KEY" == "math500" ]]; then
+  echo "[$RUN_NAME] checking cached HuggingFaceH4/MATH-500 test split"
+  if ! "$PYTHON_BIN" - <<'PY'
 from kvbench.datasets import load_problems
 
 problems = load_problems("math500", 500)
@@ -52,10 +81,11 @@ if len(problems) != 500:
     raise SystemExit(f"expected 500 cached MATH-500 problems, found {len(problems)}")
 print(f"[dataset-check] dataset=math500 cached_problems={len(problems)}")
 PY
-then
-  echo "MATH-500 cache check failed in offline mode." >&2
-  echo "Populate it first with: bash scripts/jiqun/download_math500.sh" >&2
-  exit 1
+  then
+    echo "MATH-500 cache check failed in offline mode." >&2
+    echo "Populate it first with: bash scripts/bootstrap/download_dataset.sh math500" >&2
+    exit 1
+  fi
 fi
 
 CUDA_COUNT="$("$PYTHON_BIN" -c 'import torch; print(torch.cuda.device_count())')"

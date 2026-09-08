@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 # The runner uses only the cached HuggingFaceH4/MATH-500 test split. Populate
-# HF_DATASETS_CACHE first with scripts/jiqun/download_math500.sh if necessary.
+# HF_DATASETS_CACHE first with scripts/bootstrap/download_dataset.sh if necessary.
 SAMPLES="${NUM_RETURN_SEQUENCES:-4}"
 RUNS_ROOT="${RUNS_ROOT:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs}"
 GRID_NAME="math500_llama8b_main_grid_s${SAMPLES}"
@@ -37,9 +37,9 @@ for index in "${!STRATEGIES[@]}"; do
     export NUM_RETURN_SEQUENCES="$SAMPLES" RUNS_ROOT
     if [[ "$strategy" == "fullkv" ]]; then
       export BATCH_SIZE="${FULLKV_BATCH_SIZE:-4}"
-      bash "$ROOT_DIR/scripts/jiqun/_math500_llama8b_arm.sh" "$strategy"
+      bash "$ROOT_DIR/scripts/cluster/run_arm.sh" math500 "$strategy"
     else
-      bash "$ROOT_DIR/scripts/jiqun/_math500_llama8b_arm.sh" "$strategy" "$budget"
+      bash "$ROOT_DIR/scripts/cluster/run_arm.sh" math500 "$strategy" "$budget"
     fi
   )
 

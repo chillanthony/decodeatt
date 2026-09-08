@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# rkv_fast_bench_single.sh — offline batched benchmark on ONE A100/A800.
+# Offline batched benchmark on one A100/A800.
 #
 # Reports per-GPU decode throughput for the paper-comparable comparator:
 #   * Full-KV production      (prefix caching on)
@@ -11,9 +11,9 @@
 # Override: MODEL, DATASET, RUNS_ROOT.
 #
 # Usage:
-#   bash scripts/jiqun/rkv_fast_bench_single.sh
+#   bash efficiency/scripts/bench_single.sh
 #   MODEL=Qwen/Qwen2.5-Math-7B-Instruct DATASET=gsm8k \
-#     bash scripts/jiqun/rkv_fast_bench_single.sh   # reproduce the paper number
+#     bash efficiency/scripts/bench_single.sh   # reproduce the paper number
 #
 set -euo pipefail
 

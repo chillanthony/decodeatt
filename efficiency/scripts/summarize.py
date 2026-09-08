@@ -6,7 +6,7 @@ Reads every ``*.json`` under a results dir (default
 to stdout, and writes the same table to ``efficiency/benchmark/RESULTS.md``.
 
 Usage:
-    python scripts/jiqun/rkv_fast_summarize.py [results_dir]
+    python efficiency/scripts/summarize.py [results_dir]
 """
 from __future__ import annotations
 

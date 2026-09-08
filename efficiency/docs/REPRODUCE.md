@@ -16,20 +16,19 @@ the wiring.
 ## Build the patched tree
 
 ```bash
-scripts/apply_rkv.sh            # clone v0.25.1 + copy rkv/ + apply patch
-# or, to overwrite an existing ./vllm-src:
-scripts/apply_rkv.sh --force
+bash efficiency/scripts/build.sh
 ```
 
-`vllm-src/` is git-ignored — it is a build artifact, never vendored into this
-repository.
+By default the script builds in `/home/ma-user/work/decodeatt-vllm-src` and
+creates `/home/ma-user/.venvs/rkv-fast`; remove the existing build tree before
+rebuilding. Both are outside this repository and are never committed.
 
 ## Verify the patch applies cleanly (non-destructive)
 
 ```bash
-cd vllm-src
+cd /home/ma-user/work/decodeatt-vllm-src
 git stash                                   # park any local edits
-git apply --check ../patch/rkv-vllm-0.25.1.patch
+git apply --check /path/to/decodeatt/efficiency/patch/rkv-vllm-0.25.1.patch
 git stash pop
 ```
 
@@ -43,14 +42,14 @@ The source of truth for the *algorithm* is `rkv/`; the source of truth for the
 `vllm-src/` and regenerate:
 
 ```bash
-cd vllm-src
+cd /home/ma-user/work/decodeatt-vllm-src
 # ... make wiring edits to the 13 tracked files ...
-git diff > ../patch/rkv-vllm-0.25.1.patch
+git diff > /path/to/decodeatt/efficiency/patch/rkv-vllm-0.25.1.patch
 ```
 
-Do **not** hand-edit the patch file. Do **not** rely on edits inside `vllm-src/`
-persisting — they are invisible to this repo's git and are wiped by
-`apply_rkv.sh --force`. Always fold wiring changes back into the patch.
+Do **not** hand-edit the patch file. Do **not** rely on edits inside the external
+build tree persisting; they are invisible to this repository. Always fold
+wiring changes back into the patch.
 
 ## The 13 wired files
 

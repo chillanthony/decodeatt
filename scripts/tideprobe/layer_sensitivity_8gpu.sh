@@ -51,8 +51,8 @@ echo "[tideprobe] traces=$TRACE_DIR events=$EVENTS output=$OUT_DIR"
   --standalone \
   --nproc-per-node=8 \
   --master-port="$MASTER_PORT" \
-  -- \
-  scripts/probe_layer_sensitivity.py \
+  --module \
+  kvbench.diagnostics.layer_sensitivity \
   --config "$CONFIG" \
   --model "$MODEL" \
   --trace-dir "$TRACE_DIR" \
@@ -66,7 +66,7 @@ echo "[tideprobe] traces=$TRACE_DIR events=$EVENTS output=$OUT_DIR"
   --run-tag "$RUN_TAG" \
   "${EXTRA_ARGS[@]}"
 
-"$PYTHON_BIN" scripts/summarize_layer_sensitivity.py \
+"$PYTHON_BIN" -m kvbench.diagnostics.layer_analysis \
   --config "$CONFIG" \
   --shard-dir "$OUT_DIR"
 

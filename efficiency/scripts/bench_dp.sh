@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# rkv_fast_bench_dp8.sh — offline batched benchmark across all 8 A100/A800,
+# Offline batched benchmark across all 8 A100/A800,
 # vLLM data-parallel (--data-parallel-size 8, tp=1). Each replica runs its own
 # independent R-KV, so no cross-rank communication; total throughput scales
 # ~linearly (reference RESULTS_dp.md reports 7.6x @ DP=8).
@@ -9,8 +9,8 @@
 # comparable to the reference paper's single-GPU number).
 #
 # Usage:
-#   bash scripts/jiqun/rkv_fast_bench_dp8.sh
-#   DP=4 bash scripts/jiqun/rkv_fast_bench_dp8.sh   # fewer replicas
+#   bash efficiency/scripts/bench_dp.sh
+#   DP=4 bash efficiency/scripts/bench_dp.sh   # fewer replicas
 #
 set -euo pipefail
 

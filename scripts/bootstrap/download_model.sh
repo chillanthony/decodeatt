@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-HFD_SCRIPT="$ROOT_DIR/scripts/jiqun/hfd.sh"
+HFD_SCRIPT="$ROOT_DIR/scripts/bootstrap/hfd.sh"
 
 MODEL="${MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}"
 REVISION="${REVISION:-main}"
@@ -20,16 +20,16 @@ fi
 
 mkdir -p "$MODEL_DIR"
 
-echo "[run-hfd] model=$MODEL"
-echo "[run-hfd] revision=$REVISION"
-echo "[run-hfd] endpoint=$HF_ENDPOINT"
-echo "[run-hfd] model_dir=$MODEL_DIR"
-echo "[run-hfd] tool=aria2c"
-echo "[run-hfd] threads=$THREADS"
-echo "[run-hfd] concurrent=$CONCURRENT"
-echo "[run-hfd] log_file=$LOG_FILE"
-echo "[run-hfd] proxy=inherited"
-echo "[run-hfd] warning=SSL certificate verification is disabled" >&2
+echo "[download-model] model=$MODEL"
+echo "[download-model] revision=$REVISION"
+echo "[download-model] endpoint=$HF_ENDPOINT"
+echo "[download-model] model_dir=$MODEL_DIR"
+echo "[download-model] tool=aria2c"
+echo "[download-model] threads=$THREADS"
+echo "[download-model] concurrent=$CONCURRENT"
+echo "[download-model] log_file=$LOG_FILE"
+echo "[download-model] proxy=inherited"
+echo "[download-model] warning=SSL certificate verification is disabled" >&2
 
 env HF_ENDPOINT="$HF_ENDPOINT" \
   bash "$HFD_SCRIPT" "$MODEL" \
@@ -40,5 +40,5 @@ env HF_ENDPOINT="$HF_ENDPOINT" \
   --revision "$REVISION" \
   "$@" 2>&1 | tee -a "$LOG_FILE"
 
-echo "[run-hfd] done"
-echo "Run the smoke test with: MODEL=$MODEL_DIR scripts/jiqun/smoke_test.sh"
+echo "[download-model] done"
+echo "Model directory: $MODEL_DIR"

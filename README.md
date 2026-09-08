@@ -29,7 +29,12 @@ kvbench/                          # 新框架：数据、模型加载、arm 解�
 kv_eviction/                      # 底层 KV 驱逐 runner 与策略实现
 kv_eviction/strategies/           # token 驱逐策略，一策略一文件
 scripts/eval.py                   # 新主入口
-scripts/gen_traces.py             # trace 生成工具
+scripts/cluster/                  # 通用多卡运行与策略参数入口
+scripts/experiments/              # AIME24、MATH-500 实验网格与预设
+scripts/tideprobe/                # TideProbe 多卡诊断流水线
+scripts/bootstrap/                # 模型和数据集下载工具
+efficiency/scripts/               # R-KV vLLM 构建与性能测评
+kvbench/diagnostics/gen_traces.py # trace 生成工具
 ```
 
 ## 运行通用 KV 驱逐评测

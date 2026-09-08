@@ -40,7 +40,7 @@ env \
   RANDOM_SEEDS="$LAYER_RANDOM_SEEDS" \
   PROBE_TYPES="$LAYER_PROBE_TYPES" \
   RUN_TAG="$LAYER_RUN_TAG" \
-  bash scripts/jiqun/tideprobe_layer_sensitivity_8xa100.sh
+  bash scripts/tideprobe/layer_sensitivity_8gpu.sh
 
 echo "[tideprobe serial] experiment 3/4: eviction alignment"
 env \
@@ -50,7 +50,7 @@ env \
   RAW_DIR="$EVICTION_RAW_DIR" \
   STRATEGIES="$EVICTION_STRATEGIES" \
   BUDGETS="$EVICTION_BUDGETS" \
-  bash scripts/jiqun/tideprobe_eviction_alignment_8xa100.sh
+  bash scripts/tideprobe/eviction_alignment_8gpu.sh
 
 echo "[tideprobe serial] experiment 4/4: sparse cliff"
 env \
@@ -60,6 +60,6 @@ env \
   RAW_DIR="$EVICTION_RAW_DIR" \
   STRATEGIES="$EVICTION_STRATEGIES" \
   BUDGETS="$EVICTION_BUDGETS" \
-  bash scripts/jiqun/tideprobe_sparse_cliff.sh
+  bash scripts/tideprobe/sparse_cliff.sh
 
 echo "[tideprobe serial] experiments 2-4 complete"

@@ -12,11 +12,11 @@ enabled.
 
 | Layer | File | Responsibility |
 | --- | --- | --- |
-| **Algorithm** | [`rkv/algo.py`](../rkv/algo.py) | Pure, device-agnostic R-KV scoring & selection (`R1KV`). No vLLM deps; CPU-testable. |
-| **Integration** | [`rkv/integration.py`](../rkv/integration.py) | `RKVConfig` (env-driven, self-validating) + `RKVCompressor` — two-phase cross-layer eviction (`observe_layer` per layer, then one post-forward `compact_step`) against the paged KV cache. |
+| **Algorithm** | [`src/rkv/algo.py`](../src/rkv/algo.py) | Pure, device-agnostic R-KV scoring & selection (`R1KV`). No vLLM deps; CPU-testable. |
+| **Integration** | [`src/rkv/integration.py`](../src/rkv/integration.py) | `RKVConfig` (env-driven, self-validating) + `RKVCompressor` — two-phase cross-layer eviction (`observe_layer` per layer, then one post-forward `compact_step`) against the paged KV cache. |
 
-`rkv/` is copied into the vLLM tree as `vllm/rkv/` by `scripts/apply_rkv.sh`;
-the patch only wires the runtime to call into it.
+`efficiency/src/rkv/` is copied into the vLLM tree as `vllm/rkv/` by
+`efficiency/scripts/build.sh`; the patch only wires the runtime to call into it.
 
 ## 2. Per-decode-step data flow
 

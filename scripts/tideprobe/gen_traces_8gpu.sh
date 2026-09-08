@@ -47,8 +47,8 @@ echo "[tideprobe] gpus=$NPROC_PER_NODE trace_dir=$TRACE_DIR"
   --standalone \
   --nproc-per-node=8 \
   --master-port="$MASTER_PORT" \
-  -- \
-  scripts/gen_traces.py \
+  --module \
+  kvbench.diagnostics.gen_traces \
   --config "$CONFIG" \
   --model "$MODEL" \
   --dataset aime \
