@@ -1,140 +1,0 @@
-[aime24_llama8b_snapkv_b2560_s4_multigpu] root=/home/ma-user/modelarts/user-job-dir/decodeatt
-[aime24_llama8b_snapkv_b2560_s4_multigpu] model=/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/models/DeepSeek-R1-Distill-Llama-8B
-[aime24_llama8b_snapkv_b2560_s4_multigpu] dataset=aime n=30
-[aime24_llama8b_snapkv_b2560_s4_multigpu] arms=snapkv@2560 max_new=32768
-[aime24_llama8b_snapkv_b2560_s4_multigpu] batch_size=4 num_return_sequences=4
-[aime24_llama8b_snapkv_b2560_s4_multigpu] problem_batch_size=1
-[aime24_llama8b_snapkv_b2560_s4_multigpu] log_mode=brief
-[aime24_llama8b_snapkv_b2560_s4_multigpu] nproc_per_node=8 cuda_count=8
-[aime24_llama8b_snapkv_b2560_s4_multigpu] hf_home=/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache hf_endpoint=https://hf-mirror.com
-[aime24_llama8b_snapkv_b2560_s4_multigpu] hf_hub_offline=1 hf_datasets_offline=1
-[aime24_llama8b_snapkv_b2560_s4_multigpu] hf_datasets_cache=/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/datasets
-[aime24_llama8b_snapkv_b2560_s4_multigpu] out=/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/aime24_llama8b_snapkv_b2560_s4_multigpu/result/aime24_llama8b_snapkv_b2560_s4_multigpu.json
-[aime24_llama8b_snapkv_b2560_s4_multigpu] log_file=/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/aime24_llama8b_snapkv_b2560_s4_multigpu/output/aime24_llama8b_snapkv_b2560_s4_multigpu.log
-Using the latest cached version of the dataset since Maxwell-Jia/AIME_2024 couldn't be found on the Hugging Face Hub (offline mode is enabled).
-Found the latest cached dataset configuration 'default' at /home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/datasets/Maxwell-Jia___aime_2024/default/0.0.0/8d88b2876a82a080e2f172cc9b25d0d9d2cb4792 (last modified on Fri Aug 14 13:59:11 2026).
-
-=== rank=0/8 local_rank=0 control_backend=gloo timeout_min=720 scheduler=dynamic attn=eager group_shard=0/8 arms=snapkv@2560 ===
-
-=== rank=4/8 local_rank=4 control_backend=gloo timeout_min=720 scheduler=dynamic attn=eager group_shard=4/8 arms=snapkv@2560 ===
-
-=== rank=7/8 local_rank=7 control_backend=gloo timeout_min=720 scheduler=dynamic attn=eager group_shard=7/8 arms=snapkv@2560 ===
-
-=== rank=3/8 local_rank=3 control_backend=gloo timeout_min=720 scheduler=dynamic attn=eager group_shard=3/8 arms=snapkv@2560 ===
-
-=== rank=2/8 local_rank=2 control_backend=gloo timeout_min=720 scheduler=dynamic attn=eager group_shard=2/8 arms=snapkv@2560 ===
-
-=== rank=6/8 local_rank=6 control_backend=gloo timeout_min=720 scheduler=dynamic attn=eager group_shard=6/8 arms=snapkv@2560 ===
-
-=== rank=5/8 local_rank=5 control_backend=gloo timeout_min=720 scheduler=dynamic attn=eager group_shard=5/8 arms=snapkv@2560 ===
-=== rank=1/8 local_rank=1 control_backend=gloo timeout_min=720 scheduler=dynamic attn=eager group_shard=1/8 arms=snapkv@2560 ===
-
-`torch_dtype` is deprecated! Use `dtype` instead!
-`torch_dtype` is deprecated! Use `dtype` instead!
-`torch_dtype` is deprecated! Use `dtype` instead!
-`torch_dtype` is deprecated! Use `dtype` instead!
-`torch_dtype` is deprecated! Use `dtype` instead!
-`torch_dtype` is deprecated! Use `dtype` instead!
-`torch_dtype` is deprecated! Use `dtype` instead!
-`torch_dtype` is deprecated! Use `dtype` instead!
-Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:08<00:08,  8.47s/it]Loading checkpoint shards:  50%|█████     | 1/2 [00:09<00:09,  9.65s/it]Loading checkpoint shards:  50%|█████     | 1/2 [00:09<00:09,  9.59s/it]Loading checkpoint shards:  50%|█████     | 1/2 [00:09<00:09,  9.59s/it]Loading checkpoint shards:  50%|█████     | 1/2 [00:09<00:09,  9.59s/it]Loading checkpoint shards:  50%|█████     | 1/2 [00:09<00:09,  9.59s/it]Loading checkpoint shards:  50%|█████     | 1/2 [00:09<00:09,  9.59s/it]Loading checkpoint shards:  50%|█████     | 1/2 [00:09<00:09,  9.59s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:14<00:00,  7.09s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:14<00:00,  7.29s/it]
-Using the latest cached version of the dataset since Maxwell-Jia/AIME_2024 couldn't be found on the Hugging Face Hub (offline mode is enabled).
-Found the latest cached dataset configuration 'default' at /home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/datasets/Maxwell-Jia___aime_2024/default/0.0.0/8d88b2876a82a080e2f172cc9b25d0d9d2cb4792 (last modified on Fri Aug 14 13:59:11 2026).
-Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.49s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.49s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.81s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.81s/it]
-
-Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.50s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.81s/it]
-Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.49s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.81s/it]
-Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.52s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.49s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.49s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.84s/it]
-Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.81s/it]
-Loading checkpoint shards: 100%|██████████| 2/2 [00:15<00:00,  7.81s/it]
-Using the latest cached version of the dataset since Maxwell-Jia/AIME_2024 couldn't be found on the Hugging Face Hub (offline mode is enabled).
-Found the latest cached dataset configuration 'default' at /home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/datasets/Maxwell-Jia___aime_2024/default/0.0.0/8d88b2876a82a080e2f172cc9b25d0d9d2cb4792 (last modified on Fri Aug 14 13:59:11 2026).
-Using the latest cached version of the dataset since Maxwell-Jia/AIME_2024 couldn't be found on the Hugging Face Hub (offline mode is enabled).
-Using the latest cached version of the dataset since Maxwell-Jia/AIME_2024 couldn't be found on the Hugging Face Hub (offline mode is enabled).
-Using the latest cached version of the dataset since Maxwell-Jia/AIME_2024 couldn't be found on the Hugging Face Hub (offline mode is enabled).
-Found the latest cached dataset configuration 'default' at /home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/datasets/Maxwell-Jia___aime_2024/default/0.0.0/8d88b2876a82a080e2f172cc9b25d0d9d2cb4792 (last modified on Fri Aug 14 13:59:11 2026).
-Found the latest cached dataset configuration 'default' at /home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/datasets/Maxwell-Jia___aime_2024/default/0.0.0/8d88b2876a82a080e2f172cc9b25d0d9d2cb4792 (last modified on Fri Aug 14 13:59:11 2026).
-Found the latest cached dataset configuration 'default' at /home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/datasets/Maxwell-Jia___aime_2024/default/0.0.0/8d88b2876a82a080e2f172cc9b25d0d9d2cb4792 (last modified on Fri Aug 14 13:59:11 2026).
-Using the latest cached version of the dataset since Maxwell-Jia/AIME_2024 couldn't be found on the Hugging Face Hub (offline mode is enabled).
-Found the latest cached dataset configuration 'default' at /home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/datasets/Maxwell-Jia___aime_2024/default/0.0.0/8d88b2876a82a080e2f172cc9b25d0d9d2cb4792 (last modified on Fri Aug 14 13:59:11 2026).
-Using the latest cached version of the dataset since Maxwell-Jia/AIME_2024 couldn't be found on the Hugging Face Hub (offline mode is enabled).
-Found the latest cached dataset configuration 'default' at /home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/datasets/Maxwell-Jia___aime_2024/default/0.0.0/8d88b2876a82a080e2f172cc9b25d0d9d2cb4792 (last modified on Fri Aug 14 13:59:11 2026).
-Using the latest cached version of the dataset since Maxwell-Jia/AIME_2024 couldn't be found on the Hugging Face Hub (offline mode is enabled).
-Found the latest cached dataset configuration 'default' at /home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache/datasets/Maxwell-Jia___aime_2024/default/0.0.0/8d88b2876a82a080e2f172cc9b25d0d9d2cb4792 (last modified on Fri Aug 14 13:59:11 2026).
-[rank 3] [1/30] aime-0 snapkv@2560  ok=True pass@1=1.000 candidates=4 len=3257 cache=2632 tok/s=100.67
-[rank 4] [3/30] aime-2 snapkv@2560  ok=True pass@1=1.000 candidates=4 len=3922 cache=2621 tok/s=83.43
-[rank 0] [2/30] aime-1 snapkv@2560  ok=False pass@1=0.250 candidates=4 len=9517 cache=2604 tok/s=107.70
-[rank 3] [9/30] aime-8 snapkv@2560  ok=True pass@1=1.000 candidates=4 len=6683 cache=2577 tok/s=101.97
-[rank 0] [11/30] aime-10 snapkv@2560  ok=True pass@1=1.000 candidates=4 len=4715 cache=2563 tok/s=60.89
-[rank 1] [6/30] aime-5 snapkv@2560  ok=False pass@1=0.000 candidates=4 len=11263 cache=2602 tok/s=60.51
-[rank 0] [13/30] aime-12 snapkv@2560  ok=True pass@1=1.000 candidates=4 len=2448 cache=2591 tok/s=107.10
-[rank 4] [10/30] aime-9 snapkv@2560  ok=True pass@1=1.000 candidates=4 len=2837 cache=2565 tok/s=17.01
-[rank 0] [15/30] aime-14 snapkv@2560  ok=True pass@1=0.750 candidates=4 len=3768 cache=2575 tok/s=38.58
-[rank 5] [4/30] aime-3 snapkv@2560  ok=True pass@1=0.500 candidates=4 len=4782 cache=2560 tok/s=15.14
-[rank 7] [7/30] aime-6 snapkv@2560  ok=False pass@1=0.000 candidates=4 len=32768 cache=2560 tok/s=103.38
-[rank 6] [8/30] aime-7 snapkv@2560  ok=False pass@1=0.000 candidates=4 len=5399 cache=2560 tok/s=17.02
-[rank 2] [5/30] aime-4 snapkv@2560  ok=False pass@1=0.000 candidates=4 len=20524 cache=2560 tok/s=64.62
-[rank 0] [17/30] aime-16 snapkv@2560  ok=False pass@1=0.250 candidates=4 len=12398 cache=2587 tok/s=105.04
-[rank 3] [12/30] aime-11 snapkv@2560  ok=False pass@1=0.500 candidates=4 len=32768 cache=2560 tok/s=103.52
-[rank 4] [16/30] aime-15 snapkv@2560  ok=False pass@1=0.250 candidates=4 len=13431 cache=2610 tok/s=56.49
-[rank 1] [14/30] aime-13 snapkv@2560  ok=False pass@1=0.000 candidates=4 len=14433 cache=2560 tok/s=45.64
-[rank 5] [18/30] aime-17 snapkv@2560  ok=False pass@1=0.000 candidates=4 len=20606 cache=2560 tok/s=65.31
-[rank 7] [19/30] aime-18 snapkv@2560  ok=False pass@1=0.250 candidates=4 len=32768 cache=2560 tok/s=103.44
-[rank 6] [20/30] aime-19 snapkv@2560  ok=False pass@1=0.000 candidates=4 len=32768 cache=2560 tok/s=103.25
-[rank 2] [21/30] aime-20 snapkv@2560  ok=False pass@1=0.000 candidates=4 len=32768 cache=2560 tok/s=103.25
-[rank 3] [23/30] aime-22 snapkv@2560  ok=True pass@1=0.250 candidates=4 len=20260 cache=2687 tok/s=74.75
-[rank 0] [22/30] aime-21 snapkv@2560  ok=True pass@1=0.750 candidates=4 len=19924 cache=2560 tok/s=63.07
-[rank 4] [24/30] aime-23 snapkv@2560  ok=True pass@1=0.500 candidates=4 len=8277 cache=2560 tok/s=26.14
-[rank 3] [30/30] aime-29 snapkv@2560  ok=False pass@1=0.500 candidates=4 len=12779 cache=2666 tok/s=106.33
-[rank 1] [25/30] aime-24 snapkv@2560  ok=False pass@1=0.250 candidates=4 len=32768 cache=2560 tok/s=103.56
-[rank 6] [28/30] aime-27 snapkv@2560  ok=False pass@1=0.000 candidates=4 len=13613 cache=2594 tok/s=48.57
-[rank 5] [26/30] aime-25 snapkv@2560  ok=False pass@1=0.000 candidates=4 len=32768 cache=2560 tok/s=103.68
-[rank 7] [27/30] aime-26 snapkv@2560  ok=False pass@1=0.000 candidates=4 len=32768 cache=2560 tok/s=103.42
-[rank 2] [29/30] aime-28 snapkv@2560  ok=False pass@1=0.000 candidates=4 len=30585 cache=2560 tok/s=96.53
-
-=== Distributed KV eviction eval ===
-{
- "snapkv@2560": {
-  "accuracy": 0.36666666666666664,
-  "pass_at_1": 0.36666666666666664,
-  "num_problems": 30,
-  "correct": 44,
-  "total": 120,
-  "min_effective_compression_ratio": 0.9522388059701492,
-  "mean_head_budget_mean": 2559.5583333333334,
-  "mean_decode_forward_sec": 153.69056931035593,
-  "min_head_budget_min": 2497.0,
-  "mean_decode_sec": 229.22318696426228,
-  "mean_elapsed_sec": 229.25280061025794,
-  "mean_head_budget_entropy": 5.545177455743154,
-  "mean_evicted_per_event": 126.08712741295591,
-  "max_effective_compression_ratio": 1.0,
-  "mean_n_evict": 167.63333333333333,
-  "max_head_budget_max": 2687.0,
-  "mean_compression_ratio": 0.9530865981563144,
-  "mean_final_cache_len": 2581.133333333333,
-  "mean_total_effective_kv_tokens": 655246.9333333333,
-  "mean_effective_evicted_per_event": 21563.023361670752,
-  "mean_head_budget_std": 0.0,
-  "mean_prefill_sec": 0.02961364599565665,
-  "mean_total_effective_evicted_tokens": 3736565.3333333335,
-  "min_compression_ratio": 0.9523809523809523,
-  "mean_effective_compression_ratio": 0.9686537234927968,
-  "max_effective_cache_len": 2687.0,
-  "mean_other_decode_sec": 69.33200664573039,
-  "mean_eviction_sec_mean": 0.011045210849985693,
-  "mean_attention_observation_sec": 4.352322410730024,
-  "mean_effective_cache_len": 2559.5583333333334,
-  "mean_eviction_sec_total": 1.848288597445935,
-  "mean_gen_len": 17052.366666666665,
-  "mean_num_underfilled_heads": 0.0,
-  "max_peak_memory_bytes": 17769570816,
-  "mean_total_evicted_tokens": 21393.933333333334,
-  "max_compression_ratio": 1.0,
-  "mean_tokens_per_sec": 77.3244237790412
- }
-}
-
-Merged 8 rank shards into /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/aime24_llama8b_snapkv_b2560_s4_multigpu/result/aime24_llama8b_snapkv_b2560_s4_multigpu.json
-[aime24_llama8b_snapkv_b2560_s4_multigpu] done
-[aime24_llama8b_snapkv_b2560_s4_multigpu] result=/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/aime24_llama8b_snapkv_b2560_s4_multigpu/result/aime24_llama8b_snapkv_b2560_s4_multigpu.json
