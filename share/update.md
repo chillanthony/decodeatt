@@ -49,45 +49,175 @@ uv sync --locked --extra efficiency
 > `UV_CONCURRENT_DOWNLOADS=1` 也是关键：默认会并发拉多个包，带宽被摊薄后
 > 大文件更容易超时。设成 1 让 torch 独占带宽。
 
-### 1b. 仍然失败 → 断点续传拉 wheel（推荐）
+### 1b. 每次都只下到 50–200MB 就断 → 分块并行下载（推荐）
 
-先清掉可能存在的残包：
+这是本机实测到的最终形态：**单条 TCP 流在这个镜像上活不过 50–200 MB**，
+无论 `uv` 还是 `curl -C -` 都一样 —— 续传也一样，因为每段新连接同样会断，
+永远凑不齐 782 MB。
 
-```bash
-uv cache clean torch
-```
+根因不在工具，在链路：单流有硬上限。解法是**把它拆成许多条独立的小流**，
+每条只负责 8 MiB，断了只重来这一小块。这样一次 782 MB 的失败被摊成
+~100 个小任务，每个都能廉价重试。
 
-然后循环续传，直到字节数对得上为止。这个脚本的核心是 `curl -C -`：
-每次从断点接着下，断了自动重来，**不会前功尽弃**。
-
-```bash
-cat > fetch_torch.sh <<'EOF'
-URL='https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/torch-2.11.0%2Bcu128-cp311-cp311-manylinux_2_28_x86_64.whl'
-OUT=torch-2.11.0+cu128-cp311-cp311-manylinux_2_28_x86_64.whl
-EXPECT=820214272
-
-# Linux: stat -c%s   /   macOS: stat -f%z
-sizeof() { stat -c%s "$1" 2>/dev/null || echo 0; }
-
-while [ "$(sizeof "$OUT")" -lt "$EXPECT" ]; do
-  echo "have $(sizeof "$OUT") / $EXPECT"
-  curl -L -C - --retry 50 --retry-delay 3 --retry-all-errors -o "$OUT" "$URL" || true
-done
-echo "done: $(sizeof "$OUT") bytes"
-EOF
-
-bash fetch_torch.sh
-```
-
-> 把 `cp311` 换成上一步 `python -V` 得到的版本。
-> 下载前可以先确认镜像支持断点续传：`curl -sL -o /dev/null -w "%{http_code}\n" -r 0-1023 "$URL"`
-> 返回 `206` 才说明续传有效（已验证返回 `206`）。
-
-校验大小必须完全等于 `820214272`：
+镜像支持 `Range` 请求（实测 `206`），所以分块可行。
 
 ```bash
-ls -l torch-2.11.0+cu128-cp311-cp311-manylinux_2_28_x86_64.whl
+cat > fetch_big.py <<'PY'
+#!/usr/bin/env python3
+"""分块并行下载，支持断点续传。失败就重跑，已完成的块不会重下。
+
+    python3 fetch_big.py <url> <out-file> <total-bytes> [sha256] [jobs]
+"""
+import hashlib, os, sys, time, urllib.request
+from concurrent.futures import ThreadPoolExecutor
+
+CHUNK = 8 << 20          # 每块 8 MiB
+MAX_ATTEMPTS = 500
+READ_TIMEOUT = 120
+
+
+def sizeof(path):
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
+def fetch_chunk(unit):
+    url, path, start, end = unit
+    want = end - start + 1
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        have = sizeof(path)
+        if have >= want:
+            return None
+        req = urllib.request.Request(
+            url, headers={"Range": "bytes=%d-%d" % (start + have, end)})
+        try:
+            resp = urllib.request.urlopen(req, timeout=READ_TIMEOUT)
+            try:
+                fh = open(path, "ab" if have else "wb")
+                try:
+                    while True:
+                        block = resp.read(1 << 20)
+                        if not block:
+                            break
+                        fh.write(block)
+                finally:
+                    fh.close()
+            finally:
+                resp.close()
+        except Exception as exc:
+            time.sleep(2)
+            if attempt % 20 == 0:
+                sys.stderr.write("  chunk@%d: %d tries, %d/%d bytes (%s)\n"
+                                 % (start, attempt, sizeof(path), want,
+                                    type(exc).__name__))
+                sys.stderr.flush()
+            continue
+    return "chunk@%d gave up at %d/%d bytes" % (start, sizeof(path), want)
+
+
+def sha256_of(path):
+    h = hashlib.sha256()
+    fh = open(path, "rb")
+    try:
+        while True:
+            block = fh.read(1 << 20)
+            if not block:
+                break
+            h.update(block)
+    finally:
+        fh.close()
+    return h.hexdigest()
+
+
+def main():
+    if len(sys.argv) < 4:
+        sys.stderr.write(__doc__)
+        return 2
+    url, out, total = sys.argv[1], sys.argv[2], int(sys.argv[3])
+    sha = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else None
+    jobs = int(sys.argv[5]) if len(sys.argv) > 5 else 8
+
+    parts = out + ".parts"
+    if not os.path.isdir(parts):
+        os.makedirs(parts)
+
+    units = [(url, os.path.join(parts, str(i)), start,
+              min(start + CHUNK - 1, total - 1))
+             for i, start in enumerate(range(0, total, CHUNK))]
+    print("%d chunks of %d MiB, %d parallel" % (len(units), CHUNK >> 20, jobs))
+
+    round_no = 0
+    while True:
+        round_no += 1
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            failures = [e for e in pool.map(fetch_chunk, units) if e]
+        have = sum(sizeof(u[1]) for u in units)
+        print("round %d: %d / %d bytes (%.1f%%)"
+              % (round_no, have, total, 100.0 * have / total))
+        sys.stdout.flush()
+        if have >= total:
+            break
+        if failures and round_no > MAX_ATTEMPTS:
+            sys.stderr.write("aborting: %s\n" % failures[0])
+            return 1
+
+    dst = open(out, "wb")
+    try:
+        for unit in units:
+            src = open(unit[1], "rb")
+            try:
+                while True:
+                    block = src.read(1 << 20)
+                    if not block:
+                        break
+                    dst.write(block)
+            finally:
+                src.close()
+    finally:
+        dst.close()
+
+    got = sizeof(out)
+    if got != total:
+        sys.stderr.write("SIZE MISMATCH: %d != %d\n" % (got, total))
+        return 1
+    if sha:
+        actual = sha256_of(out)
+        if actual != sha:
+            sys.stderr.write("SHA256 MISMATCH\n  got  %s\n  want %s\n"
+                             % (actual, sha))
+            return 1
+    for unit in units:
+        os.remove(unit[1])
+    os.rmdir(parts)
+    print("OK  %s  %d bytes" % (out, got))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+PY
 ```
+
+用法（`cp311` 按第 0 步的 `python -V` 替换）：
+
+```bash
+python3 fetch_big.py \
+  'https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/torch-2.11.0%2Bcu128-cp311-cp311-manylinux_2_28_x86_64.whl' \
+  torch-2.11.0+cu128-cp311-cp311-manylinux_2_28_x86_64.whl \
+  820214272 \
+  c9a7ca4c74fae10a58e6175b4b2cea953f9322bb6562bbf339ad6a05f52190ad \
+  8
+```
+
+第 4 个参数是 `uv.lock` 里记的 sha256，脚本会自己校验 —— 不用再手工 `ls -l`
+对字节数。第 5 个是并发数，掉速就调到 4。
+
+**中断了就重跑同一条命令**：已下完的块直接跳过，只有没下完的那块会接着下。
+
+> macOS 上把 `python3` 换成 `.venv/bin/python` 也行，脚本只用标准库，
+> 3.8 以上都能跑。
 
 ### 1c. 本地安装 torch，再让 uv 跳过它
 
