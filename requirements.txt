@@ -1,0 +1,25 @@
+# 核心依赖（pip）
+#
+# 不含 vLLM / flash-attn —— 两者都需要按目标机 CUDA 定制，见 README。
+# 装箱方式：
+#   pip install -r requirements.txt
+#
+# 如需复现本仓库验证过的精确版本，用 `pip freeze` 覆盖本文件。
+
+# --- 与 vLLM 0.25.1 对齐（也是 R-KV 上游 vLLM 端口所 pin 的版本）---
+# CUDA 机器上换用 cu128 索引：
+#   pip install torch==2.11.0 --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cu128
+torch==2.11.0
+transformers>=5.5.3,<6
+accelerate>=0.33
+
+# --- 数据与评测 ---
+datasets>=2.20
+numpy>=2.2
+pandas>=2.2
+scikit-learn>=1.4
+math-verify>=0.5
+sympy>=1.12
+pyyaml>=6.0
+tqdm>=4.66
+matplotlib>=3.8

@@ -6,19 +6,65 @@ The framework entrypoint is `scripts/eval.py`. It currently reuses the existing
 token-level eviction implementation in `kv_eviction.runner_token`. Older RescueKV
 research scripts have been removed from the main workflow.
 
-## 环境（uv）
+## 环境（conda + pip）
+
+用 conda 只负责提供隔离的 Python 解释器，**所有包都走 pip 装** ——
+vLLM、transformers 5.x 在 conda 上没有可用包，混用两套包管理器还会互相覆盖。
 
 ```bash
-# 安装 uv（若没有）：curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync                      # 按 uv.lock 装好全部依赖到 .venv
-source .venv/bin/activate
+conda create -n decodeatt python=3.11 -y
+conda activate decodeatt
 
-# 可选：flash-attn（需 CUDA 工具链，单独装）
-uv pip install -e ".[flash]" --no-build-isolation
+# 核心依赖
+pip install -r requirements.txt
+```
+
+CUDA 机器上 torch 需要 cu128 构建，**先装 torch 再装其余**：
+
+```bash
+pip install torch==2.11.0 --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cu128
+pip install -r requirements.txt      # 已装好的 torch 会被跳过
 ```
 
 主复现模型：deepseek-ai/DeepSeek-R1-Distill-Llama-8B。
-Linux + CUDA 下 torch 默认 PyPI wheel 已含 CUDA，无需额外配置。
+
+### 可选依赖
+
+```bash
+# flash-attn：需 CUDA 工具链，编译安装，且必须在 torch 之后
+pip install flash-attn>=2.6 --no-build-isolation
+
+# vLLM：吞吐测速专用，必须与 torch 版本严格对齐（0.25.1 要求 torch==2.11.0）
+pip install vllm==0.25.1
+```
+
+vLLM 走 cudagraph，与主库的 eager-attention 评测路径互斥（取不到逐步 attention），
+只在 `efficiency/` 下的 R-KV 测速里用。
+
+### 脚本里的 Python
+
+`scripts/` 下的运行脚本都读 `PYTHON_BIN`，默认指向 `$HOME/.venvs/decodeatt`：
+
+```bash
+export PYTHON_BIN="$CONDA_PREFIX/bin/python"
+```
+
+在提交脚本（SLURM 等）里这样传即可，不需要改脚本本身。
+
+### 导入路径
+
+仓库不再以可安装包形式装进环境，`kvbench` / `kv_eviction` 靠工作目录在
+`sys.path` 上被导入。从仓库根目录运行脚本即可；若从别处调用，需显式指定：
+
+```bash
+export PYTHONPATH="/path/to/decodeatt"
+```
+
+运行测试：
+
+```bash
+PYTHONPATH="$PWD" python tests/test_rkv_parity.py
+```
 
 ## 当前结构
 
@@ -40,7 +86,7 @@ kvbench/diagnostics/gen_traces.py # trace 生成工具
 ## 运行通用 KV 驱逐评测
 
 ```bash
-PYTHONPATH=. uv run python scripts/eval.py \
+PYTHONPATH=. python scripts/eval.py \
   --config configs/experiments/math500_official_b1024.yaml
 ```
 
@@ -85,7 +131,7 @@ PYTHONPATH=. uv run python scripts/eval.py \
 基本只随策略数量增长，通常为几 KB 到几十 KB：
 
 ```bash
-PYTHONPATH=. uv run python scripts/eval.py \
+PYTHONPATH=. python scripts/eval.py \
   --config configs/experiments/math500_official_b1024.yaml \
   --log-mode brief
 ```
@@ -128,7 +174,7 @@ arms:
 也可用 CLI 覆盖：
 
 ```bash
-PYTHONPATH=. uv run python scripts/eval.py \
+PYTHONPATH=. python scripts/eval.py \
   --policy-param rkv.lambda=0.2 \
   --policy-param rkv.alpha=8
 ```
@@ -136,7 +182,7 @@ PYTHONPATH=. uv run python scripts/eval.py \
 单策略补跑可以直接使用 `configs/onestrategy/` 里的完整配置：
 
 ```bash
-PYTHONPATH=. uv run python scripts/eval.py \
+PYTHONPATH=. python scripts/eval.py \
   --config configs/onestrategy/rkv.yaml
 ```
 
@@ -145,7 +191,7 @@ PYTHONPATH=. uv run python scripts/eval.py \
 正式 pass@1 评测可以在每张 GPU 上并行生成同一道题的多个独立候选：
 
 ```bash
-PYTHONPATH=. uv run python scripts/eval.py \
+PYTHONPATH=. python scripts/eval.py \
   --config configs/experiments/math500_official_b1024.yaml \
   --batch-size 16 \
   --num-return-sequences 64
@@ -161,7 +207,7 @@ micro-batch 的候选会自动使用较小 batch。`batch_size=1`、
 每道题只采样一次时，可以把不同题目按 prompt token 长度排序后共同生成：
 
 ```bash
-PYTHONPATH=. uv run python scripts/eval.py \
+PYTHONPATH=. python scripts/eval.py \
   --config configs/experiments/math500_official_b1024.yaml \
   --problem-batch-size 8 \
   --prompt-bucket-size 32
@@ -186,8 +232,8 @@ $$
 ## R-KV parity test
 
 ```bash
-uv run python tests/test_rkv_parity.py
-uv run python tests/test_official_baseline_parity.py
+PYTHONPATH="$PWD" python tests/test_rkv_parity.py
+PYTHONPATH="$PWD" python tests/test_official_baseline_parity.py
 ```
 
 这些测试用小张量 oracle 对齐上游 HuggingFace `update_kv` 语义，覆盖
@@ -198,6 +244,6 @@ candidate attention 重归一化、完整 cache similarity、官方 total-budget
 论文口径 smoke reproduction：
 
 ```bash
-PYTHONPATH=. uv run python scripts/eval.py \
+PYTHONPATH=. python scripts/eval.py \
   --config configs/experiments/math500_official_b1024.yaml
 ```
