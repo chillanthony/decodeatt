@@ -5,11 +5,15 @@ description = "KV eviction policy evaluation framework"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    "torch>=2.3,<2.7",
-    "transformers>=4.44,<5",
+    # 与 vllm 0.25.1 对齐（也是 R-KV 上游 vLLM 端口所 pin 的版本）：
+    # vllm 0.25.1 精确要求 torch==2.11.0、transformers>=5.5.3。
+    # torch 2.11.0 是 cu128 索引上的最高版本，正好匹配本机 CUDA 12.8 / 驱动 550，不需要升驱动。
+    # transformers 5.x 是破坏性升级，升级后必须重构 cache 访问（见 note/framework/02-升级.md）。
+    "torch==2.11.0",
+    "transformers>=5.5.3,<6",
     "accelerate>=0.33",
     "datasets>=2.20",
-    "numpy>=1.26",
+    "numpy>=2.2",
     "pandas>=2.2",
     "scikit-learn>=1.4",
     "matplotlib>=3.8",
@@ -22,6 +26,13 @@ dependencies = [
 [project.optional-dependencies]
 # 需要 CUDA 工具链 + 编译，单独安装：uv pip install -e ".[flash]" --no-build-isolation
 flash = ["flash-attn>=2.6"]
+# vLLM 吞吐测速专用。0.25.1 也是 R-KV 上游端口所 pin 的版本，两者匹配。
+# 它的依赖栈会拉起完整的 vLLM serving 环境，与主库的 eager-attention 评测路径互斥
+# （vLLM 走 cudagraph，取不到逐步 attention）。
+# 仅仅 `uv sync --extra efficiency` 还不够——R-KV 的 vLLM 端口需要打 wiring patch，
+# 必须走 rkv-efficiency/scripts/apply_rkv.sh + `pip install -e vllm-src`。
+# 见 note/framework/02-升级.md。
+efficiency = ["vllm==0.25.1"]
 
 [build-system]
 requires = ["hatchling"]
@@ -48,15 +59,16 @@ name = "pypi-tuna"
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
-# Linux 锁到 CUDA 12.4 的 torch（匹配 a100 驱动 550/CUDA12.4），避免拉到 cu130 带不动；
-# 使用国内 PyTorch wheel 镜像加速集群安装。
+# Linux 锁到 CUDA 12.8 的 torch（vllm 0.25.1 要求 torch==2.11.0；torch 2.11.0 是
+# cu128 索引上的最高版本）。匹配本机 CUDA 12.8 / 驱动 550，无需升级驱动。
+# 注意：不要升到 cu129/cu130 —— 那需要驱动 >= 575/580。
 # macOS 用默认 PyPI 源（CPU/mps）。
 [[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu124"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch-cu124", marker = "sys_platform == 'linux'" },
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
 ]
