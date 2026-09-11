@@ -62,10 +62,12 @@ default = true
 # Linux 锁到 CUDA 12.8 的 torch（vllm 0.25.1 要求 torch==2.11.0；torch 2.11.0 是
 # cu128 索引上的最高版本）。匹配本机 CUDA 12.8 / 驱动 550，无需升级驱动。
 # 注意：不要升到 cu129/cu130 —— 那需要驱动 >= 575/580。
+# 用上海交大镜像而非 download.pytorch.org —— 后者在国内机器上 failed to fetch。
+# 镜像内容与官方一致（含 torch-2.11.0+cu128 全部 wheel）。
 # macOS 用默认 PyPI 源（CPU/mps）。
 [[tool.uv.index]]
 name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
+url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128"
 explicit = true
 
 [tool.uv.sources]

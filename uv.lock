@@ -32,7 +32,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "safetensors" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
 ]
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/ca/14/787e5498cd062640f0f3d92ef4ae4063174f76f9afd29d13fc52a319daae/accelerate-1.13.0.tar.gz", hash = "sha256:d631b4e0f5b3de4aff2d7e9e6857d164810dfc3237d54d017f075122d057b236", size = 402835, upload-time = "2026-03-04T19:34:12.359Z" }
 wheels = [
@@ -507,7 +507,7 @@ dependencies = [
     { name = "loguru" },
     { name = "pydantic" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
     { name = "transformers" },
 ]
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/2c/9e/d7f18bd9a0354088abc11a0c1f2c7698f7c49e5a709faedf6a46e388f693/compressed_tensors-0.17.0.tar.gz", hash = "sha256:15c20d06bdbcf35b51fc99fd125e7b9be1e1855567c33b7a46dfac26ad6fb126", size = 257091, upload-time = "2026-06-03T16:49:17.208Z" }
@@ -1236,7 +1236,7 @@ source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 dependencies = [
     { name = "einops" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
 ]
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/3b/b2/8d76c41ad7974ee264754709c22963447f7f8134613fd9ce80984ed0dab7/flash_attn-2.8.3.tar.gz", hash = "sha256:1e71dd64a9e0280e0447b8a0c2541bad4bf6ac65bdeaa2f90e51a9e57de0370d", size = 8447812, upload-time = "2025-08-15T08:28:12.911Z" }
 
@@ -1267,7 +1267,7 @@ dependencies = [
     { name = "requests" },
     { name = "tabulate" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
     { name = "tqdm" },
 ]
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/1e/f7/7f6dd2b03f4277509dfd1e5c7a8ec1de2662fd245d2e663f44a3493882b1/flashinfer_python-0.6.13.tar.gz", hash = "sha256:8a6d7d3708c7c87952390ec4e3aabe6e1c356defa8c7211b26bccaa355a61c59", size = 9638085, upload-time = "2026-06-24T22:46:29.391Z" }
@@ -1587,7 +1587,7 @@ dependencies = [
     { name = "safetensors" },
     { name = "tabulate" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
     { name = "tqdm" },
     { name = "triton", version = "3.0.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
     { name = "triton", version = "3.6.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform == 'linux'" },
@@ -1871,7 +1871,7 @@ dependencies = [
     { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "sympy" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
     { name = "tqdm" },
     { name = "transformers" },
 ]
@@ -1897,7 +1897,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.4" },
     { name = "sympy", specifier = ">=1.12" },
     { name = "torch", marker = "sys_platform != 'linux'", specifier = "==2.11.0" },
-    { name = "torch", marker = "sys_platform == 'linux'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torch", marker = "sys_platform == 'linux'", specifier = "==2.11.0", index = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" },
     { name = "tqdm", specifier = ">=4.66" },
     { name = "transformers", specifier = ">=5.5.3,<6" },
     { name = "vllm", marker = "extra == 'efficiency'", specifier = "==0.25.1" },
@@ -3873,7 +3873,7 @@ dependencies = [
     { name = "einops" },
     { name = "nvidia-cutlass-dsl" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
     { name = "torch-c-dlpack-ext" },
 ]
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/e1/94/ee76e3a3dc74d986b7b24c5928f1d14b01bd5152375688c2ede369f6d19b/quack_kernels-0.5.0.tar.gz", hash = "sha256:c7c7338b67243397b6ca166e648bba161076e99f3858b532e1c877dcc6eaa03d", size = 366426, upload-time = "2026-05-29T05:00:25.985Z" }
@@ -4618,7 +4618,7 @@ dependencies = [
     { name = "psutil" },
     { name = "setuptools", marker = "sys_platform == 'darwin'" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
     { name = "torch-c-dlpack-ext" },
     { name = "tqdm" },
     { name = "typing-extensions" },
@@ -4666,7 +4666,7 @@ dependencies = [
     { name = "apache-tvm-ffi", marker = "sys_platform == 'linux'" },
     { name = "nvidia-cutlass-dsl", marker = "sys_platform == 'linux'" },
     { name = "tokenspeed-triton", marker = "sys_platform == 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/42/20/4110d624d81d63f0bee2f19dba7ea0e1d8a31ea50147e6c1db82223c88a4/tokenspeed_mla-0.1.2-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:592590f36d85e624ecdc5e357ff35e29e761e6d879900dce8b67a6785c8ce75c", size = 743769, upload-time = "2026-05-13T03:30:54.486Z" },
@@ -4751,7 +4751,7 @@ wheels = [
 [[package]]
 name = "torch"
 version = "2.11.0+cu128"
-source = { registry = "https://download.pytorch.org/whl/cu128" }
+source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }
 resolution-markers = [
     "(python_full_version >= '3.12' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.12' and platform_python_implementation != 'CPython' and sys_platform == 'linux')",
     "python_full_version >= '3.12' and platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
@@ -4778,12 +4778,12 @@ dependencies = [
     { name = "typing-extensions", marker = "sys_platform == 'linux'" },
 ]
 wheels = [
-    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:5ac6e34681d5a0e527edb741b38254899cd03087a7dd7e841791a4ee0a5e7011", upload-time = "2026-04-27T17:32:32Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:72d53f3176a69cc20710c4ecb95f7dc4c6ba10c4e4eda45b8396ee79ee40f75a", upload-time = "2026-04-27T17:33:09Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:d76f08e212285bd84c4c5a3472417f8eb4ee72e4067a604f7508dbfa2119771f", upload-time = "2026-04-27T17:36:45Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:c9a7ca4c74fae10a58e6175b4b2cea953f9322bb6562bbf339ad6a05f52190ad", upload-time = "2026-04-27T17:37:32Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:9c8f38efee365cb9d334de8a83ce52fc7e5fc9e5a7b0853285efa1b69e00b0f2", upload-time = "2026-04-27T17:41:30Z" },
-    { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:d252cf975fb18c94a85336323ad425f473df56dab35a44b00399bd70c7a3b997", upload-time = "2026-04-27T17:42:06Z" },
+    { url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/torch-2.11.0%2Bcu128-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:5ac6e34681d5a0e527edb741b38254899cd03087a7dd7e841791a4ee0a5e7011" },
+    { url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/torch-2.11.0%2Bcu128-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:72d53f3176a69cc20710c4ecb95f7dc4c6ba10c4e4eda45b8396ee79ee40f75a" },
+    { url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/torch-2.11.0%2Bcu128-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:d76f08e212285bd84c4c5a3472417f8eb4ee72e4067a604f7508dbfa2119771f" },
+    { url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/torch-2.11.0%2Bcu128-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:c9a7ca4c74fae10a58e6175b4b2cea953f9322bb6562bbf339ad6a05f52190ad" },
+    { url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/torch-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:9c8f38efee365cb9d334de8a83ce52fc7e5fc9e5a7b0853285efa1b69e00b0f2" },
+    { url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128/torch-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:d252cf975fb18c94a85336323ad425f473df56dab35a44b00399bd70c7a3b997" },
 ]
 
 [[package]]
@@ -4792,7 +4792,7 @@ version = "0.1.5"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 dependencies = [
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
 ]
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/37/de/921b6491efce5c389a5ef9bbed3d2d6660005840dae488124173180859ab/torch_c_dlpack_ext-0.1.5.tar.gz", hash = "sha256:d06f0357d575d22a168cc77acb9020fc4bae30968ceb6718a055dcbe92bacabe", size = 12913, upload-time = "2026-01-12T11:25:08.484Z" }
 wheels = [
@@ -4856,7 +4856,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pillow" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/74/b4/cdfee31e0402ea035135462cb0ab496e974d56fab6b4e7a1f0cbccb8cd28/torchvision-0.26.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:a06d4772a8e13e772906ed736cc53ec6639e5e60554f8e5fa6ca165aabebc464", size = 1863503, upload-time = "2026-03-23T18:13:01.384Z" },
@@ -5132,7 +5132,7 @@ dependencies = [
     { name = "tokenizers" },
     { name = "tokenspeed-mla", marker = "sys_platform == 'linux'" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
     { name = "torchaudio" },
     { name = "torchcodec" },
     { name = "torchvision" },
@@ -5362,7 +5362,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
     { name = "torch", version = "2.11.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "sys_platform != 'linux'" },
-    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux'" },
+    { name = "torch", version = "2.11.0+cu128", source = { registry = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu128" }, marker = "sys_platform == 'linux'" },
     { name = "transformers" },
     { name = "triton", version = "3.6.0", source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "typing-extensions" },
