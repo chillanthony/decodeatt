@@ -34,8 +34,10 @@ cu128 构建要求 **driver ≥ 550**。本项目在 driver 550 / CUDA 12.8 上�
 
 ### 1. 建环境并装 cu128 版 torch
 
-torch 必须**单独先装**，且必须带 `--index-url`。默认 PyPI 上的 torch 是 CPU 构建，
-先装它会污染依赖解析，后续 `pip install -r requirements.txt` 不会把它换掉。
+torch 必须**单独先装**，且必须带 `--index-url`。默认 PyPI 的 `torch==2.11.0`
+在 Linux 上绑定 cu13x 运行时（本机驱动 550 跑不起来），macOS 上干脆只有 CPU 构建；
+两种都不是我们要的 cu128。而一旦装上，后续 `pip install -r requirements.txt`
+（版本号写成 `==2.11.0`）会认为已满足，不会把它换掉。
 
 ```bash
 conda create -n decodeatt python=3.11 -y
