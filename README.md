@@ -19,37 +19,105 @@ conda activate decodeatt
 pip install -r requirements.txt
 ```
 
-CUDA 机器上 torch 需要 cu128 构建，**先装 torch 再装其余**：
-
-```bash
-pip install torch==2.11.0 --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cu128
-pip install -r requirements.txt      # 已装好的 torch 会被跳过
-```
-
 主复现模型：deepseek-ai/DeepSeek-R1-Distill-Llama-8B。
 
-### 可选依赖
+## 在 CUDA 机器上安装
+
+### 0. 先确认驱动版本
 
 ```bash
-# flash-attn：需 CUDA 工具链，编译安装，且必须在 torch 之后
+nvidia-smi | head -4
+```
+
+cu128 构建要求 **driver ≥ 550**。本项目在 driver 550 / CUDA 12.8 上验证通过。
+不要升到 cu129 / cu130 —— 那分别需要 driver ≥ 575 / ≥ 580。
+
+### 1. 建环境并装 cu128 版 torch
+
+torch 必须**单独先装**，且必须带 `--index-url`。默认 PyPI 上的 torch 是 CPU 构建，
+先装它会污染依赖解析，后续 `pip install -r requirements.txt` 不会把它换掉。
+
+```bash
+conda create -n decodeatt python=3.11 -y
+conda activate decodeatt
+
+pip install torch==2.11.0 --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cu128
+```
+
+> 国内的 `download.pytorch.org` / `download-r2.pytorch.org` 不可达（403/404），
+> 所以走 SJTU 镜像；其 wheel 的 sha256 与官方源逐字节一致。
+> 其他镜像（aliyun / tuna / bfsu / nju / ustc）不提供 cu128 的 wheel 目录结构。
+
+验证装的是 GPU 版：
+
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.device_count())"
+# 期望：2.11.0+cu128 True <卡数>
+```
+
+若输出 `+cpu` 或 `False`，说明 index 没生效，重装。
+
+### 2. 装其余核心依赖
+
+```bash
+pip install -r requirements.txt      # torch 已满足，会被跳过
+```
+
+装完复核一遍版本没被降级：
+
+```bash
+python -c "import torch; print(torch.__version__)"   # 必须仍是 2.11.0+cu128
+```
+
+### 3. 可选依赖（按需，都不在 requirements.txt 里）
+
+按目标机的 CUDA 定制，装错会把 torch 覆盖掉，所以**最后装**。
+
+```bash
+# flash-attn：需要本机 CUDA 工具链，编译安装，必须在 torch 之后
 pip install flash-attn>=2.6 --no-build-isolation
 
-# vLLM：吞吐测速专用，必须与 torch 版本严格对齐（0.25.1 要求 torch==2.11.0）
+# vLLM：吞吐测速专用，硬 pin torch==2.11.0
 pip install vllm==0.25.1
 ```
 
-vLLM 走 cudagraph，与主库的 eager-attention 评测路径互斥（取不到逐步 attention），
-只在 `efficiency/` 下的 R-KV 测速里用。
+| 包 | 什么时候才要 | 注意 |
+|---|---|---|
+| `flash-attn` | 只走 attention 后端加速路径才要 | 无 CUDA 工具链会编译失败；不加 `--no-build-isolation` 会连带重装 torch |
+| `vllm==0.25.1` | 只有 `efficiency/` 下的 R-KV 测速要 | 走 cudagraph，与主库 eager-attention 评测路径互斥（取不到逐步 attention），版本不符会直接覆盖 torch |
 
-### 脚本里的 Python
+### 4. 验证
 
-`scripts/` 下的运行脚本都读 `PYTHON_BIN`，默认指向 `$HOME/.venvs/decodeatt`：
+```bash
+export PYTHONPATH="$PWD"
+for t in tests/test_*.py; do python "$t" || echo "FAIL $t"; done
+```
+
+全部静默通过即为正常；本地 CPU 环境同样跑这 6 个脚本，两边结果一致。
+
+### 小结：和 CPU 机器装法的差别
+
+核心 `requirements.txt` 一模一样，只是**多一步单独装 cu128 版 torch**，再按需加
+`flash-attn` / `vllm`。脚本不需要任何改动，见下一节。
+
+## 脚本里的 Python
+
+`scripts/` 下的运行脚本都读 `PYTHON_BIN`，默认指向 `$HOME/.venvs/decodeatt`，
+换成 conda 解释器即可：
 
 ```bash
 export PYTHON_BIN="$CONDA_PREFIX/bin/python"
 ```
 
 在提交脚本（SLURM 等）里这样传即可，不需要改脚本本身。
+
+`scripts/cluster/run_eval_multigpu.sh` 另外读 `HF_HOME` / `HF_ENDPOINT` /
+`HF_DATASETS_CACHE`，默认指向 wulan 集群的路径；换机器时一并覆盖：
+
+```bash
+export HF_HOME=/your/hf_cache
+export HF_ENDPOINT=https://hf-mirror.com
+```
 
 ### 导入路径
 
