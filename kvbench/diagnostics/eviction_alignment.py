@@ -335,7 +335,7 @@ def analyze_eviction_alignment(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/experiments/tideprobe_step1.yaml")
+    parser.add_argument("--config", default="/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/configs/experiments/tideprobe_step1.yaml")
     parser.add_argument("--raw-dir", default=None)
     parser.add_argument("--trace-dir", default=None)
     parser.add_argument("--events", default=None)
@@ -350,7 +350,7 @@ def main(argv: list[str] | None = None) -> None:
     config = _load_config(args.config)
     diagnostic_config = config.get("diagnostics", {})
     alignment_config = diagnostic_config.get("eviction_alignment", {})
-    root = Path("runs/tideprobe_step1")
+    root = Path("/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1")
     metrics = analyze_eviction_alignment(
         raw_dir=Path(
             _pick(

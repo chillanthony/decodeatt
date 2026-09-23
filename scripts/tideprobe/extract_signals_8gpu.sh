@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-VENV_DIR="${VENV_DIR:-$HOME/.venvs/decodeatt}"
+VENV_DIR="${VENV_DIR:-/home/ma-user/.venvs/decodeatt}"
 PYTHON_BIN="${PYTHON_BIN:-$VENV_DIR/bin/python}"
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Missing executable python: $PYTHON_BIN" >&2
@@ -19,9 +19,9 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
 MODEL="${MODEL:-$HF_HOME/models/DeepSeek-R1-Distill-Llama-8B}"
-CONFIG="${CONFIG:-configs/experiments/tideprobe_step1.yaml}"
+CONFIG="${CONFIG:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/configs/experiments/tideprobe_step1.yaml}"
 TRACE_DIR="${TRACE_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/trace}"
-SIGNALS_DIR="${SIGNALS_DIR:-runs/tideprobe_step1/signals}"
+SIGNALS_DIR="${SIGNALS_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/signals}"
 MASTER_PORT="${MASTER_PORT:-29502}"
 
 CUDA_COUNT="$($PYTHON_BIN -c 'import torch; print(torch.cuda.device_count())')"

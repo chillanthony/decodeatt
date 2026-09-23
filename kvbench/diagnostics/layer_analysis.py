@@ -160,7 +160,7 @@ def summarize_layer_sensitivity(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/experiments/tideprobe_step1.yaml")
+    parser.add_argument("--config", default="/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/configs/experiments/tideprobe_step1.yaml")
     parser.add_argument("--shard-dir", default=None)
     parser.add_argument("--out", default=None)
     parser.add_argument("--summary", default=None)
@@ -172,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     config = _load_config(args.config)
-    root = Path("runs/tideprobe_step1")
+    root = Path("/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1")
     payload = summarize_layer_sensitivity(
         shard_dir=Path(
             _pick(

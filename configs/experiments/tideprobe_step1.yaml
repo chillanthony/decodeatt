@@ -21,22 +21,22 @@ generation:
 
 diagnostics:
   trace_dir: /home/ma-user/work/bucket-wulan-green/chenyanbo/trace
-  signals_dir: runs/tideprobe_step1/signals
-  events_path: runs/tideprobe_step1/transition_events.jsonl
-  metrics_path: runs/tideprobe_step1/transition_metrics.json
-  figures_dir: runs/tideprobe_step1/figures
-  layer_sensitivity_dir: runs/tideprobe_step1/layer_sensitivity
-  layer_sensitivity_path: runs/tideprobe_step1/layer_sensitivity.csv
-  layer_sensitivity_summary_path: runs/tideprobe_step1/layer_sensitivity_summary.csv
-  layer_sensitivity_metrics_path: runs/tideprobe_step1/layer_sensitivity_metrics.json
-  eviction_alignment_dir: runs/tideprobe_step1/eviction_alignment_raw
-  eviction_alignment_path: runs/tideprobe_step1/eviction_alignment.csv
-  eviction_alignment_metrics_path: runs/tideprobe_step1/eviction_alignment_metrics.json
-  eviction_alignment_figure: runs/tideprobe_step1/figures/transition_hit_nll.png
-  sparse_cliff_path: runs/tideprobe_step1/sparse_cliff.csv
-  sparse_cliff_summary_path: runs/tideprobe_step1/sparse_cliff_summary.csv
-  sparse_cliff_metrics_path: runs/tideprobe_step1/sparse_cliff_metrics.json
-  sparse_cliff_figure: runs/tideprobe_step1/figures/budget_cf.png
+  signals_dir: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/signals
+  events_path: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/transition_events.jsonl
+  metrics_path: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/transition_metrics.json
+  figures_dir: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/figures
+  layer_sensitivity_dir: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/layer_sensitivity
+  layer_sensitivity_path: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/layer_sensitivity.csv
+  layer_sensitivity_summary_path: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/layer_sensitivity_summary.csv
+  layer_sensitivity_metrics_path: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/layer_sensitivity_metrics.json
+  eviction_alignment_dir: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/eviction_alignment_raw
+  eviction_alignment_path: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/eviction_alignment.csv
+  eviction_alignment_metrics_path: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/eviction_alignment_metrics.json
+  eviction_alignment_figure: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/figures/transition_hit_nll.png
+  sparse_cliff_path: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/sparse_cliff.csv
+  sparse_cliff_summary_path: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/sparse_cliff_summary.csv
+  sparse_cliff_metrics_path: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/sparse_cliff_metrics.json
+  sparse_cliff_figure: /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/figures/budget_cf.png
   # Optional JSONL rows: {"id": "aime-0", "token_index": 123, "type": "manual"}
   manual_labels: null
   transition:

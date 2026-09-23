@@ -152,7 +152,7 @@ def _atomic_torch_save(payload: dict, path: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/experiments/tideprobe_step1.yaml")
+    parser.add_argument("--config", default="/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/configs/experiments/tideprobe_step1.yaml")
     parser.add_argument("--model", default=None)
     parser.add_argument("--dataset", choices=["sample", "aime", "math500", "mix"], default=None)
     parser.add_argument("--n", type=int, default=None)

@@ -286,7 +286,7 @@ def _finite_or_none(value):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/experiments/tideprobe_step1.yaml")
+    parser.add_argument("--config", default="/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/configs/experiments/tideprobe_step1.yaml")
     parser.add_argument("--raw-dir", default=None)
     parser.add_argument("--trace-dir", default=None)
     parser.add_argument("--events", default=None)
@@ -304,7 +304,7 @@ def main(argv: list[str] | None = None) -> None:
     config = _load_config(args.config)
     diagnostic_config = config.get("diagnostics", {})
     cliff_config = diagnostic_config.get("sparse_cliff", {})
-    root = Path("runs/tideprobe_step1")
+    root = Path("/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1")
     strategies = [
         item.strip()
         for item in (

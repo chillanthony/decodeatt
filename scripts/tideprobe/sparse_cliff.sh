@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-VENV_DIR="${VENV_DIR:-$HOME/.venvs/decodeatt}"
+VENV_DIR="${VENV_DIR:-/home/ma-user/.venvs/decodeatt}"
 PYTHON_BIN="${PYTHON_BIN:-$VENV_DIR/bin/python}"
 if [[ ! -x "$PYTHON_BIN" ]]; then
   echo "Missing executable python: $PYTHON_BIN" >&2
@@ -13,10 +13,10 @@ fi
 
 export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
-CONFIG="${CONFIG:-configs/experiments/tideprobe_step1.yaml}"
-RAW_DIR="${RAW_DIR:-runs/tideprobe_step1/eviction_alignment_raw}"
+CONFIG="${CONFIG:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/configs/experiments/tideprobe_step1.yaml}"
+RAW_DIR="${RAW_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/eviction_alignment_raw}"
 TRACE_DIR="${TRACE_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/trace}"
-EVENTS="${EVENTS:-runs/tideprobe_step1/transition_events.jsonl}"
+EVENTS="${EVENTS:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/transition_events.jsonl}"
 STRATEGIES="${STRATEGIES:-rkv,snapkv,window,random}"
 BUDGETS="${BUDGETS:-512,1024,1536}"
 
