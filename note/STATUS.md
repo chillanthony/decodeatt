@@ -48,6 +48,18 @@ generation、teacher-forced trace 和 evaluator 均可注入 backend/manager。�
 
 按本次要求，仅将 `note/AGENTS.md`、`note/MEMORY.md`、`note/STATUS.md` 纳入 Git 提交并推送。
 
+本机记录：此前 `main` 与远端均为 `4b567a8`，已删除失效的 `decodeatt` 符号链接；本次快进到 `e037c2f`，保留本地 `.gitignore` 改动和未跟踪文件。
+
+本机清理 `.deps/`，将其余 8 个未跟踪文件提交并推送；本地 `main` 与远端均为 `de39d5c`。
+
+本机删除 `kv_eviction/`、`kvbench/`、`scripts/` 下 4 个 `__pycache__` 目录（22 个 `.pyc` 文件）。
+
+检查 conda 环境文件：`requirements.txt` 是当前依赖清单；`uv.lock` 可移除，`pyproject.toml` 需先确认不再使用可编辑安装，README 的 uv 命令和 `scripts/env.sh` 默认解释器路径需同步调整。
+
+按本机 conda + pip 环境方案删除 `uv.lock`、`.python-version`、`pyproject.toml`，同步更新 README 和 trace 脚本示例；`scripts/env.sh` 仍需通过 `PYTHON_BIN` 指向 conda 解释器。
+
+`scripts/env.sh` 已改为默认使用激活的 conda 环境解释器，仍允许覆盖 `PYTHON_BIN`；本次将现有工作区变更一并提交推送。
+
 # 之后几步的规划
 
 

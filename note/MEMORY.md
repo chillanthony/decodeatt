@@ -16,7 +16,7 @@
 
 # 运行与验证
 
-- 所有 shell 入口统一 source `scripts/env.sh`；可通过 `VENV_DIR`、`PYTHON_BIN`、`HF_HOME`、`HF_ENDPOINT`、`HF_DATASETS_CACHE`、`RUNS_ROOT`、`TIDEPROBE_ROOT` 和 `TRACE_DIR` 覆盖机器相关路径。
+- 所有 shell 入口统一 source `scripts/env.sh`；`PYTHON_BIN` 默认取已激活 conda 环境的解释器，也可显式覆盖。`HF_HOME`、`HF_ENDPOINT`、`HF_DATASETS_CACHE`、`RUNS_ROOT`、`TIDEPROBE_ROOT` 和 `TRACE_DIR` 可按机器覆盖。
 
 - 支持同题多候选 batch（`batch-size`、`num-return-sequences`）和跨题 batch（`problem-batch-size`、`prompt-bucket-size`）；两者组合时最大并行请求数为 `problem_batch_size * batch_size`。
 - `tests/test_rkv_parity.py` 和 `tests/test_official_baseline_parity.py` 用小张量 oracle 对齐 SnapKV、H2O、StreamingLLM、R-KV 的 cache 更新语义。

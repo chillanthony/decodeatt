@@ -3,9 +3,9 @@
 每条 trace 落盘一个 .pt：prompt_ids / gen_ids / 每步熵 / 题目 / 标准答案 / 元信息。
 
 用法：
-  uv run python scripts/gen_traces.py --config configs/eval.yaml --n 1
+  PYTHONPATH=. python scripts/gen_traces.py --config configs/eval.yaml --n 1
   # 烟雾测试（小模型、短生成）：
-  uv run python scripts/gen_traces.py --model Qwen/Qwen2.5-0.5B-Instruct --max-new 128 --n 1
+  PYTHONPATH=. python scripts/gen_traces.py --model Qwen/Qwen2.5-0.5B-Instruct --max-new 128 --n 1
 """
 from __future__ import annotations
 
