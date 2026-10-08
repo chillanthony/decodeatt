@@ -6,19 +6,18 @@ The framework entrypoint is `scripts/eval.py`. It currently reuses the existing
 token-level eviction implementation in `kv_eviction.runner_token`. Older RescueKV
 research scripts have been removed from the main workflow.
 
-## 环境（uv）
+## 环境（conda + pip）
 
 ```bash
-# 安装 uv（若没有）：curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync                      # 按 uv.lock 装好全部依赖到 .venv
-source .venv/bin/activate
-
-# 可选：flash-attn（需 CUDA 工具链，单独装）
-uv pip install -e ".[flash]" --no-build-isolation
+conda create -n decodeatt python=3.11 -y
+conda activate decodeatt
+# CUDA 12.8：先安装与驱动匹配的 PyTorch，再安装项目依赖。
+pip install torch==2.11.0 --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cu128
+pip install --no-build-isolation -r requirements.txt
 ```
 
 主复现模型：deepseek-ai/DeepSeek-R1-Distill-Llama-8B。
-Linux + CUDA 下 torch 默认 PyPI wheel 已含 CUDA，无需额外配置。
+Linux + CUDA 环境请按上面的 cu128 步骤安装 PyTorch；其他机器需选择与驱动匹配的版本。
 
 ## 当前结构
 
@@ -35,7 +34,7 @@ scripts/gen_traces.py             # trace 生成工具
 ## 运行通用 KV 驱逐评测
 
 ```bash
-PYTHONPATH=. uv run python scripts/eval.py \
+PYTHONPATH=. python scripts/eval.py \
   --config configs/eval.yaml \
   --dataset math500 \
   --n 1 \
@@ -97,7 +96,7 @@ policy_params:
 也可用 CLI 覆盖：
 
 ```bash
-PYTHONPATH=. uv run python scripts/eval.py \
+PYTHONPATH=. python scripts/eval.py \
   --policy-param rkv.lambda=0.2 \
   --policy-param rkv.alpha=8
 ```
@@ -105,7 +104,7 @@ PYTHONPATH=. uv run python scripts/eval.py \
 策略组也可以拆到独立 config 后由主评测脚本选择：
 
 ```bash
-PYTHONPATH=. uv run python scripts/eval.py \
+PYTHONPATH=. python scripts/eval.py \
   --config configs/eval.yaml \
   --strategy-config configs/strategies/all_supported.yaml \
   --out results/rkv_smoke.json
@@ -114,8 +113,8 @@ PYTHONPATH=. uv run python scripts/eval.py \
 ## R-KV parity test
 
 ```bash
-uv run python tests/test_rkv_parity.py
-uv run python tests/test_official_baseline_parity.py
+PYTHONPATH=. python tests/test_rkv_parity.py
+PYTHONPATH=. python tests/test_official_baseline_parity.py
 ```
 
 这些测试用小张量 oracle 对齐上游 HuggingFace `update_kv` 语义，覆盖
@@ -126,7 +125,7 @@ candidate attention 重归一化、完整 cache similarity、官方 total-budget
 论文口径 smoke reproduction：
 
 ```bash
-PYTHONPATH=. uv run python scripts/eval.py \
+PYTHONPATH=. python scripts/eval.py \
   --config configs/eval.yaml \
   --dataset math500 \
   --n 1 \
