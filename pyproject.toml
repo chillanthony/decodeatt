@@ -1,0 +1,46 @@
+[project]
+name = "kvbench"
+version = "0.1.0"
+description = "KV eviction policy evaluation framework"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "torch>=2.3,<2.7",
+    "transformers>=4.44,<5",
+    "accelerate>=0.33",
+    "datasets>=2.20",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "scikit-learn>=1.4",
+    "matplotlib>=3.8",
+    "sympy>=1.12",
+    "math-verify>=0.5",
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+# 需要 CUDA 工具链 + 编译，单独安装：uv pip install -e ".[flash]" --no-build-isolation
+flash = ["flash-attn>=2.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["kv_eviction", "kvbench"]
+
+[tool.uv]
+package = true
+
+# Linux 锁到 CUDA 12.4 的 torch（匹配 a100 驱动 550/CUDA12.4），避免拉到 cu130 带不动；
+# macOS 用默认 PyPI 源（CPU/mps）。
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu124", marker = "sys_platform == 'linux'" },
+]
