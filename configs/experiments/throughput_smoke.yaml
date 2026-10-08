@@ -1,0 +1,53 @@
+# Short local throughput smoke test. Pass --model from the launcher or CLI.
+experiment:
+  name: throughput_smoke
+  out: runs/throughput_smoke/result.json
+  log_mode: brief
+
+model:
+  name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+  dtype: bfloat16
+  device_map: cuda
+  attn: auto
+  fast_attn: sdpa
+
+data:
+  dataset: sample
+  n: 8
+
+generation:
+  max_new: 512
+  do_sample: false
+  temperature: 0.6
+  top_p: 0.95
+  seed: 0
+  batch_size: 1
+  num_return_sequences: 1
+  problem_batch_size: 1
+  prompt_bucket_size: 4
+
+eviction:
+  recent: 8
+  sink: 0
+  evict_every: 64
+  obs_window: 8
+  obs_decay: 0.9
+
+policy_defaults:
+  rkv:
+    lambda: 0.1
+    alpha: 8
+    retain_ratio: 0.1
+    retain_direction: last
+    similarity_threshold: 0.5
+    pool_kernel: 7
+    redundancy_chunk: 512
+
+arms:
+  - id: fullkv
+    policy: fullkv
+    engine: hf
+  - id: rkv_b256
+    policy: rkv
+    budget: 256
+    engine: hf

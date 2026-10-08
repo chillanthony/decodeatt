@@ -1,0 +1,31 @@
+# 仓库目录说明
+
+- `.claude/`：保存仓库级 Claude 本地配置。
+- `configs/`：保存所有评测配置。
+- `configs/experiments/`：保存正式实验和 TideProbe 阶段实验的 YAML 配置。
+- `configs/onestrategy/`：保存单一淘汰策略的补跑或调试配置。
+- `kv_eviction/`：实现模型加载、解码循环、KV 淘汰 runner 及兼容入口。
+- `kv_eviction/strategies/`：实现并注册 FullKV、SnapKV、H2O、R-KV、StreamingLLM、Window、Random 等淘汰策略。
+- `kvbench/`：提供数据集、模型、策略、指标和评测编排等通用 benchmark 组件。
+- `kvbench/diagnostics/`：提供 TideProbe 所需的轨迹生成、层敏感性、转折信号、淘汰对齐和稀疏分析工具。
+- `local/`：保存本机实验运行产物和提取后的结果。
+- `local/runs_extracted/`：保存从实验归档中整理出的可复用运行目录。
+- `local/runs_extracted/runs/`：按数据集、策略、预算和并行规模保存各次实验结果。
+- `local/runs_extracted/runs/*/output/`：保存对应实验的标准输出、日志或中间输出。
+- `local/runs_extracted/runs/*/result/`：保存对应实验的汇总结果及分片文件。
+- `note/`：保存项目规则、状态、记忆和研究资料。
+- `note/archive/`：归档历史想法与阶段性资料。
+- `note/framework/`：记录数据集、评估协议、脚本、加速和框架升级等工作规范。
+- `note/knowledge/`：整理 KV Cache 研究、复现、跟进和项目分析笔记。
+- `note/paper/`：保存相关论文的 PDF 与中文阅读笔记。
+- `note/tideprobe/`：记录 TideProbe 的方案、实验步骤和研究叙事。
+- `note/.claude/`：保存笔记目录级 Claude 本地配置。
+- `scripts/`：提供数据/模型准备、评测、实验编排和结果汇总脚本。
+- `scripts/bootstrap/`：下载模型、数据集及配置 Hugging Face 镜像的初始化脚本。
+- `scripts/cluster/`：提供单机多卡或集群环境下的运行包装脚本。
+- `scripts/experiments/`：启动 AIME24、Math500 等基线网格实验。
+- `scripts/tideprobe/`：启动 TideProbe 各阶段的轨迹、信号、敏感性和淘汰分析实验。
+- `share/`：用于从远端同步实验结果，供本地后续分析和复用。
+- `tests/`：覆盖批量生成、日志模式、基线对齐、R-KV 对齐和 TideProbe 轨迹的回归测试。
+- `.pytest_cache/`：pytest 自动生成的测试缓存，不承载项目逻辑。
+- `__pycache__/`：Python 自动生成的字节码缓存目录，不承载项目逻辑。

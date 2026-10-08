@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/env.sh"
 cd "$ROOT_DIR"
 
 if (( $# != 1 )); then
@@ -34,7 +34,6 @@ esac
 
 DATASET="${DATASET:-$DEFAULT_DATASET}"
 RUN_NAME="${RUN_NAME:-$DEFAULT_RUN_NAME}"
-RUNS_ROOT="${RUNS_ROOT:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs}"
 RUN_DIR="${RUN_DIR:-$RUNS_ROOT/$RUN_NAME}"
 OUTPUT_DIR="${OUTPUT_DIR:-$RUN_DIR/output}"
 RESULT_DIR="${RESULT_DIR:-$RUN_DIR/result}"
@@ -45,23 +44,14 @@ mkdir -p "$OUTPUT_DIR" "$RESULT_DIR" "$(dirname "$LOG_FILE")" "$(dirname "$OUT")
 : > "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-VENV_DIR="${VENV_DIR:-$HOME/.venvs/decodeatt}"
-PYTHON_BIN="${PYTHON_BIN:-$VENV_DIR/bin/python}"
-if [[ ! -x "$PYTHON_BIN" ]]; then
-  echo "Missing executable python: $PYTHON_BIN" >&2
-  exit 1
-fi
+require_python
 
-export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
-export HF_HOME="${HF_HOME:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}"
-export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+export PYTHONPATH HF_HOME HF_ENDPOINT
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
-export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
-MODEL="${MODEL:-$HF_HOME/models/DeepSeek-R1-Distill-Llama-8B}"
 CONFIG="${CONFIG:-configs/onestrategy/rkv.yaml}"
 N="${N:-$DEFAULT_N}"
 ARMS="${ARMS:-$DEFAULT_ARMS}"

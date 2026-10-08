@@ -13,6 +13,7 @@ class EvalArm:
     budget: int
     params: dict
     anchor_mode: str = "none"
+    engine: str = "hf"
 
     @property
     def name(self) -> str:
@@ -33,6 +34,13 @@ def _merge_params(policy: str, defaults: dict | None, overrides: dict | None = N
     return params
 
 
+def _parse_engine(value) -> str:
+    engine = str(value or "hf").strip().lower()
+    if engine not in {"hf", "vllm"}:
+        raise ValueError(f"unknown execution engine {engine!r}; expected 'hf' or 'vllm'")
+    return engine
+
+
 def parse_arm(
     spec: str,
     policy_defaults: dict | None = None,
@@ -48,6 +56,7 @@ def parse_arm(
             policy="fullkv",
             budget=10**9,
             params=_merge_params("fullkv", policy_defaults, policy_overrides),
+            engine="hf",
         )
     if "@" not in spec:
         raise ValueError(f"arm {spec!r} must be fullkv or backend@budget")
@@ -61,6 +70,7 @@ def parse_arm(
         policy=backend,
         budget=budget,
         params=_merge_params(backend, policy_defaults, policy_overrides),
+        engine="hf",
     )
 
 
@@ -96,6 +106,7 @@ def parse_structured_arm(
         budget=budget,
         params=params,
         anchor_mode=str(item.get("anchor_mode", "none")),
+        engine=_parse_engine(item.get("engine", item.get("runtime", "hf"))),
     )
 
 

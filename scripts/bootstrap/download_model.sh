@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/env.sh"
 HFD_SCRIPT="$ROOT_DIR/scripts/bootstrap/hfd.sh"
 
 MODEL="${MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}"
 REVISION="${REVISION:-main}"
-HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 THREADS="${THREADS:-4}"
 CONCURRENT="${CONCURRENT:-2}"
-SFS_ROOT="${SFS_ROOT:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}"
 MODEL_DIR="${MODEL_DIR:-$SFS_ROOT/models/DeepSeek-R1-Distill-Llama-8B}"
 LOG_FILE="${LOG_FILE:-$MODEL_DIR/hfd.log}"
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/env.sh"
 
 if (( $# != 1 )); then
   echo "Usage: $0 {aime24|math500}" >&2
@@ -26,20 +26,11 @@ case "$DATASET_KEY" in
     ;;
 esac
 
-VENV_DIR="${VENV_DIR:-$HOME/.venvs/decodeatt}"
-PYTHON_BIN="${PYTHON_BIN:-$VENV_DIR/bin/python}"
-if [[ ! -x "$PYTHON_BIN" ]]; then
-  echo "Missing executable python: $PYTHON_BIN" >&2
-  exit 1
-fi
+require_python
 
 DATASET_REPO="${DATASET_REPO:-$DEFAULT_DATASET_REPO}"
 SPLIT="${SPLIT:-$DEFAULT_SPLIT}"
 REVISION="${REVISION:-main}"
-HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
-SFS_ROOT="${SFS_ROOT:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}"
-HF_HOME="${HF_HOME:-$SFS_ROOT}"
-HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 LOG_FILE="${LOG_FILE:-$HF_HOME/logs/${DATASET_KEY}-download.log}"
 
 mkdir -p "$HF_HOME" "$HF_DATASETS_CACHE" "$(dirname "$LOG_FILE")"

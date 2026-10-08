@@ -16,6 +16,7 @@ from kvbench.datasets import load_problems
 from kvbench.models import load_causal_lm
 from kvbench.policies import parse_arms
 from kvbench.metrics import summarize_accuracy
+from kvbench.vllm_evaluator import run_vllm_generation_eval
 
 
 _FAST_ATTN_BACKENDS = {"fullkv", "streamingllm", "window", "random"}
@@ -104,6 +105,10 @@ def _arm_attn_backend(backend: str, requested_attn: str, fast_attn: str) -> str:
     if requested_attn != "auto":
         return requested_attn
     return fast_attn if backend in _FAST_ATTN_BACKENDS else "eager"
+
+
+def _arm_engine(arm) -> str:
+    return getattr(arm, "engine", "hf")
 
 
 _SUMMARY_MIN_FIELDS = {
@@ -369,11 +374,17 @@ def main():
     )
 
     groups: dict[str, list] = {}
+    vllm_arms = []
     for arm in arms:
-        groups.setdefault(_arm_attn_backend(arm.backend, requested_attn, fast_attn), []).append(arm)
+        if _arm_engine(arm) == "vllm":
+            vllm_arms.append(arm)
+        else:
+            groups.setdefault(_arm_attn_backend(arm.backend, requested_attn, fast_attn), []).append(arm)
 
     env_world_size = int(os.environ.get("WORLD_SIZE", "1"))
     distributed = args.distributed or env_world_size > 1
+    if distributed and vllm_arms:
+        raise SystemExit("engine=vllm is not supported with --distributed yet")
     if distributed:
         if not torch.distributed.is_available():
             raise SystemExit("torch.distributed is not available in this PyTorch build")
@@ -462,6 +473,30 @@ def main():
         return
 
     payloads = []
+    if vllm_arms:
+        vllm_out = out_path
+        if groups:
+            vllm_out = out_path.with_name(f"{out_path.stem}.vllm{out_path.suffix}")
+        payloads.append(
+            run_vllm_generation_eval(
+                model_name=model_name,
+                dataset=eval_kwargs["dataset"],
+                n=eval_kwargs["n"],
+                arms=vllm_arms,
+                out_path=vllm_out,
+                max_new=eval_kwargs["max_new"],
+                do_sample=eval_kwargs["do_sample"],
+                temperature=eval_kwargs["temperature"],
+                top_p=eval_kwargs["top_p"],
+                seed=eval_kwargs["seed"],
+                num_return_sequences=eval_kwargs["num_return_sequences"],
+                seed_offset=eval_kwargs["seed_offset"],
+                log_mode=log_mode,
+                debug_dir=eval_kwargs["debug_dir"],
+                only_ids=eval_kwargs["only_ids"],
+                vllm_config=cfg.get("vllm", {}),
+            )
+        )
     for attn_backend, group_arms in groups.items():
         print(
             f"\n=== Loading model with attn={attn_backend} for arms: "

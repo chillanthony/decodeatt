@@ -1,0 +1,33 @@
+# Serving-style FullKV baseline. Custom eviction policies should use engine: hf
+# until a paged/block CacheManager is available.
+
+experiment:
+  name: math500_fullkv_vllm
+  out: results/math500_fullkv_vllm.json
+  log_mode: brief
+
+model:
+  name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+  dtype: bfloat16
+
+vllm:
+  dtype: bfloat16
+  gpu_memory_utilization: 0.90
+  trust_remote_code: true
+
+data:
+  dataset: math500
+  n: 8
+
+generation:
+  max_new: 512
+  do_sample: false
+  temperature: 0.6
+  top_p: 0.95
+  seed: 0
+  num_return_sequences: 1
+
+arms:
+  - id: fullkv_vllm
+    policy: fullkv
+    engine: vllm

@@ -140,6 +140,8 @@ def summarize_accuracy(records: list[dict]) -> dict:
             "mean_tokens_per_sec": (
                 sum(row["tokens_per_sec"] for row in rows) / len(rows) if rows else 0.0
             ),
+            "mean_batch_tokens_per_sec": mean_field("batch_tokens_per_sec"),
+            "max_batch_size": max_field("batch_size"),
             "mean_compression_ratio": (
                 sum(row["mean_compression_ratio"] for row in rows) / len(rows) if rows else 1.0
             ),

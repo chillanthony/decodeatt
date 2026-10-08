@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Callable
 
 from kv_eviction.runner_token import generate_token_evict, generate_token_evict_batch
+from kv_eviction.backends import ExecutionBackend
+from kv_eviction.cache_manager import CacheManager
 
 from kvbench.datasets import load_problems
 from kvbench.metrics import extract_answer, is_correct, summarize_accuracy
@@ -67,6 +69,8 @@ def run_generation_eval(
     progress_prefix: str = "",
     claim_problem_index: Callable[[], int | None] | None = None,
     log_mode: str = "full",
+    execution_backend: ExecutionBackend | None = None,
+    cache_manager: CacheManager | None = None,
 ) -> dict:
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
@@ -143,6 +147,8 @@ def run_generation_eval(
             temperature=temperature,
             top_p=top_p,
             policy_params=policy_params,
+            execution_backend=execution_backend,
+            cache_manager=cache_manager,
             log_mode=log_mode,
         )
 
@@ -186,6 +192,8 @@ def run_generation_eval(
                         policy_params=arm.params or (policy_params or {}).get(arm.backend, {}),
                         debug_path=str(debug_path) if debug_path else None,
                         debug_topk=debug_topk,
+                        execution_backend=execution_backend,
+                        cache_manager=cache_manager,
                     ))
                 else:
                     batch_result = generate_token_evict_batch(
@@ -208,6 +216,8 @@ def run_generation_eval(
                         top_p=top_p,
                         seeds=candidate_seeds,
                         policy_params=arm.params or (policy_params or {}).get(arm.backend, {}),
+                        execution_backend=execution_backend,
+                        cache_manager=cache_manager,
                     )
                     candidate_results.extend(batch_result["candidates"])
                 candidate_start += micro_batch_size
@@ -286,6 +296,11 @@ def _evaluated_candidates(
             "ok": ok,
             "pred": pred,
             "gen_len": len(result["gen_ids"]),
+            # Normalize single-request and batched results for serving-style
+            # throughput summaries.
+            "batch_elapsed_sec": result.get("batch_elapsed_sec", result["elapsed_sec"]),
+            "batch_tokens_per_sec": result.get("batch_tokens_per_sec", result["tokens_per_sec"]),
+            "batch_size": result.get("batch_size", 1),
         }
         if log_mode == "full":
             candidate["raw_output"] = result["text"]
@@ -341,6 +356,14 @@ def _arm_payload(
         "pass_at_1": sum(candidate["ok"] for candidate in evaluated) / len(evaluated),
         "candidates": evaluated,
     }
+    # Batched generation reports both per-request and aggregate throughput. Keep
+    # the latter at arm level so serving-style smoke tests do not lose it when
+    # candidates are serialized in brief mode.
+    payload["batch_elapsed_sec"] = first_result.get("batch_elapsed_sec", first_result["elapsed_sec"])
+    payload["batch_tokens_per_sec"] = first_result.get(
+        "batch_tokens_per_sec", first_result["tokens_per_sec"]
+    )
+    payload["batch_size"] = first_result.get("batch_size", 1)
     if log_mode == "full":
         payload["raw_output"] = first_result["text"]
         payload["evict_events"] = first_result["evict_events"]
@@ -388,6 +411,8 @@ def _run_cross_problem_eval(
     temperature,
     top_p,
     policy_params,
+    execution_backend=None,
+    cache_manager=None,
     log_mode="full",
 ):
     """Evaluate length-bucketed heterogeneous prompts in static batches."""
@@ -456,6 +481,8 @@ def _run_cross_problem_eval(
                         top_p=top_p,
                         seeds=seeds,
                         policy_params=arm.params or (policy_params or {}).get(arm.backend, {}),
+                        execution_backend=execution_backend,
+                        cache_manager=cache_manager,
                     )
                     for problem_idx in range(len(group)):
                         begin = problem_idx * candidates_this_batch

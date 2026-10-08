@@ -17,6 +17,8 @@ from pathlib import Path
 
 import torch
 
+from kv_eviction.backends import ExecutionBackend, TransformersExecutionBackend
+from kv_eviction.cache_manager import CacheManager, TransformersCacheManager
 from kv_eviction.strategies.rkv_official import compute_attention_scores
 from kv_eviction.strategies.token import SelectionContext, get_policy
 
@@ -599,6 +601,8 @@ def generate_token_evict(
     do_sample=True, temperature=0.6, top_p=0.95, seed=0, sig=None,
     policy_params=None,
     debug_path=None, debug_topk=0,
+    execution_backend: ExecutionBackend | None = None,
+    cache_manager: CacheManager | None = None,
 ):
     """token 级淘汰生成(忠实 R-KV 架构 + 支持长生成)。
 
@@ -607,6 +611,8 @@ def generate_token_evict(
     缓冲预分配(slot_pos/imp/ent),消掉逐步 torch.cat 的 O(n²),解锁 16k 长生成。
     返回 dict(text, gen_ids, n_evict, final_cache_len)。"""
     device = next(model.parameters()).device
+    execution_backend = execution_backend or TransformersExecutionBackend(model)
+    cache_manager = cache_manager or TransformersCacheManager()
     start_time = time.perf_counter()
     prefill_sec = 0.0
     decode_forward_sec = 0.0
@@ -642,7 +648,7 @@ def generate_token_evict(
     n = P                                             # 当前缓存长度
 
     prefill_start = time.perf_counter()
-    out = model(input_ids=input_ids, use_cache=True, output_attentions=False)
+    out = execution_backend.prefill(input_ids, use_cache=True, output_attentions=False)
     prefill_sec = time.perf_counter() - prefill_start
     cache = out.past_key_values
     logits = out.logits[:, -1]
@@ -685,12 +691,16 @@ def generate_token_evict(
         want_attn = want_observe and not want_logits
         position_ids = torch.tensor([[true_pos]], device=device)
         decode_start = time.perf_counter()
-        out = model(input_ids=torch.tensor([[nxt]], device=device), past_key_values=cache,
-                    use_cache=True, output_attentions=want_attn,
-                    output_hidden_states=want_logits,
-                    attention_mask=torch.ones(1, n + 1, device=device, dtype=torch.long),
-                    position_ids=position_ids,
-                    cache_position=torch.tensor([n], device=device))
+        out = execution_backend.decode(
+            torch.tensor([[nxt]], device=device),
+            past_key_values=cache,
+            use_cache=True,
+            output_attentions=want_attn,
+            output_hidden_states=want_logits,
+            attention_mask=torch.ones(1, n + 1, device=device, dtype=torch.long),
+            position_ids=position_ids,
+            cache_position=torch.tensor([n], device=device),
+        )
         decode_forward_sec += time.perf_counter() - decode_start
         cache = out.past_key_values
         logits = out.logits[:, -1]
@@ -793,7 +803,7 @@ def generate_token_evict(
                 })
             before_n = n
             idx_slots = _representative_indices(idx)
-            cache, k = _compact_cache_update(cache, idx)
+            cache, k = cache_manager.compact(cache, idx)
             after_summary = _cache_length_summary(cache, k)
             slot_pos[:k] = slot_pos[idx_slots]; slot_ids[:k] = slot_ids[idx_slots]; imp[:k] = imp[idx_slots]
             cum_imp[:k] = cum_imp[idx_slots]; win_imp[:k] = win_imp[idx_slots]; ent[:k] = ent[idx_slots]
@@ -920,6 +930,8 @@ def generate_token_evict_batch(
     seeds=None,
     policy_params=None,
     input_attention_mask=None,
+    execution_backend: ExecutionBackend | None = None,
+    cache_manager: CacheManager | None = None,
 ):
     """Generate independent candidates for one or more prompts in a static batch.
 
@@ -930,6 +942,8 @@ def generate_token_evict_batch(
     """
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
+    execution_backend = execution_backend or TransformersExecutionBackend(model)
+    cache_manager = cache_manager or TransformersCacheManager()
     if batch_size == 1 and input_ids.shape[0] == 1 and input_attention_mask is None:
         seed = int((seeds or [0])[0])
         return {
@@ -952,6 +966,8 @@ def generate_token_evict_batch(
                 top_p=top_p,
                 seed=seed,
                 policy_params=policy_params,
+                execution_backend=execution_backend,
+                cache_manager=cache_manager,
             )]
         }
 
@@ -1009,8 +1025,8 @@ def generate_token_evict_batch(
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
     prefill_start = time.perf_counter()
-    out = model(
-        input_ids=batched_input_ids,
+    out = execution_backend.prefill(
+        batched_input_ids,
         attention_mask=prompt_attention_mask,
         position_ids=prefill_position_ids,
         use_cache=True,
@@ -1063,8 +1079,8 @@ def generate_token_evict_batch(
             [valid_cache_mask[:, :n], step_valid.unsqueeze(1)], dim=1
         ).long()
         decode_start = time.perf_counter()
-        out = model(
-            input_ids=next_tokens.unsqueeze(1),
+        out = execution_backend.decode(
+            next_tokens.unsqueeze(1),
             past_key_values=cache,
             use_cache=True,
             output_attentions=want_attn,
@@ -1140,7 +1156,7 @@ def generate_token_evict_batch(
                 valid_mask=valid_cache_mask[:, :n],
             )
             representative = _representative_indices_batch(idx)
-            cache, n = _compact_cache_update_batch(cache, idx)
+            cache, n = cache_manager.compact_batch(cache, idx)
             slot_pos[:, :n] = torch.gather(slot_pos[:, :before_n], 1, representative)
             slot_ids[:, :n] = torch.gather(slot_ids[:, :before_n], 1, representative)
             imp[:, :n] = torch.gather(imp[:, :before_n], 1, representative)
@@ -1323,10 +1339,14 @@ def score_trace_token(
     policy_params=None,
     debug=False,
     seed=0,
+    execution_backend: ExecutionBackend | None = None,
+    cache_manager: CacheManager | None = None,
 ):
     """NLL 兜底:token 级淘汰下 teacher-forced 喂真 trace,测纠错 span 的 NLL。
     与 generate_token_evict 同淘汰逻辑,但不采样、喂 gen_ids,累计纠错/非纠错 NLL。"""
     device = next(model.parameters()).device
+    execution_backend = execution_backend or TransformersExecutionBackend(model)
+    cache_manager = cache_manager or TransformersCacheManager()
     torch.manual_seed(int(seed))
     full_ids = full_ids.to(device)
     if full_ids.dim() == 1:
@@ -1356,7 +1376,9 @@ def score_trace_token(
     att_cnt = torch.zeros(N, device=device)
     att_max = torch.zeros(N, device=device)
     n = P
-    out = model(input_ids=full_ids[:, :P], use_cache=True, output_attentions=False)
+    out = execution_backend.prefill(
+        full_ids[:, :P], use_cache=True, output_attentions=False
+    )
     cache = out.past_key_values
     logits = out.logits[:, -1]
     nll_c, nll_n, c_c, c_n = 0.0, 0.0, 0, 0
@@ -1387,8 +1409,8 @@ def score_trace_token(
         want_logits = want_observe and policy.needs_attn_history and use_attention_logits
         want_attn = want_observe and not want_logits
         position_ids = torch.tensor([[true_pos]], device=device)
-        out = model(
-            input_ids=full_ids[:, P + t:P + t + 1],
+        out = execution_backend.decode(
+            full_ids[:, P + t:P + t + 1],
             past_key_values=cache,
             use_cache=True,
             output_attentions=want_attn,
@@ -1482,7 +1504,7 @@ def score_trace_token(
                     position_maps, n, idx
                 )
             idx_slots = _representative_indices(idx)
-            cache, k = _compact_cache_update(cache, idx)
+            cache, k = cache_manager.compact(cache, idx)
             slot_pos[:k] = slot_pos[idx_slots]
             imp[:k] = imp[idx_slots]
             cum_imp[:k] = cum_imp[idx_slots]

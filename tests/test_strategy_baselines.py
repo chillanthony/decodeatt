@@ -72,6 +72,14 @@ def test_structured_arm_parsing_allows_same_policy_with_different_params():
     assert arms[1].params == {"lambda": 0.2, "alpha": 8}
 
 
+def test_structured_arm_selects_execution_engine():
+    arms = parse_arms([
+        {"id": "fullkv_hf", "policy": "fullkv", "engine": "hf"},
+        {"id": "fullkv_vllm", "policy": "fullkv", "engine": "vllm"},
+    ])
+    assert [arm.engine for arm in arms] == ["hf", "vllm"]
+
+
 def test_streamingllm_keeps_sink_and_recent_budget():
     policy = get_policy("streamingllm")
     idx = policy.select_keep(_ctx(n=12, budget=6, sink=2, recent=4))

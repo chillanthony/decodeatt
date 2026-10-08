@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/env.sh"
 
 if (( $# < 2 || $# > 3 )); then
   echo "Usage: $0 {aime24|math500} {fullkv|snapkv|rkv} [budget]" >&2
@@ -12,7 +12,6 @@ DATASET_KEY="$1"
 STRATEGY="$2"
 BUDGET="${3:-}"
 SAMPLES="${NUM_RETURN_SEQUENCES:-4}"
-RUNS_ROOT="${RUNS_ROOT:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs}"
 
 case "$DATASET_KEY" in
   aime24|math500) ;;

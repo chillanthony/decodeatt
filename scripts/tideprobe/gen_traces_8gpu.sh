@@ -1,28 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/env.sh"
 cd "$ROOT_DIR"
 
-VENV_DIR="${VENV_DIR:-/home/ma-user/.venvs/decodeatt}"
-PYTHON_BIN="${PYTHON_BIN:-$VENV_DIR/bin/python}"
-if [[ ! -x "$PYTHON_BIN" ]]; then
-  echo "Missing executable python: $PYTHON_BIN" >&2
-  exit 1
-fi
+require_python
 
-export PYTHONPATH="$ROOT_DIR${PYTHONPATH:+:$PYTHONPATH}"
-export HF_HOME="${HF_HOME:-/home/ma-user/work/bucket-wulan-green/chenyanbo/hf_cache}"
-export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
+export PYTHONPATH HF_HOME HF_ENDPOINT
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
-export HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
 MODEL="${MODEL:-$HF_HOME/models/DeepSeek-R1-Distill-Llama-8B}"
-CONFIG="${CONFIG:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/configs/experiments/tideprobe_step1.yaml}"
-TRACE_DIR="${TRACE_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/trace}"
+CONFIG="${CONFIG:-$ROOT_DIR/configs/experiments/tideprobe_step1.yaml}"
 N="${N:-10}"
 MAX_NEW="${MAX_NEW:-32768}"
 SEED="${SEED:-0}"

@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/env.sh"
 cd "$ROOT_DIR"
 
 # The runner uses only the cached HuggingFaceH4/MATH-500 test split. Populate
 # HF_DATASETS_CACHE first with scripts/bootstrap/download_dataset.sh if necessary.
 SAMPLES="${NUM_RETURN_SEQUENCES:-4}"
-RUNS_ROOT="${RUNS_ROOT:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs}"
 GRID_NAME="math500_llama8b_main_grid_s${SAMPLES}"
 SUMMARY_DIR="${SUMMARY_DIR:-$RUNS_ROOT/$GRID_NAME}"
 BUDGETS=(128 256 512 768 1024 1536 2048)
@@ -62,12 +61,7 @@ if [[ "${DRY_RUN:-0}" == "1" ]]; then
 fi
 
 mkdir -p "$SUMMARY_DIR"
-VENV_DIR="${VENV_DIR:-$HOME/.venvs/decodeatt}"
-PYTHON_BIN="${PYTHON_BIN:-$VENV_DIR/bin/python}"
-if [[ ! -x "$PYTHON_BIN" ]]; then
-  echo "Missing executable python: $PYTHON_BIN" >&2
-  exit 1
-fi
+require_python
 
 "$PYTHON_BIN" scripts/summarize_results.py \
   "${RESULT_PATHS[@]}" \

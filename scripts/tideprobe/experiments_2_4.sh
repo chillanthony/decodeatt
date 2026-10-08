@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/env.sh"
 cd "$ROOT_DIR"
 
-CONFIG="${CONFIG:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/configs/experiments/tideprobe_step1.yaml}"
-TRACE_DIR="${TRACE_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/trace}"
-EVENTS="${EVENTS:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/transition_events.jsonl}"
+CONFIG="${CONFIG:-$ROOT_DIR/configs/experiments/tideprobe_step1.yaml}"
+EVENTS="${EVENTS:-$TIDEPROBE_ROOT/transition_events.jsonl}"
 
-LAYER_OUT_DIR="${LAYER_OUT_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/layer_sensitivity}"
+LAYER_OUT_DIR="${LAYER_OUT_DIR:-$TIDEPROBE_ROOT/layer_sensitivity}"
 LAYER_BUDGETS="${LAYER_BUDGETS:-256,512}"
 LAYER_MASK_POLICIES="${LAYER_MASK_POLICIES:-random,window}"
 LAYER_RANDOM_SEEDS="${LAYER_RANDOM_SEEDS:-0,1,2}"
 LAYER_PROBE_TYPES="${LAYER_PROBE_TYPES:-uniform,transition,ordinary}"
 LAYER_RUN_TAG="${LAYER_RUN_TAG:-pilot}"
 
-EVICTION_RAW_DIR="${EVICTION_RAW_DIR:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/eviction_alignment_raw}"
+EVICTION_RAW_DIR="${EVICTION_RAW_DIR:-$TIDEPROBE_ROOT/eviction_alignment_raw}"
 EVICTION_STRATEGIES="${EVICTION_STRATEGIES:-rkv,snapkv,window,random}"
 EVICTION_BUDGETS="${EVICTION_BUDGETS:-512,1024,1536}"
 
@@ -40,7 +39,7 @@ env \
   RANDOM_SEEDS="$LAYER_RANDOM_SEEDS" \
   PROBE_TYPES="$LAYER_PROBE_TYPES" \
   RUN_TAG="$LAYER_RUN_TAG" \
-  bash /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/scripts/tideprobe/layer_sensitivity_8gpu.sh
+  bash "$ROOT_DIR/scripts/tideprobe/layer_sensitivity_8gpu.sh"
 
 echo "[tideprobe serial] experiment 3/4: eviction alignment"
 env \
@@ -50,7 +49,7 @@ env \
   RAW_DIR="$EVICTION_RAW_DIR" \
   STRATEGIES="$EVICTION_STRATEGIES" \
   BUDGETS="$EVICTION_BUDGETS" \
-  bash /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/scripts/tideprobe/eviction_alignment_8gpu.sh
+  bash "$ROOT_DIR/scripts/tideprobe/eviction_alignment_8gpu.sh"
 
 echo "[tideprobe serial] experiment 4/4: sparse cliff"
 env \
@@ -60,6 +59,6 @@ env \
   RAW_DIR="$EVICTION_RAW_DIR" \
   STRATEGIES="$EVICTION_STRATEGIES" \
   BUDGETS="$EVICTION_BUDGETS" \
-  bash /home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/scripts/tideprobe/sparse_cliff.sh
+  bash "$ROOT_DIR/scripts/tideprobe/sparse_cliff.sh"
 
 echo "[tideprobe serial] experiments 2-4 complete"

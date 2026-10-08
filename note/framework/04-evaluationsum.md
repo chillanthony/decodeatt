@@ -1,0 +1,25 @@
+### Codebase
+
+- model
+    - R1-Llama-8B
+- 数据
+    - aime
+    - math500
+- baseline
+    - fullkv
+    - window
+    - random
+    - snapkv
+    - streamingllm
+    - h2o
+    - rkv
+- 指标
+    - 精度
+    - 压缩率
+    - 吞吐量
+- 协议
+    - 超参数
+    - 最大生成长度
+    - 预算扫描 
+    - nll准确率 
+    - 采样消融
