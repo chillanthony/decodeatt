@@ -1,6 +1,6 @@
 """Backward-compatible imports for token eviction strategy registry."""
 
-from kv_eviction.strategies.token import (
+from kveviction.strategies.token import (
     FullKVPolicy,
     H2OPolicy,
     RKVPolicy,

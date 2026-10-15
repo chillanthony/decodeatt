@@ -6,12 +6,12 @@ from dataclasses import dataclass
 
 import torch
 
-from kv_eviction.runner_token import _attention_logit_rows, _compact_cache
-from kv_eviction.strategies.base import SelectionContext
-from kv_eviction.strategies.h2o import select_h2o
-from kv_eviction.strategies.rkv import select_rkv
-from kv_eviction.strategies.snapkv import select_snapkv
-from kv_eviction.strategies.token import get_policy
+from kveviction.runner_token import _attention_logit_rows, _compact_cache
+from kveviction.strategies.base import SelectionContext
+from kveviction.strategies.h2o import select_h2o
+from kveviction.strategies.rkv import select_rkv
+from kveviction.strategies.snapkv import select_snapkv
+from kveviction.strategies.token import get_policy
 
 
 @dataclass

@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 from typing import Callable
 
-from kv_eviction.runner_token import generate_token_evict, generate_token_evict_batch
-from kv_eviction.backends import ExecutionBackend
-from kv_eviction.cache_manager import CacheManager
+from kveviction.runner_token import generate_token_evict, generate_token_evict_batch
+from kveviction.backends import ExecutionBackend
+from kveviction.cache_manager import CacheManager
 
 from kvbench.datasets import load_problems
 from kvbench.metrics import extract_answer, is_correct, summarize_accuracy

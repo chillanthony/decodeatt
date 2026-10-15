@@ -4,9 +4,9 @@ from __future__ import annotations
 import torch
 
 from kvbench.policies import parse_arm, parse_arms
-from kv_eviction.runner_token import _cache_length_summary, _compact_cache_update, _should_collect_observation, _token_samples
-from kv_eviction.strategies.base import SelectionContext
-from kv_eviction.strategies.token import get_policy, policy_names
+from kveviction.runner_token import _cache_length_summary, _compact_cache_update, _should_collect_observation, _token_samples
+from kveviction.strategies.base import SelectionContext
+from kveviction.strategies.token import get_policy, policy_names
 from scripts.eval import _allocate_group_ranks, _arm_attn_backend, _claim_next_problem
 
 

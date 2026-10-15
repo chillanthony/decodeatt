@@ -9,7 +9,7 @@ from pathlib import Path
 
 import torch
 
-from kv_eviction.runner_token import score_trace_token
+from kveviction.runner_token import score_trace_token
 from kvbench.diagnostics.gen_traces import _atomic_torch_save, _load_config, _pick
 from kvbench.diagnostics.layer_sensitivity import parse_int_list
 from kvbench.models import load_causal_lm

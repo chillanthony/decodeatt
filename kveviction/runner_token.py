@@ -17,10 +17,10 @@ from pathlib import Path
 
 import torch
 
-from kv_eviction.backends import ExecutionBackend, TransformersExecutionBackend
-from kv_eviction.cache_manager import CacheManager, TransformersCacheManager
-from kv_eviction.strategies.rkv_official import compute_attention_scores
-from kv_eviction.strategies.token import SelectionContext, get_policy
+from kveviction.backends import ExecutionBackend, TransformersExecutionBackend
+from kveviction.cache_manager import CacheManager, TransformersCacheManager
+from kveviction.strategies.rkv_official import compute_attention_scores
+from kveviction.strategies.token import SelectionContext, get_policy
 
 
 def _sample(logits, do_sample, temperature, top_p):

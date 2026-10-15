@@ -1,6 +1,6 @@
 """Backward-compatible imports for R-KV strategy utilities."""
 
-from kv_eviction.strategies.rkv import (
+from kveviction.strategies.rkv import (
     aggregate_gqa_attention,
     max_pool_importance,
     rkv_importance,

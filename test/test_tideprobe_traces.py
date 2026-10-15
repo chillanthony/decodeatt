@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from kv_eviction.runner_token import score_trace_token
+from kveviction.runner_token import score_trace_token
 from kvbench.diagnostics.eviction_alignment import (
     analyze_eviction_alignment,
     transition_hit_fraction,
