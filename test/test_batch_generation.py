@@ -11,10 +11,10 @@ import torch
 from kvbench.models import pad_input_ids
 from kvbench.evaluator import _run_cross_problem_eval
 from kvbench.policies import parse_arm
-from kv_eviction.runner_token import _compact_cache_update_batch, generate_token_evict_batch
-from kv_eviction.strategies.h2o import select_h2o
-from kv_eviction.strategies.rkv_official import select_rkv_layers
-from kv_eviction.strategies.snapkv import select_snapkv
+from kveviction.runner_token import _compact_cache_update_batch, generate_token_evict_batch
+from kveviction.strategies.h2o import select_h2o
+from kveviction.strategies.rkv_official import select_rkv_layers
+from kveviction.strategies.snapkv import select_snapkv
 
 
 @dataclass

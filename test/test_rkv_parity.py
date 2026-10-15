@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import torch
 
-from kv_eviction.strategies.rkv import (
+from kveviction.strategies.rkv import (
     rkv_importance,
     rkv_redundancy,
     select_rkv_global,

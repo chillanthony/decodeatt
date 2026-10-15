@@ -1,6 +1,6 @@
 import torch
 
-from kv_eviction.cache_manager import TransformersCacheManager
+from kveviction.cache_manager import TransformersCacheManager
 
 
 def _cache(batch_size=1, heads=2, length=5, dim=3):

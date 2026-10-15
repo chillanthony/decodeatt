@@ -1,5 +1,8 @@
 # Project Rules
 
-Before starting any task, read `note/AGENTS.md`, `note/STATUS.md`, and `note/MEMORY.md`.
+用于长文本推理场景的 KV Cache 淘汰策略评测与研究。
 
-After completing a task, update `note/STATUS.md`. When there are new durable conclusions, constraints, or lessons, also update `note/MEMORY.md`.
+
+
+- 项目记忆：`doc/memory.md`
+- 项目日志：`doc/log.md`

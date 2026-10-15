@@ -14,7 +14,7 @@ from kvbench.datasets import load_problems
 from kvbench.metrics import extract_answer, is_correct
 from kvbench.models import build_input_ids, load_causal_lm
 from kvbench.policies import parse_arm
-from kv_eviction.runner_token import _sample, generate_token_evict
+from kveviction.runner_token import _sample, generate_token_evict
 
 
 def _load_config(path: str | None) -> dict:
@@ -205,7 +205,7 @@ def main() -> None:
     policy_params = cfg.get("policy_params") or {}
     snapkv_controller = None
     if args.integrated_qwen_snapkv:
-        from kv_eviction.qwen_snapkv_patch import QwenSnapKVController, install_qwen2_snapkv
+        from kveviction.qwen_snapkv_patch import QwenSnapKVController, install_qwen2_snapkv
 
         snapkv_params = policy_params.get("snapkv", {})
         snapkv_controller = QwenSnapKVController(

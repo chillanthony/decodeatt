@@ -1,7 +1,10 @@
+# Personal
 .claude/
 note/AGENTS.md
 note/STATUS.md
 note/MEMORY.md
+AGENTS.md
+CLAUDE.md
 log/
 
 # Python / uv
@@ -20,7 +23,8 @@ efficiency/.venv-rkv/
 efficiency/.venv-rkv-*/
 
 # Experiment outputs
-results/
+log/
+result/
 *.log
 
 # Local tooling and test artifacts

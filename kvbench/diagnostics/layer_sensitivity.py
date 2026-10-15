@@ -12,8 +12,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from kv_eviction.runner_token import _attention_logit_rows
-from kv_eviction.strategies.rkv import select_rkv_global
+from kveviction.runner_token import _attention_logit_rows
+from kveviction.strategies.rkv import select_rkv_global
 from kvbench.diagnostics.gen_traces import _load_config, _pick
 from kvbench.models import load_causal_lm
 
