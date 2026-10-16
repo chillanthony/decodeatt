@@ -1,11 +1,8 @@
 # Personal
 .claude/
-note/AGENTS.md
-note/STATUS.md
-note/MEMORY.md
+doc/
 AGENTS.md
 CLAUDE.md
-log/
 
 # Python / uv
 .venv/
