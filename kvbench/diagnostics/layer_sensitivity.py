@@ -260,7 +260,8 @@ def masked_attention_layers(
 
 def _crop_cache(cache, length: int) -> None:
     if hasattr(cache, "crop"):
-        cache.crop(length)
+        current_length = int(cache.get_seq_length())
+        cache.crop(min(0, length - current_length))
         return
     if hasattr(cache, "layers"):
         for layer in cache.layers:

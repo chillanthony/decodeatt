@@ -19,6 +19,12 @@ class ExecutionBackend(Protocol):
     def decode(self, input_ids, **kwargs: Any):
         ...
 
+    def admit(self, request_id: str, **kwargs: Any) -> None:
+        ...
+
+    def release(self, request_id: str) -> None:
+        ...
+
 
 @dataclass
 class TransformersExecutionBackend:
@@ -26,11 +32,24 @@ class TransformersExecutionBackend:
 
     model: Any
 
+    def __post_init__(self):
+        self._active_requests: set[str] = set()
+
     def prefill(self, input_ids, **kwargs: Any):
         return self.model(input_ids=input_ids, **kwargs)
 
     def decode(self, input_ids, **kwargs: Any):
         return self.model(input_ids=input_ids, **kwargs)
+
+    def admit(self, request_id: str, **kwargs: Any) -> None:
+        self._active_requests.add(str(request_id))
+
+    def release(self, request_id: str) -> None:
+        self._active_requests.discard(str(request_id))
+
+    @property
+    def active_requests(self) -> tuple[str, ...]:
+        return tuple(sorted(self._active_requests))
 
 
 __all__ = ["ExecutionBackend", "TransformersExecutionBackend"]
