@@ -6,7 +6,8 @@ keeping policy code independent of cache storage.
 """
 from __future__ import annotations
 
-from typing import Any, Protocol
+from dataclasses import dataclass, field
+from typing import Any, Callable, Protocol
 
 import torch
 
@@ -39,6 +40,9 @@ class CacheManager(Protocol):
         ...
 
     def compact_batch(self, cache, indices):
+        ...
+
+    def metadata(self, cache):
         ...
 
 
@@ -161,6 +165,109 @@ class TransformersCacheManager:
             cache = tuple(tuple_layers)
         return cache, int(_representative_indices_batch(indices).shape[-1])
 
+    def metadata(self, cache):
+        view = self._view(cache)
+        if view is None or not hasattr(view, "layers"):
+            return {"kind": "unknown"}
+        return {
+            "kind": "dense",
+            "layers": len(view.layers),
+            "batch_size": int(view.layers[0].keys.shape[0]),
+            "heads": int(view.layers[0].keys.shape[1]),
+            "length": int(view.layers[0].keys.shape[2]),
+        }
+
+
+@dataclass
+class PagedCacheState:
+    """Backend-neutral paged cache state used by serving adapters."""
+
+    block_ids: list[int]
+    valid_tokens: list[int]
+    block_size: int
+    logical_positions: list[int] = field(default_factory=list)
+
+
+class PagedBlockCacheManager:
+    """Storage-neutral paged cache contract for serving backends.
+
+    This adapter deliberately does not copy dense tensors.  A vLLM adapter can
+    implement the same operations using its block allocator and token mapping.
+    The reference implementation stores ownership metadata and validates that
+    selections are block aligned, making unsupported token-level compaction
+    explicit instead of silently falling back to dense gather.
+    """
+
+    def __init__(self, block_size: int = 16):
+        if block_size <= 0:
+            raise ValueError("block_size must be positive")
+        self.block_size = int(block_size)
+
+    def metadata(self, cache):
+        return {
+            "kind": "paged",
+            "block_size": self.block_size,
+            "blocks": list(getattr(cache, "block_ids", [])),
+            "valid_tokens": list(getattr(cache, "valid_tokens", [])),
+        }
+
+    def compact(self, cache: PagedCacheState, indices):
+        """Retain whole blocks and return a logical token-to-block mapping.
+
+        The manager never gathers dense KV tensors.  A serving adapter can use
+        the returned block ids to update its allocator asynchronously.
+        """
+        if not isinstance(cache, PagedCacheState):
+            raise TypeError("paged cache requires PagedCacheState")
+        flat = [int(i) for i in indices.detach().cpu().reshape(-1).tolist()]
+        keep_blocks = []
+        for token in flat:
+            block = token // cache.block_size
+            if block < 0 or block >= len(cache.block_ids):
+                raise IndexError(f"token index {token} is outside paged cache")
+            if block not in keep_blocks:
+                keep_blocks.append(block)
+        old_ids = cache.block_ids
+        old_valid = cache.valid_tokens
+        cache.block_ids = [old_ids[i] for i in keep_blocks]
+        cache.valid_tokens = [old_valid[i] for i in keep_blocks]
+        cache.logical_positions = flat
+        return cache, len(flat)
+
+    def compact_batch(self, cache, indices):
+        if not isinstance(cache, (list, tuple)):
+            raise TypeError("paged batch cache requires a list of PagedCacheState")
+        if len(cache) != len(indices):
+            raise ValueError("cache and selection batch sizes differ")
+        result = [self.compact(item, row) for item, row in zip(cache, indices)]
+        return [item for item, _ in result], max((length for _, length in result), default=0)
+
+
+class VLLMPagedBlockCacheManager(PagedBlockCacheManager):
+    """Adapter around a vLLM worker's block operations.
+
+    vLLM versions expose different worker internals, so callbacks are injected
+    by the engine integration.  This keeps policy code independent of those
+    private APIs while making allocation, release, and compaction executable.
+    """
+
+    def __init__(self, block_size: int, *, retain_blocks: Callable | None = None,
+                 release_blocks: Callable | None = None):
+        super().__init__(block_size)
+        self.retain_blocks = retain_blocks
+        self.release_blocks = release_blocks
+
+    def compact(self, cache, indices):
+        previous = list(cache.block_ids)
+        cache, length = super().compact(cache, indices)
+        retained = set(cache.block_ids)
+        released = [block for block in previous if block not in retained]
+        if self.retain_blocks:
+            self.retain_blocks(cache.block_ids, cache.valid_tokens)
+        if released and self.release_blocks:
+            self.release_blocks(released)
+        return cache, length
+
 
 class _CacheLayerView:
     def __init__(self, keys: torch.Tensor, values: torch.Tensor):
@@ -173,4 +280,7 @@ class _CacheView:
         self.layers = layers
 
 
-__all__ = ["CacheManager", "TransformersCacheManager"]
+__all__ = [
+    "CacheManager", "TransformersCacheManager", "PagedCacheState",
+    "PagedBlockCacheManager", "VLLMPagedBlockCacheManager",
+]

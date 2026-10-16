@@ -19,6 +19,12 @@ import torch
 
 from kveviction.backends import ExecutionBackend, TransformersExecutionBackend
 from kveviction.cache_manager import CacheManager, TransformersCacheManager
+from kveviction.controller import EvictionController
+from kveviction.observations import (
+    AttentionLogitObservationProvider,
+    AttentionObservationProvider,
+)
+from kveviction.results import TimingSink
 from kveviction.strategies.rkv_official import compute_attention_scores
 from kveviction.strategies.token import SelectionContext, get_policy
 
@@ -109,20 +115,15 @@ def _select_tokens(imp, cum_imp, win_imp, ent, key_rep, slot_pos, budget, recent
         sink=sink,
         params=runtime_params,
     )
-    if policy.needs_cache or policy.needs_attn_history:
-        if return_debug:
-            backend_idx, policy_debug = policy.select_from_cache(
-                cache, attn_history, n, budget, runtime_params, ctx=ctx, return_debug=True
-            )
-            policy_score = policy_debug["policy_score"]
-        else:
-            backend_idx = policy.select_from_cache(
-                cache, attn_history, n, budget, runtime_params, ctx=ctx
-            )
-            policy_score = None
-    else:
-        backend_idx = policy.select_keep(ctx)
-        policy_score = policy.scores(ctx) if return_debug else None
+    decision = EvictionController(backend, params=runtime_params).decide(
+        ctx, cache=cache, attn_history=attn_history, model=model,
+        anchor_mode=anchor_mode, anchor_k=anchor_k,
+        anchor_features={"entropy": ent, "cumulative": cum, "concentration": con},
+        sig=sig,
+        return_debug=return_debug,
+    )
+    backend_idx = decision.keep_indices
+    policy_score = decision.policy_score
     if _is_headwise_selection(backend_idx):
         if anchor_mode != "none" and anchor_k > 0:
             raise ValueError("anchor modes are not supported for head-wise cache-aware strategies")
@@ -141,29 +142,11 @@ def _select_tokens(imp, cum_imp, win_imp, ent, key_rep, slot_pos, budget, recent
     keep = torch.zeros(n, dtype=torch.bool, device=dev)
     keep[backend_idx] = True
     backend_keep = keep.clone()
-    anchor_extra = torch.empty(0, dtype=torch.long, device=dev)
+    anchor_extra = decision.rescue_indices
     sig_score = None
     if return_debug and policy_score is None:
         policy_score = policy.scores(ctx)
 
-    # 锚点保护:预算外额外钉 anchor_k 个槽
-    if anchor_mode != "none" and anchor_k > 0:
-        drop = (~keep).nonzero(as_tuple=True)[0]
-        if drop.numel():
-            if anchor_mode == "anchor":                 # 熵单维(旧)
-                extra = drop[torch.argsort(ent[drop], descending=True)][:anchor_k]
-            elif anchor_mode == "sig":                  # 完整 4 维签名(新)
-                n = slot_pos.numel()
-                pos = slot_pos.float() / max(int(slot_pos.max()), 1)
-                feat = torch.stack([ent, cum, pos, con], dim=1)  # [n,4]
-                sig_score = feat @ sig[0] + sig[1]
-                extra = drop[torch.argsort(sig_score[drop], descending=True)][:anchor_k]
-            elif anchor_mode == "lowent":
-                extra = drop[torch.argsort(ent[drop])][:anchor_k]
-            else:                            # random
-                extra = drop[torch.randperm(drop.numel(), device=dev)][:anchor_k]
-            anchor_extra = extra
-            keep[extra] = True
     idx = keep.nonzero(as_tuple=True)[0]
     if return_debug:
         return idx, {
@@ -236,16 +219,7 @@ class _CacheView:
 
 
 def _cache_view(cache):
-    if cache is None or hasattr(cache, "layers"):
-        return cache
-    if isinstance(cache, tuple):
-        return _CacheView([_CacheLayerView(keys, values) for keys, values in cache])
-    if hasattr(cache, "key_cache") and hasattr(cache, "value_cache"):
-        return _CacheView([
-            _CacheLayerView(keys, values)
-            for keys, values in zip(cache.key_cache, cache.value_cache)
-        ])
-    return cache
+    return TransformersCacheManager._view(cache)
 
 
 def _should_collect_observation(
@@ -302,84 +276,12 @@ def _compact_cache(cache, idx):
 
 
 def _compact_cache_update(cache, idx):
-    if hasattr(cache, "layers"):
-        return cache, _compact_cache(cache, idx)
-
-    if isinstance(cache, tuple):
-        compacted = []
-        if _is_headwise_selection(idx):
-            for (keys, values), layer_idx in zip(cache, idx):
-                layer_idx = layer_idx.to(keys.device)
-                head_dim = keys.shape[-1]
-                gather_idx = layer_idx.unsqueeze(0).unsqueeze(-1).expand(1, -1, -1, head_dim)
-                compacted.append((
-                    keys.gather(2, gather_idx).contiguous(),
-                    values.gather(2, gather_idx).contiguous(),
-                ))
-            return tuple(compacted), int(idx[0].shape[-1])
-
-        for keys, values in cache:
-            local_idx = idx.to(keys.device)
-            compacted.append((
-                keys.index_select(2, local_idx).contiguous(),
-                values.index_select(2, local_idx).contiguous(),
-            ))
-        return tuple(compacted), int(idx.numel())
-
-    if hasattr(cache, "key_cache") and hasattr(cache, "value_cache"):
-        if _is_headwise_selection(idx):
-            for layer_i, layer_idx in enumerate(idx):
-                keys = cache.key_cache[layer_i]
-                values = cache.value_cache[layer_i]
-                layer_idx = layer_idx.to(keys.device)
-                head_dim = keys.shape[-1]
-                gather_idx = layer_idx.unsqueeze(0).unsqueeze(-1).expand(1, -1, -1, head_dim)
-                cache.key_cache[layer_i] = keys.gather(2, gather_idx).contiguous()
-                cache.value_cache[layer_i] = values.gather(2, gather_idx).contiguous()
-            return cache, int(idx[0].shape[-1])
-
-        for layer_i, keys in enumerate(cache.key_cache):
-            local_idx = idx.to(keys.device)
-            cache.key_cache[layer_i] = keys.index_select(2, local_idx).contiguous()
-            cache.value_cache[layer_i] = cache.value_cache[layer_i].index_select(2, local_idx).contiguous()
-        return cache, int(idx.numel())
-
-    return cache, _compact_cache(cache, idx)
+    return TransformersCacheManager().compact(cache, idx)
 
 
 def _compact_cache_update_batch(cache, idx):
     """Compact a batched cache with per-request, optionally per-head indices."""
-    cache_view = _cache_view(cache)
-    batch_size = cache_view.layers[0].keys.shape[0]
-    tuple_layers = [] if isinstance(cache, tuple) else None
-    for layer_i, layer in enumerate(cache_view.layers):
-        keys = layer.keys
-        values = layer.values
-        if _is_headwise_selection(idx):
-            layer_idx = idx[layer_i]
-            if layer_idx.ndim == 2:
-                layer_idx = layer_idx.unsqueeze(0).expand(batch_size, -1, -1)
-        else:
-            layer_idx = idx
-            if layer_idx.ndim == 1:
-                layer_idx = layer_idx.unsqueeze(0).expand(batch_size, -1)
-            layer_idx = layer_idx.unsqueeze(1).expand(-1, keys.shape[1], -1)
-        gather_idx = layer_idx.to(keys.device).unsqueeze(-1).expand(
-            -1, -1, -1, keys.shape[-1]
-        )
-        compact_keys = keys.gather(2, gather_idx).contiguous()
-        compact_values = values.gather(2, gather_idx).contiguous()
-        if hasattr(cache, "layers"):
-            cache.layers[layer_i].keys = compact_keys
-            cache.layers[layer_i].values = compact_values
-        elif isinstance(cache, tuple):
-            tuple_layers.append((compact_keys, compact_values))
-        else:
-            cache.key_cache[layer_i] = compact_keys
-            cache.value_cache[layer_i] = compact_values
-    if tuple_layers is not None:
-        cache = tuple(tuple_layers)
-    return cache, int(_representative_indices_batch(idx).shape[-1])
+    return TransformersCacheManager().compact_batch(cache, idx)
 
 
 def _base_model(model):
@@ -603,6 +505,7 @@ def generate_token_evict(
     debug_path=None, debug_topk=0,
     execution_backend: ExecutionBackend | None = None,
     cache_manager: CacheManager | None = None,
+    timing_sink: TimingSink | None = None,
 ):
     """token 级淘汰生成(忠实 R-KV 架构 + 支持长生成)。
 
@@ -613,6 +516,7 @@ def generate_token_evict(
     device = next(model.parameters()).device
     execution_backend = execution_backend or TransformersExecutionBackend(model)
     cache_manager = cache_manager or TransformersCacheManager()
+    timing_sink = timing_sink or TimingSink()
     start_time = time.perf_counter()
     prefill_sec = 0.0
     decode_forward_sec = 0.0
@@ -629,6 +533,10 @@ def generate_token_evict(
     P = input_ids.shape[1]
     anchor_k = int(anchor_frac * budget)
     policy = get_policy(backend)
+    observation_provider = AttentionObservationProvider(
+        decay=obs_decay, needs_history=policy.needs_attn_history
+    )
+    logit_provider = AttentionLogitObservationProvider(_attention_logit_rows)
     track = budget < 10 ** 8 and not policy.never_evict
     policy_params = policy_params or {}
     use_attention_logits = policy.needs_attn_history and _supports_attention_logits(model)
@@ -711,7 +619,10 @@ def generate_token_evict(
         n += 1
         if want_logits:
             obs_start = time.perf_counter()
-            rows = _attention_logit_rows(model, out, _cache_view(cache), position_ids, n)
+            rows = logit_provider.observe(
+                out, cache=_cache_view(cache), n=n,
+                position_ids=position_ids, model=model,
+            )["history"]
             attention_observation_sec += time.perf_counter() - obs_start
             if rows is None:
                 raise RuntimeError(
@@ -721,16 +632,14 @@ def generate_token_evict(
             attn_history = attn_history[-active_obs_window:]
         if want_attn:                                 # 观察窗:全层注意力均值 maxpool 进 imp
             obs_start = time.perf_counter()
-            if policy.needs_attn_history:
-                attn_history.append([
-                    torch.log(a[0, :, -1, :n].detach().float().clamp_min(1e-30))
-                    for a in out.attentions
-                ])
+            observed = observation_provider.observe(
+                out, cache=_cache_view(cache), n=n,
+                position_ids=position_ids, model=model,
+            )
+            if policy.needs_attn_history and observed["history"] is not None:
+                attn_history.append(observed["history"])
                 attn_history = attn_history[-active_obs_window:]
-            row = torch.zeros(n, device=device)
-            for a in out.attentions:
-                row += a[0, :, -1, :].mean(0).float()
-            row /= len(out.attentions)
+            row = observed["importance"]
             imp[:n] = torch.maximum(imp[:n] * obs_decay, row)
             cum_imp[:n] += row
             win_imp[:n] = win_imp[:n] * obs_decay + row
@@ -869,6 +778,8 @@ def generate_token_evict(
         "eviction_sec_mean": eviction_sec_mean,
         "other_decode_sec": max(0.0, decode_sec - decode_forward_sec - attention_observation_sec - eviction_sec_total),
     }
+    for name, value in timing.items():
+        timing_sink.add(name, value)
     extra_metrics = {
         **final_length_summary,
         "total_evicted_tokens": int(total_evicted_tokens),
@@ -905,6 +816,7 @@ def generate_token_evict(
             "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
             "mean_compression_ratio": mean_compression,
             "evict_events": evict_events,
+            "timing": dict(timing_sink.values),
             **extra_metrics}
 
 
@@ -932,6 +844,7 @@ def generate_token_evict_batch(
     input_attention_mask=None,
     execution_backend: ExecutionBackend | None = None,
     cache_manager: CacheManager | None = None,
+    timing_sink: TimingSink | None = None,
 ):
     """Generate independent candidates for one or more prompts in a static batch.
 
@@ -944,6 +857,7 @@ def generate_token_evict_batch(
         raise ValueError("batch_size must be at least 1")
     execution_backend = execution_backend or TransformersExecutionBackend(model)
     cache_manager = cache_manager or TransformersCacheManager()
+    timing_sink = timing_sink or TimingSink()
     if batch_size == 1 and input_ids.shape[0] == 1 and input_attention_mask is None:
         seed = int((seeds or [0])[0])
         return {
@@ -968,6 +882,7 @@ def generate_token_evict_batch(
                 policy_params=policy_params,
                 execution_backend=execution_backend,
                 cache_manager=cache_manager,
+                timing_sink=timing_sink,
             )]
         }
 
@@ -987,6 +902,10 @@ def generate_token_evict_batch(
         generators.append(generator)
 
     policy = get_policy(backend)
+    observation_provider = AttentionObservationProvider(
+        decay=obs_decay, needs_history=policy.needs_attn_history
+    )
+    logit_provider = AttentionLogitObservationProvider(_attention_logit_rows_batch)
     policy_params = policy_params or {}
     track = budget < 10 ** 8 and not policy.never_evict
     use_attention_logits = policy.needs_attn_history and _supports_attention_logits(model)
@@ -1103,9 +1022,10 @@ def generate_token_evict_batch(
 
         if want_logits:
             observation_start = time.perf_counter()
-            rows = _attention_logit_rows_batch(
-                model, out, _cache_view(cache), position_ids, n
-            )
+            rows = logit_provider.observe(
+                out, cache=_cache_view(cache), n=n,
+                position_ids=position_ids, model=model,
+            )["history"]
             attention_observation_sec += time.perf_counter() - observation_start
             if rows is None:
                 raise RuntimeError("batched attention-logit extraction failed")
@@ -1113,16 +1033,17 @@ def generate_token_evict_batch(
             attn_history = attn_history[-active_obs_window:]
         if want_attn:
             observation_start = time.perf_counter()
-            if policy.needs_attn_history:
-                attn_history.append([
-                    torch.log(a[:, :, -1, :n].detach().float().clamp_min(1e-30))
-                    for a in out.attentions
-                ])
+            observed = observation_provider.observe(
+                out, cache=_cache_view(cache), n=n,
+                position_ids=position_ids, model=model,
+            )
+            if policy.needs_attn_history and observed["history"] is not None:
+                attn_history.append(observed["history"])
                 attn_history = attn_history[-active_obs_window:]
-            row_score = torch.zeros(batch_size, n, device=device)
-            for attention in out.attentions:
-                row_score += attention[:, :, -1, :n].mean(1).float()
-            row_score /= len(out.attentions)
+            row_score = torch.stack([
+                attention[:, :, -1, :n].mean(1).float()
+                for attention in out.attentions
+            ]).mean(0)
             imp[:, :n] = torch.maximum(imp[:, :n] * obs_decay, row_score)
             cum_imp[:, :n] += row_score
             win_imp[:, :n] = win_imp[:, :n] * obs_decay + row_score
@@ -1206,6 +1127,11 @@ def generate_token_evict_batch(
 
     elapsed = time.perf_counter() - start_time
     peak_memory = torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None
+    timing_sink.add("prefill_sec", prefill_sec)
+    timing_sink.add("decode_sec", max(0.0, elapsed - prefill_sec))
+    timing_sink.add("decode_forward_sec", decode_forward_sec)
+    timing_sink.add("attention_observation_sec", attention_observation_sec)
+    timing_sink.add("eviction_sec_total", eviction_sec_total)
     batch_total_tokens = sum(len(ids) for ids in generated)
     amortized_elapsed = elapsed / batch_size
     final_summaries = _batch_cache_length_summaries(cache, valid_cache_mask[:, :n])
@@ -1269,12 +1195,15 @@ def generate_token_evict_batch(
                 elapsed - prefill_sec - decode_forward_sec
                 - attention_observation_sec - eviction_sec_total,
             ) / batch_size,
+            "timing": dict(timing_sink.values),
         })
     return {
         "candidates": candidates,
         "batch_size": batch_size,
         "elapsed_sec": elapsed,
         "tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
+        "batch_tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
+        "timing": dict(timing_sink.values),
         "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
     }
 
