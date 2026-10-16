@@ -156,7 +156,7 @@ def extract_trace_signals(model, trace: dict, *, progress_every: int = 256) -> d
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/configs/experiments/tideprobe_step1.yaml")
+    parser.add_argument("--config", default=str(Path(__file__).resolve().parents[2] / "config/experiments/tideprobe_step1.yaml"))
     parser.add_argument("--model", default=None)
     parser.add_argument("--dtype", default=None, choices=["bfloat16", "float16", "float32"])
     parser.add_argument("--trace-dir", default=None)
@@ -173,14 +173,14 @@ def main(argv: list[str] | None = None) -> None:
     model_name = _pick(args.model, config, ("model", "name"))
     dtype = _pick(args.dtype, config, ("model", "dtype"), "bfloat16")
     trace_dir = Path(
-        _pick(args.trace_dir, config, ("diagnostics", "trace_dir"), "/home/ma-user/work/bucket-wulan-green/chenyanbo/trace")
+        _pick(args.trace_dir, config, ("diagnostics", "trace_dir"), "runs/trace")
     )
     signals_dir = Path(
         _pick(
             args.signals_dir,
             config,
             ("diagnostics", "signals_dir"),
-            "/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/signals",
+            "runs/tideprobe_step1/signals",
         )
     )
     trace_paths = sorted(trace_dir.glob("*.pt"))

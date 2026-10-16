@@ -1,3 +1,4 @@
+extends: ../defaults.yaml
 # Complete single-strategy observation-window diagnostic config.
 
 experiment:

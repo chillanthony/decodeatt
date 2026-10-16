@@ -164,7 +164,7 @@ def generate_integrated_qwen_snapkv(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="configs/rkv.yaml")
+    parser.add_argument("--config", default="config/rkv.yaml")
     parser.add_argument("--model", default=None)
     parser.add_argument("--dataset", default=None, choices=["sample", "aime", "math500", "mix"])
     parser.add_argument("--n", type=int, default=None)

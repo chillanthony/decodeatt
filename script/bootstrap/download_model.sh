@@ -2,7 +2,7 @@
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/env.sh"
-HFD_SCRIPT="$ROOT_DIR/scripts/bootstrap/hfd.sh"
+HFD_SCRIPT="$ROOT_DIR/script/bootstrap/hfd.sh"
 
 MODEL="${MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}"
 REVISION="${REVISION:-main}"

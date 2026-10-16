@@ -12,7 +12,7 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
 MODEL="${MODEL:-$HF_HOME/models/DeepSeek-R1-Distill-Llama-8B}"
-CONFIG="${CONFIG:-$ROOT_DIR/configs/experiments/tideprobe_step1.yaml}"
+CONFIG="${CONFIG:-$ROOT_DIR/config/experiments/tideprobe_step1.yaml}"
 EVENTS="${EVENTS:-$TIDEPROBE_ROOT/transition_events.jsonl}"
 RAW_DIR="${RAW_DIR:-$TIDEPROBE_ROOT/eviction_alignment_raw}"
 STRATEGIES="${STRATEGIES:-rkv,snapkv,window,random}"

@@ -3,16 +3,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-source "$ROOT_DIR/scripts/env.sh"
+source "$ROOT_DIR/script/env.sh"
 require_python
 
 # Usage:
 #   MODEL=/local/DeepSeek-R1-Distill-Llama-8B \
-#     scripts/experiments/throughput_smoke.sh
+#     script/experiments/throughput_smoke.sh
 # Optional overrides: SMOKE_BATCHES, SMOKE_ARMS, SMOKE_N, SMOKE_MAX_NEW,
 # SMOKE_OUT, SMOKE_DTYPE, SMOKE_DEVICE_MAP.
 MODEL_PATH="${MODEL:?set MODEL to a local model directory or HF id}"
-CONFIG="$ROOT_DIR/configs/experiments/throughput_smoke.yaml"
+CONFIG="$ROOT_DIR/config/experiments/throughput_smoke.yaml"
 OUT_ROOT="${SMOKE_OUT:-$RUNS_ROOT/throughput_smoke}"
 DATASET="${SMOKE_DATASET:-sample}"
 N="${SMOKE_N:-8}"
@@ -37,7 +37,7 @@ for problem_batch_size in "${batch_sizes[@]}"; do
   out="$OUT_ROOT/batch${problem_batch_size}.json"
   echo
   echo "=== problem_batch_size=$problem_batch_size ==="
-  "$PYTHON_BIN" "$ROOT_DIR/scripts/eval.py" \
+  "$PYTHON_BIN" "$ROOT_DIR/script/eval.py" \
     --config "$CONFIG" \
     --model "$MODEL_PATH" \
     --dataset "$DATASET" \

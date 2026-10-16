@@ -22,11 +22,33 @@ from kvbench.vllm_evaluator import run_vllm_generation_eval
 _FAST_ATTN_BACKENDS = {"fullkv", "streamingllm", "window", "random"}
 
 
-def _load_config(path: str | None) -> dict:
+def _merge_dicts(base: dict, overlay: dict) -> dict:
+    merged = dict(base)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_dicts(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _load_config(path: str | None, _seen: set[Path] | None = None) -> dict:
     if not path:
         return {}
-    with open(path) as f:
-        return yaml.safe_load(f) or {}
+    config_path = Path(path).resolve()
+    seen = set() if _seen is None else _seen
+    if config_path in seen:
+        raise ValueError(f"cyclic config extends: {config_path}")
+    seen.add(config_path)
+    with config_path.open() as f:
+        config = yaml.safe_load(f) or {}
+    parent = config.pop("extends", None)
+    if not parent:
+        return config
+    parent_path = Path(parent)
+    if not parent_path.is_absolute():
+        parent_path = config_path.parent / parent_path
+    return _merge_dicts(_load_config(str(parent_path), seen), config)
 
 
 def _merge_config(base: dict, overlay: dict) -> dict:
@@ -39,7 +61,7 @@ def _merge_config(base: dict, overlay: dict) -> dict:
                 params.setdefault(policy, {}).update(values or {})
             merged["policy_defaults" if key == "policy_defaults" else "policy_params"] = params
         else:
-            merged[key] = value
+            merged[key] = _merge_dicts(merged.get(key, {}), value) if isinstance(value, dict) and isinstance(merged.get(key), dict) else value
     return merged
 
 
@@ -249,11 +271,11 @@ def _claim_next_problem(store, queue_key: str) -> int:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/experiments/math500_official_b1024.yaml")
+    parser.add_argument("--config", default="config/experiments/math500_official_b1024.yaml")
     parser.add_argument(
         "--strategy-config",
         default=None,
-        help="Optional overlay config; formal runs should prefer one complete configs/experiments/*.yaml",
+        help="Optional overlay config; formal runs should prefer one complete config/experiments/*.yaml",
     )
     parser.add_argument("--model", default=None)
     parser.add_argument("--dataset", default=None, choices=["sample", "aime", "math500", "mix"])

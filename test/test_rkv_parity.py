@@ -2,7 +2,7 @@
 
 Run from the repository root:
 
-    python tests/test_rkv_parity.py
+    python test/test_rkv_parity.py
 """
 from __future__ import annotations
 

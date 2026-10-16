@@ -13,7 +13,7 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
 MODEL="${MODEL:-$HF_HOME/models/DeepSeek-R1-Distill-Llama-8B}"
-CONFIG="${CONFIG:-$ROOT_DIR/configs/experiments/tideprobe_step1.yaml}"
+CONFIG="${CONFIG:-$ROOT_DIR/config/experiments/tideprobe_step1.yaml}"
 N="${N:-10}"
 MAX_NEW="${MAX_NEW:-32768}"
 SEED="${SEED:-0}"

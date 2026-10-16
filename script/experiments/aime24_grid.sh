@@ -48,9 +48,9 @@ for index in "${!STRATEGIES[@]}"; do
       unset PROBLEM_BATCH_SIZE
     fi
     if [[ -n "$budget" ]]; then
-      bash "$ROOT_DIR/scripts/cluster/run_arm.sh" aime24 "$strategy" "$budget"
+      bash "$ROOT_DIR/script/cluster/run_arm.sh" aime24 "$strategy" "$budget"
     else
-      bash "$ROOT_DIR/scripts/cluster/run_arm.sh" aime24 "$strategy"
+      bash "$ROOT_DIR/script/cluster/run_arm.sh" aime24 "$strategy"
     fi
   )
   if [[ "${DRY_RUN:-0}" == "1" ]]; then
@@ -74,7 +74,7 @@ fi
 mkdir -p "$SUMMARY_DIR"
 require_python
 
-"$PYTHON_BIN" scripts/summarize_results.py \
+"$PYTHON_BIN" script/summarize_results.py \
   "${RESULT_PATHS[@]}" \
   --out "$SUMMARY_DIR/summary.csv" \
   --json-out "$SUMMARY_DIR/summary.json"
