@@ -52,7 +52,7 @@ export HF_DATASETS_OFFLINE=1
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
-CONFIG="${CONFIG:-configs/onestrategy/rkv.yaml}"
+CONFIG="${CONFIG:-config/onestrategy/rkv.yaml}"
 N="${N:-$DEFAULT_N}"
 ARMS="${ARMS:-$DEFAULT_ARMS}"
 MAX_NEW="${MAX_NEW:-$DEFAULT_MAX_NEW}"
@@ -73,7 +73,7 @@ print(f"[dataset-check] dataset=math500 cached_problems={len(problems)}")
 PY
   then
     echo "MATH-500 cache check failed in offline mode." >&2
-    echo "Populate it first with: bash scripts/bootstrap/download_dataset.sh math500" >&2
+    echo "Populate it first with: bash script/bootstrap/download_dataset.sh math500" >&2
     exit 1
   fi
 fi
@@ -107,7 +107,7 @@ echo "[$RUN_NAME] log_file=$LOG_FILE"
   --nproc-per-node="$NPROC_PER_NODE" \
   --master-port="$MASTER_PORT" \
   -- \
-  scripts/eval.py \
+  script/eval.py \
   --distributed \
   --distributed-timeout-minutes "$TIMEOUT_MINUTES" \
   --config "$CONFIG" \

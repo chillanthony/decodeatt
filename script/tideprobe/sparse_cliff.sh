@@ -8,7 +8,7 @@ require_python
 
 export PYTHONPATH
 
-CONFIG="${CONFIG:-$ROOT_DIR/configs/experiments/tideprobe_step1.yaml}"
+CONFIG="${CONFIG:-$ROOT_DIR/config/experiments/tideprobe_step1.yaml}"
 RAW_DIR="${RAW_DIR:-$TIDEPROBE_ROOT/eviction_alignment_raw}"
 EVENTS="${EVENTS:-$TIDEPROBE_ROOT/transition_events.jsonl}"
 STRATEGIES="${STRATEGIES:-rkv,snapkv,window,random}"

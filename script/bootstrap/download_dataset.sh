@@ -84,4 +84,4 @@ print(f"[download-dataset] cache_files={dataset.cache_files}")
 PY
 
 echo "[download-dataset] done"
-echo "Run offline with: bash scripts/cluster/run_arm.sh $DATASET_KEY rkv $DEFAULT_BUDGET"
+echo "Run offline with: bash script/cluster/run_arm.sh $DATASET_KEY rkv $DEFAULT_BUDGET"

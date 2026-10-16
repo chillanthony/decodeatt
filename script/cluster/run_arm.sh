@@ -27,7 +27,7 @@ case "$STRATEGY" in
       echo "FullKV does not accept a fixed KV budget" >&2
       exit 2
     fi
-    CONFIG="configs/onestrategy/fullkv.yaml"
+    CONFIG="config/onestrategy/fullkv.yaml"
     ARMS="fullkv"
     DEFAULT_RUN_NAME="${DATASET_KEY}_llama8b_fullkv_s${SAMPLES}_multigpu"
     ;;
@@ -36,7 +36,7 @@ case "$STRATEGY" in
       echo "$STRATEGY requires an integer budget greater than 8" >&2
       exit 2
     fi
-    CONFIG="configs/onestrategy/${STRATEGY}.yaml"
+    CONFIG="config/onestrategy/${STRATEGY}.yaml"
     ARMS="${STRATEGY}@${BUDGET}"
     DEFAULT_RUN_NAME="${DATASET_KEY}_llama8b_${STRATEGY}_b${BUDGET}_s${SAMPLES}_multigpu"
     ;;
@@ -64,4 +64,4 @@ if [[ "${DRY_RUN:-0}" == "1" ]]; then
   exit 0
 fi
 
-exec bash "$ROOT_DIR/scripts/cluster/run_eval_multigpu.sh" "$DATASET_KEY"
+exec bash "$ROOT_DIR/script/cluster/run_eval_multigpu.sh" "$DATASET_KEY"

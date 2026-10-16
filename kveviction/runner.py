@@ -1,6 +1,6 @@
 """模型加载与解码循环。
 
-Step 0：黑盒 generate 即可（见 scripts/gen_traces.py）。
+Step 0：黑盒 generate 即可（见 script/gen_traces.py）。
 Step 1：在此实现自写解码循环 + KV 淘汰拦截 + 注意力探针。
 """
 from __future__ import annotations

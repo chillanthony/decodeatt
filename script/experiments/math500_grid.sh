@@ -5,7 +5,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/env.sh"
 cd "$ROOT_DIR"
 
 # The runner uses only the cached HuggingFaceH4/MATH-500 test split. Populate
-# HF_DATASETS_CACHE first with scripts/bootstrap/download_dataset.sh if necessary.
+# HF_DATASETS_CACHE first with script/bootstrap/download_dataset.sh if necessary.
 SAMPLES="${NUM_RETURN_SEQUENCES:-4}"
 GRID_NAME="math500_llama8b_main_grid_s${SAMPLES}"
 SUMMARY_DIR="${SUMMARY_DIR:-$RUNS_ROOT/$GRID_NAME}"
@@ -36,9 +36,9 @@ for index in "${!STRATEGIES[@]}"; do
     export NUM_RETURN_SEQUENCES="$SAMPLES" RUNS_ROOT
     if [[ "$strategy" == "fullkv" ]]; then
       export BATCH_SIZE="${FULLKV_BATCH_SIZE:-4}"
-      bash "$ROOT_DIR/scripts/cluster/run_arm.sh" math500 "$strategy"
+      bash "$ROOT_DIR/script/cluster/run_arm.sh" math500 "$strategy"
     else
-      bash "$ROOT_DIR/scripts/cluster/run_arm.sh" math500 "$strategy" "$budget"
+      bash "$ROOT_DIR/script/cluster/run_arm.sh" math500 "$strategy" "$budget"
     fi
   )
 
@@ -63,7 +63,7 @@ fi
 mkdir -p "$SUMMARY_DIR"
 require_python
 
-"$PYTHON_BIN" scripts/summarize_results.py \
+"$PYTHON_BIN" script/summarize_results.py \
   "${RESULT_PATHS[@]}" \
   --out "$SUMMARY_DIR/summary.csv" \
   --json-out "$SUMMARY_DIR/summary.json"

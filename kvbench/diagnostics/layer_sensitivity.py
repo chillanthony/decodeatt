@@ -521,7 +521,7 @@ def probe_trace_point(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/configs/experiments/tideprobe_step1.yaml")
+    parser.add_argument("--config", default=str(Path(__file__).resolve().parents[2] / "config/experiments/tideprobe_step1.yaml"))
     parser.add_argument("--model", default=None)
     parser.add_argument(
         "--dtype", default=None, choices=["bfloat16", "float16", "float32"]
@@ -557,7 +557,7 @@ def main(argv: list[str] | None = None) -> None:
             args.trace_dir,
             config,
             ("diagnostics", "trace_dir"),
-            "/home/ma-user/work/bucket-wulan-green/chenyanbo/trace",
+            "runs/trace",
         )
     )
     events_path = Path(
@@ -565,7 +565,7 @@ def main(argv: list[str] | None = None) -> None:
             args.events,
             config,
             ("diagnostics", "events_path"),
-            "/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/transition_events.jsonl",
+            "runs/tideprobe_step1/transition_events.jsonl",
         )
     )
     output_dir = Path(
@@ -573,7 +573,7 @@ def main(argv: list[str] | None = None) -> None:
             args.out_dir,
             config,
             ("diagnostics", "layer_sensitivity_dir"),
-            "/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs/tideprobe_step1/layer_sensitivity",
+            "runs/tideprobe_step1/layer_sensitivity",
         )
     )
     scan_mode = args.scan_mode or str(layer_config.get("scan_mode", "group"))

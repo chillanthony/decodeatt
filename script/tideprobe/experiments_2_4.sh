@@ -4,7 +4,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/env.sh"
 cd "$ROOT_DIR"
 
-CONFIG="${CONFIG:-$ROOT_DIR/configs/experiments/tideprobe_step1.yaml}"
+CONFIG="${CONFIG:-$ROOT_DIR/config/experiments/tideprobe_step1.yaml}"
 EVENTS="${EVENTS:-$TIDEPROBE_ROOT/transition_events.jsonl}"
 
 LAYER_OUT_DIR="${LAYER_OUT_DIR:-$TIDEPROBE_ROOT/layer_sensitivity}"
@@ -39,7 +39,7 @@ env \
   RANDOM_SEEDS="$LAYER_RANDOM_SEEDS" \
   PROBE_TYPES="$LAYER_PROBE_TYPES" \
   RUN_TAG="$LAYER_RUN_TAG" \
-  bash "$ROOT_DIR/scripts/tideprobe/layer_sensitivity_8gpu.sh"
+  bash "$ROOT_DIR/script/tideprobe/layer_sensitivity_8gpu.sh"
 
 echo "[tideprobe serial] experiment 3/4: eviction alignment"
 env \
@@ -49,7 +49,7 @@ env \
   RAW_DIR="$EVICTION_RAW_DIR" \
   STRATEGIES="$EVICTION_STRATEGIES" \
   BUDGETS="$EVICTION_BUDGETS" \
-  bash "$ROOT_DIR/scripts/tideprobe/eviction_alignment_8gpu.sh"
+  bash "$ROOT_DIR/script/tideprobe/eviction_alignment_8gpu.sh"
 
 echo "[tideprobe serial] experiment 4/4: sparse cliff"
 env \
@@ -59,6 +59,6 @@ env \
   RAW_DIR="$EVICTION_RAW_DIR" \
   STRATEGIES="$EVICTION_STRATEGIES" \
   BUDGETS="$EVICTION_BUDGETS" \
-  bash "$ROOT_DIR/scripts/tideprobe/sparse_cliff.sh"
+  bash "$ROOT_DIR/script/tideprobe/sparse_cliff.sh"
 
 echo "[tideprobe serial] experiments 2-4 complete"

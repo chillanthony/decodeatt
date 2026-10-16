@@ -152,7 +152,7 @@ def _atomic_torch_save(payload: dict, path: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default="/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/configs/experiments/tideprobe_step1.yaml")
+    parser.add_argument("--config", default=str(Path(__file__).resolve().parents[2] / "config/experiments/tideprobe_step1.yaml"))
     parser.add_argument("--model", default=None)
     parser.add_argument("--dataset", choices=["sample", "aime", "math500", "mix"], default=None)
     parser.add_argument("--n", type=int, default=None)
@@ -190,7 +190,7 @@ def main(argv: list[str] | None = None) -> None:
     dtype = _pick(args.dtype, config, ("model", "dtype"), "bfloat16")
     attn = _pick(args.attn, config, ("model", "fast_attn"), "sdpa")
     trace_dir = Path(
-        _pick(args.trace_dir, config, ("diagnostics", "trace_dir"), "/home/ma-user/work/bucket-wulan-green/chenyanbo/trace")
+        _pick(args.trace_dir, config, ("diagnostics", "trace_dir"), "runs/trace")
     )
     trace_dir.mkdir(parents=True, exist_ok=True)
 

@@ -1,0 +1,31 @@
+# Shared defaults for single-strategy and smoke configurations.
+
+model:
+  name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+  dtype: bfloat16
+  device_map: cuda
+  attn: auto
+  fast_attn: sdpa
+
+data:
+  dataset: math500
+  n: 1
+
+generation:
+  max_new: 16384
+  do_sample: true
+  temperature: 0.6
+  top_p: 0.95
+  seed: 0
+  batch_size: 1
+  num_return_sequences: 1
+  seed_offset: 0
+  problem_batch_size: 1
+  prompt_bucket_size: 0
+
+eviction:
+  recent: 8
+  sink: 0
+  evict_every: 128
+  obs_window: 8
+  obs_decay: 0.9

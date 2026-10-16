@@ -1,3 +1,4 @@
+extends: ../defaults.yaml
 # Serving-style FullKV baseline. Custom eviction policies should use engine: hf
 # until a paged/block CacheManager is available.
 

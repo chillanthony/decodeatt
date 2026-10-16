@@ -1,3 +1,4 @@
+extends: ../defaults.yaml
 # Complete single-strategy SnapKV baseline config.
 
 experiment:
