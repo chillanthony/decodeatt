@@ -1,6 +1,6 @@
 """模型加载与解码循环。
 
-Step 0：黑盒 generate 即可（见 script/gen_traces.py）。
+FullKV 轨迹生成入口：python -m kvbench.diagnostics.gen_traces。
 Step 1：在此实现自写解码循环 + KV 淘汰拦截 + 注意力探针。
 """
 from __future__ import annotations
