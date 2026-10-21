@@ -31,6 +31,10 @@ def build_input_ids(tokenizer, question: str, device):
             add_generation_prompt=True,
             return_tensors="pt",
         )
+        # Recent Transformers versions may return BatchEncoding here rather
+        # than the tensor returned by older tokenizer implementations.
+        if hasattr(ids, "input_ids"):
+            ids = ids.input_ids
     else:
         ids = tokenizer(question, return_tensors="pt").input_ids
     return ids.to(device)
