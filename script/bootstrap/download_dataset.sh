@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/env.sh"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ENV_FILE="${ENV_FILE:-$ROOT_DIR/config/runtime/4090.env}"
+source "$ENV_FILE"
 
 if (( $# != 1 )); then
   echo "Usage: $0 {aime24|math500}" >&2
@@ -84,4 +86,4 @@ print(f"[download-dataset] cache_files={dataset.cache_files}")
 PY
 
 echo "[download-dataset] done"
-echo "Run offline with: bash script/cluster/run_arm.sh $DATASET_KEY rkv $DEFAULT_BUDGET"
+echo "Dataset cache is ready; run the corresponding grid under script/experiments/."

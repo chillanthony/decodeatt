@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/env.sh"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ENV_FILE="${ENV_FILE:-$ROOT_DIR/config/runtime/4090.env}"
+source "$ENV_FILE"
 HFD_SCRIPT="$ROOT_DIR/script/bootstrap/hfd.sh"
 
-MODEL="${MODEL:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}"
+MODEL_ID="${MODEL_ID:-deepseek-ai/DeepSeek-R1-Distill-Llama-8B}"
 REVISION="${REVISION:-main}"
 THREADS="${THREADS:-4}"
 CONCURRENT="${CONCURRENT:-2}"
-MODEL_DIR="${MODEL_DIR:-$SFS_ROOT/models/DeepSeek-R1-Distill-Llama-8B}"
+MODEL_DIR="${MODEL_DIR:-$MODEL_ROOT/DeepSeek-R1-Distill-Llama-8B}"
 LOG_FILE="${LOG_FILE:-$MODEL_DIR/hfd.log}"
 
 if [[ ! -f "$HFD_SCRIPT" ]]; then
@@ -18,7 +20,7 @@ fi
 
 mkdir -p "$MODEL_DIR"
 
-echo "[download-model] model=$MODEL"
+echo "[download-model] model=$MODEL_ID"
 echo "[download-model] revision=$REVISION"
 echo "[download-model] endpoint=$HF_ENDPOINT"
 echo "[download-model] model_dir=$MODEL_DIR"
@@ -30,7 +32,7 @@ echo "[download-model] proxy=inherited"
 echo "[download-model] warning=SSL certificate verification is disabled" >&2
 
 env HF_ENDPOINT="$HF_ENDPOINT" \
-  bash "$HFD_SCRIPT" "$MODEL" \
+  bash "$HFD_SCRIPT" "$MODEL_ID" \
   --tool aria2c \
   -x "$THREADS" \
   -j "$CONCURRENT" \

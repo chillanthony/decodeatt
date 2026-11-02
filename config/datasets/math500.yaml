@@ -1,6 +1,6 @@
 data:
   dataset: math500
-  n: 1
+  n: 500
 
 generation:
   max_new: 16384

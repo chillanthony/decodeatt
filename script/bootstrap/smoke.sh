@@ -3,20 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-MODEL_OVERRIDE="${MODEL:-}"
-source "$ROOT_DIR/script/env.sh"
+ENV_FILE="${ENV_FILE:-$ROOT_DIR/config/runtime/4090.env}"
+source "$ENV_FILE"
 require_python
-
-MODEL_PATH="$MODEL_OVERRIDE"
-if [[ -z "$MODEL_PATH" ]]; then
-  echo "Set MODEL to the local directory of a downloaded Hugging Face model." >&2
-  echo "Example: MODEL=/path/to/DeepSeek-R1-Distill-Llama-8B bash script/bootstrap/smoke.sh" >&2
-  exit 2
-fi
-if [[ ! -f "$MODEL_PATH/config.json" ]]; then
-  echo "MODEL must point to a local model directory containing config.json: $MODEL_PATH" >&2
-  exit 2
-fi
 
 N="${SMOKE_N:-1}"
 MAX_NEW="${SMOKE_MAX_NEW:-32}"
@@ -32,7 +21,7 @@ fi
 
 mkdir -p "$(dirname "$OUT")"
 echo "[smoke] python=$PYTHON_BIN"
-echo "[smoke] model=$MODEL_PATH"
+echo "[smoke] model_config=$ROOT_DIR/config/models/deepseek_r1_distill_llama8b.yaml"
 echo "[smoke] dataset=sample n=$N max_new=$MAX_NEW arm=rkv@$BUDGET"
 echo "[smoke] output=$OUT"
 
@@ -51,7 +40,6 @@ HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}" \
   --model-config "$ROOT_DIR/config/models/deepseek_r1_distill_llama8b.yaml" \
   --data-config "$ROOT_DIR/config/datasets/sample.yaml" \
   --strategy-config "$ROOT_DIR/config/strategies/rkv.yaml" \
-  --model "$MODEL_PATH" \
   --dataset sample \
   --n "$N" \
   --max-new "$MAX_NEW" \
