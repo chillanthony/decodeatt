@@ -32,23 +32,12 @@ def _merge_dicts(base: dict, overlay: dict) -> dict:
     return merged
 
 
-def _load_config(path: str | None, _seen: set[Path] | None = None) -> dict:
+def _load_config(path: str) -> dict:
     if not path:
         return {}
     config_path = Path(path).resolve()
-    seen = set() if _seen is None else _seen
-    if config_path in seen:
-        raise ValueError(f"cyclic config extends: {config_path}")
-    seen.add(config_path)
     with config_path.open() as f:
-        config = yaml.safe_load(f) or {}
-    parent = config.pop("extends", None)
-    if not parent:
-        return config
-    parent_path = Path(parent)
-    if not parent_path.is_absolute():
-        parent_path = config_path.parent / parent_path
-    return _merge_dicts(_load_config(str(parent_path), seen), config)
+        return yaml.safe_load(f) or {}
 
 
 def _merge_config(base: dict, overlay: dict) -> dict:
@@ -98,6 +87,72 @@ def _policy_defaults(cfg: dict) -> dict:
         name: dict(values or {})
         for name, values in (cfg.get("policy_defaults") or cfg.get("policy_params") or {}).items()
     }
+
+
+def _validate_config(cfg: dict) -> None:
+    """Reject malformed top-level sections before loading models or datasets."""
+    for section in ("model", "data", "generation", "eviction", "experiment"):
+        value = cfg.get(section)
+        if value is not None and not isinstance(value, dict):
+            raise SystemExit(f"config section {section!r} must be a mapping")
+
+
+def _load_run_config(model_config: str | None, data_config: str | None,
+                     strategy_config: str | None) -> dict:
+    if not model_config or not data_config or not strategy_config:
+        raise SystemExit("new run mode requires --model-config, --data-config, and --strategy-config")
+    model_cfg = _load_config(model_config)
+    data_cfg = _load_config(data_config)
+    strategy_cfg = _load_config(strategy_config)
+    if set(model_cfg) - {"model"}:
+        raise SystemExit("model config may only define the 'model' section")
+    allowed_data = {"data", "generation"}
+    allowed_strategy = {"arms", "policy_defaults", "policy_params", "eviction", "experiment"}
+    if set(data_cfg) - allowed_data:
+        raise SystemExit("data config may only define data and generation sections")
+    if set(strategy_cfg) - allowed_strategy:
+        raise SystemExit("strategy config may only define arms, policy defaults, eviction, and experiment")
+    cfg = _merge_config({}, data_cfg)
+    cfg = _merge_config(cfg, strategy_cfg)
+    cfg = _merge_config(cfg, model_cfg)
+    return cfg
+
+
+def _resolved_config(cfg: dict, args, model_name: str, arms: list, eval_kwargs: dict,
+                     out_path: Path, log_mode: str) -> dict:
+    """Return the canonical, effective config after YAML and CLI precedence."""
+    resolved = {
+        "experiment": {**(cfg.get("experiment") or {}), "out": str(out_path), "log_mode": log_mode},
+        "model": {**(cfg.get("model") or {}), "name": model_name},
+        "data": {**(cfg.get("data") or {}), "dataset": eval_kwargs["dataset"], "n": eval_kwargs["n"]},
+        "generation": {**(cfg.get("generation") or {})},
+        "eviction": {**(cfg.get("eviction") or {})},
+        "policy_defaults": _policy_defaults(cfg),
+        "arms": [],
+        "debug": {},
+    }
+    generation_fields = {
+        "max_new": "max_new", "do_sample": "do_sample", "temperature": "temperature",
+        "top_p": "top_p", "seed": "seed", "batch_size": "batch_size",
+        "num_return_sequences": "num_return_sequences", "seed_offset": "seed_offset",
+        "problem_batch_size": "problem_batch_size", "prompt_bucket_size": "prompt_bucket_size",
+    }
+    for config_key, kwargs_key in generation_fields.items():
+        resolved["generation"][config_key] = eval_kwargs[kwargs_key]
+    for key in ("recent", "sink", "evict_every", "obs_window", "obs_decay"):
+        resolved["eviction"][key] = eval_kwargs[key]
+    resolved["data"]["only_ids"] = sorted(eval_kwargs["only_ids"]) if eval_kwargs["only_ids"] else None
+    resolved["debug"] = {"dir": eval_kwargs["debug_dir"], "topk": eval_kwargs["debug_topk"]}
+    resolved["model"]["dtype"] = getattr(args, "dtype", None) or resolved["model"].get("dtype", "bfloat16")
+    resolved["model"]["device_map"] = getattr(args, "device_map", None) or resolved["model"].get("device_map", "cuda")
+    resolved["model"]["attn"] = getattr(args, "attn", None) or resolved["model"].get("attn", "auto")
+    resolved["model"]["fast_attn"] = getattr(args, "fast_attn", None) or resolved["model"].get("fast_attn", "sdpa")
+    for arm in arms:
+        resolved["arms"].append({
+            "id": arm.id, "policy": arm.policy, "budget": arm.budget,
+            "params": arm.params, "anchor_mode": arm.anchor_mode, "engine": arm.engine,
+        })
+    return resolved
 
 
 def _nested_get(cfg: dict, path: tuple[str, ...]):
@@ -271,12 +326,10 @@ def _claim_next_problem(store, queue_key: str) -> int:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="config/experiments/math500_official_b1024.yaml")
-    parser.add_argument(
-        "--strategy-config",
-        default=None,
-        help="Optional overlay config; formal runs should prefer one complete config/experiments/*.yaml",
-    )
+    parser.add_argument("--model-config", default=None, help="Model-only YAML for one run.")
+    parser.add_argument("--data-config", default=None, help="Dataset-only YAML for one run.")
+    parser.add_argument("--print-config", action="store_true", help="Print the effective config and exit.")
+    parser.add_argument("--strategy-config", default=None, help="Strategy-only YAML for one run.")
     parser.add_argument("--model", default=None)
     parser.add_argument("--dataset", default=None, choices=["sample", "aime", "math500", "mix"])
     parser.add_argument("--n", type=int, default=None)
@@ -333,9 +386,8 @@ def main():
     )
     args = parser.parse_args()
 
-    cfg = _load_config(args.config)
-    if args.strategy_config:
-        cfg = _merge_config(cfg, _load_config(args.strategy_config))
+    cfg = _load_run_config(args.model_config, args.data_config, args.strategy_config)
+    _validate_config(cfg)
 
     def pick(name, default=None, nested_path: tuple[str, ...] | None = None):
         value = getattr(args, name.replace("-", "_"), None)
@@ -353,7 +405,11 @@ def main():
         "arms",
         "fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024",
     )
+    if not raw_arms:
+        raise SystemExit("config must define at least one arm (or pass --arms)")
     arms = parse_arms(raw_arms, policy_defaults=policy_defaults, policy_overrides=policy_overrides)
+    if args.model_config and len(arms) != 1:
+        raise SystemExit("a run with split configs must contain exactly one strategy arm")
     requested_attn = pick("attn", "auto", ("model", "attn"))
     fast_attn = pick("fast_attn", "sdpa", ("model", "fast_attn"))
     out_path = Path(pick("out", "results/eval.json", ("experiment", "out")))
@@ -394,6 +450,11 @@ def main():
         policy_params=policy_defaults,
         log_mode=log_mode,
     )
+
+    if args.print_config:
+        resolved = _resolved_config(cfg, args, model_name, arms, eval_kwargs, out_path, log_mode)
+        print(yaml.safe_dump(resolved, sort_keys=False, allow_unicode=True), end="")
+        return
 
     groups: dict[str, list] = {}
     vllm_arms = []

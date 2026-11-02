@@ -1,0 +1,10 @@
+arms:
+  - id: fullkv
+    policy: fullkv
+
+eviction:
+  recent: 8
+  sink: 0
+  evict_every: 128
+  obs_window: 8
+  obs_decay: 0.9

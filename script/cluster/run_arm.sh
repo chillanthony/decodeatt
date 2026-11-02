@@ -27,7 +27,7 @@ case "$STRATEGY" in
       echo "FullKV does not accept a fixed KV budget" >&2
       exit 2
     fi
-    CONFIG="config/onestrategy/fullkv.yaml"
+    STRATEGY_CONFIG="config/strategies/fullkv.yaml"
     ARMS="fullkv"
     DEFAULT_RUN_NAME="${DATASET_KEY}_llama8b_fullkv_s${SAMPLES}_multigpu"
     ;;
@@ -36,7 +36,7 @@ case "$STRATEGY" in
       echo "$STRATEGY requires an integer budget greater than 8" >&2
       exit 2
     fi
-    CONFIG="config/onestrategy/${STRATEGY}.yaml"
+    STRATEGY_CONFIG="config/strategies/${STRATEGY}.yaml"
     ARMS="${STRATEGY}@${BUDGET}"
     DEFAULT_RUN_NAME="${DATASET_KEY}_llama8b_${STRATEGY}_b${BUDGET}_s${SAMPLES}_multigpu"
     ;;
@@ -46,14 +46,18 @@ case "$STRATEGY" in
     ;;
 esac
 
-export CONFIG ARMS
+DATA_CONFIG="config/datasets/${DATASET_KEY}.yaml"
+MODEL_CONFIG="config/models/deepseek_r1_distill_llama8b.yaml"
+export MODEL_CONFIG DATA_CONFIG STRATEGY_CONFIG ARMS
 export NUM_RETURN_SEQUENCES="$SAMPLES"
 export RUN_NAME="${RUN_NAME:-$DEFAULT_RUN_NAME}"
 export RUN_DIR="${RUN_DIR:-$RUNS_ROOT/$RUN_NAME}"
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then
   echo "run_name=$RUN_NAME"
-  echo "config=$CONFIG"
+  echo "data_config=$DATA_CONFIG"
+  echo "model_config=$MODEL_CONFIG"
+  echo "strategy_config=$STRATEGY_CONFIG"
   echo "dataset=$DATASET_KEY"
   if [[ "$DATASET_KEY" == "math500" ]]; then
     echo "dataset_source=offline-cache-only"
