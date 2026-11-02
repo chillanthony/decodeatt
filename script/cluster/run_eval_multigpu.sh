@@ -35,14 +35,10 @@ esac
 DATASET="${DATASET:-$DEFAULT_DATASET}"
 RUN_NAME="${RUN_NAME:-$DEFAULT_RUN_NAME}"
 RUN_DIR="${RUN_DIR:-$RUNS_ROOT/$RUN_NAME}"
-OUTPUT_DIR="${OUTPUT_DIR:-$RUN_DIR/output}"
 RESULT_DIR="${RESULT_DIR:-$RUN_DIR/result}"
-LOG_FILE="${LOG_FILE:-$OUTPUT_DIR/$RUN_NAME.log}"
 OUT="${OUT:-$RESULT_DIR/$RUN_NAME.json}"
 
-mkdir -p "$OUTPUT_DIR" "$RESULT_DIR" "$(dirname "$LOG_FILE")" "$(dirname "$OUT")"
-: > "$LOG_FILE"
-exec > >(tee -a "$LOG_FILE") 2>&1
+mkdir -p "$RESULT_DIR" "$(dirname "$OUT")"
 
 require_python
 
@@ -52,7 +48,9 @@ export HF_DATASETS_OFFLINE=1
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
-CONFIG="${CONFIG:-config/onestrategy/rkv.yaml}"
+DATA_CONFIG="${DATA_CONFIG:-config/datasets/${DATASET_KEY}.yaml}"
+MODEL_CONFIG="${MODEL_CONFIG:-config/models/deepseek_r1_distill_llama8b.yaml}"
+STRATEGY_CONFIG="${STRATEGY_CONFIG:-config/strategies/rkv.yaml}"
 N="${N:-$DEFAULT_N}"
 ARMS="${ARMS:-$DEFAULT_ARMS}"
 MAX_NEW="${MAX_NEW:-$DEFAULT_MAX_NEW}"
@@ -100,7 +98,6 @@ echo "[$RUN_NAME] hf_home=$HF_HOME hf_endpoint=$HF_ENDPOINT"
 echo "[$RUN_NAME] hf_hub_offline=$HF_HUB_OFFLINE hf_datasets_offline=$HF_DATASETS_OFFLINE"
 echo "[$RUN_NAME] hf_datasets_cache=$HF_DATASETS_CACHE"
 echo "[$RUN_NAME] out=$OUT"
-echo "[$RUN_NAME] log_file=$LOG_FILE"
 
 "$PYTHON_BIN" -m torch.distributed.run \
   --standalone \
@@ -110,7 +107,9 @@ echo "[$RUN_NAME] log_file=$LOG_FILE"
   script/eval.py \
   --distributed \
   --distributed-timeout-minutes "$TIMEOUT_MINUTES" \
-  --config "$CONFIG" \
+  --model-config "$MODEL_CONFIG" \
+  --data-config "$DATA_CONFIG" \
+  --strategy-config "$STRATEGY_CONFIG" \
   --model "$MODEL" \
   --dataset "$DATASET" \
   --n "$N" \

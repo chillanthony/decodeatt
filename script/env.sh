@@ -13,10 +13,8 @@ HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 RUNS_ROOT="${RUNS_ROOT:-/home/ma-user/work/bucket-wulan-green/chenyanbo/decodeatt/runs}"
 MODEL="${MODEL:-$HF_HOME/models/DeepSeek-R1-Distill-Llama-8B}"
-TIDEPROBE_ROOT="${TIDEPROBE_ROOT:-$RUNS_ROOT/tideprobe_step1}"
-TRACE_DIR="${TRACE_DIR:-$(dirname "$RUNS_ROOT")/trace}"
 
-export PYTHON_BIN SFS_ROOT HF_HOME HF_ENDPOINT HF_DATASETS_CACHE RUNS_ROOT MODEL TIDEPROBE_ROOT TRACE_DIR
+export PYTHON_BIN SFS_ROOT HF_HOME HF_ENDPOINT HF_DATASETS_CACHE RUNS_ROOT MODEL
 
 require_python() {
   if [[ -z "$PYTHON_BIN" ]]; then

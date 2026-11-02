@@ -33,7 +33,7 @@ fi
 mkdir -p "$(dirname "$OUT")"
 echo "[smoke] python=$PYTHON_BIN"
 echo "[smoke] model=$MODEL_PATH"
-echo "[smoke] dataset=sample n=$N max_new=$MAX_NEW arms=fullkv,rkv@$BUDGET"
+echo "[smoke] dataset=sample n=$N max_new=$MAX_NEW arm=rkv@$BUDGET"
 echo "[smoke] output=$OUT"
 
 "$PYTHON_BIN" - <<'PY'
@@ -48,12 +48,14 @@ PY
 
 HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}" \
   "$PYTHON_BIN" "$ROOT_DIR/script/eval.py" \
-  --config "$ROOT_DIR/config/experiments/throughput_smoke.yaml" \
+  --model-config "$ROOT_DIR/config/models/deepseek_r1_distill_llama8b.yaml" \
+  --data-config "$ROOT_DIR/config/datasets/sample.yaml" \
+  --strategy-config "$ROOT_DIR/config/strategies/rkv.yaml" \
   --model "$MODEL_PATH" \
   --dataset sample \
   --n "$N" \
   --max-new "$MAX_NEW" \
-  --arms "fullkv,rkv@$BUDGET" \
+  --arms "rkv@$BUDGET" \
   --recent 8 \
   --evict-every "$EVICT_EVERY" \
   --batch-size 1 \
@@ -75,7 +77,7 @@ if not path.is_file():
     raise SystemExit(f"Smoke test did not produce result file: {path}")
 payload = json.loads(path.read_text())
 summary = payload.get("summary", {})
-missing = {"fullkv", next((key for key in summary if key.startswith("rkv@")), "rkv")} - set(summary)
+missing = {next((key for key in summary if key.startswith("rkv@")), "rkv")} - set(summary)
 if missing:
     raise SystemExit(f"Smoke result is missing expected arms {sorted(missing)}: {path}")
 if any(int(arm.get("total", 0)) <= 0 for arm in summary.values()):
