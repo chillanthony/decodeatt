@@ -2,7 +2,7 @@ import json
 import math
 
 from kvbench.evaluator import _arm_payload, _result_payload
-from script.eval import _merge_brief_summaries
+from kvbench.sharding import merge_brief_summaries as _merge_brief_summaries
 
 
 def _candidate(*, ok: bool, seed: int, text_size: int = 0) -> dict:
