@@ -114,6 +114,7 @@ def score_trace_token(
     seed=0,
     execution_backend: ExecutionBackend | None = None,
     cache_manager: CacheManager | None = None,
+    cache_impl: str = "growable",
 ):
     """Teacher-force ``full_ids[:, prompt_len:]`` and measure NLL under eviction.
 
@@ -141,7 +142,7 @@ def score_trace_token(
         sig=sig, policy_params=policy_params, input_attention_mask=None,
         debug_path=None, debug_topk=0,
         execution_backend=execution_backend, cache_manager=cache_manager,
-        forced_ids=gen_ids, trace_hook=tracker,
+        forced_ids=gen_ids, trace_hook=tracker, cache_impl=cache_impl,
     )
     nll = run["forced_nll"][:, 0].cpu() if Lgen else torch.zeros(0)
     corr = torch.zeros(Lgen, dtype=torch.bool)

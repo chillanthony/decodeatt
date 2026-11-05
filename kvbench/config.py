@@ -25,6 +25,7 @@ SCHEMA: dict[str, dict[str, tuple]] = {
     "model": {
         "name": (str,), "dtype": (str,), "device_map": (str, dict),
         "attn": (str,), "fast_attn": (str,), "fast_observe": (bool,),
+        "cache_impl": (str,),
     },
     "data": {
         "dataset": (str,), "n": (int,), "only_ids": (str, list),
@@ -65,6 +66,7 @@ DEFAULTS = {
     ("eviction", "obs_window"): 16, ("eviction", "obs_decay"): 0.9,
     ("model", "dtype"): "bfloat16", ("model", "device_map"): "cuda",
     ("model", "attn"): "auto", ("model", "fast_attn"): "sdpa", ("model", "fast_observe"): False,
+    ("model", "cache_impl"): "growable",
     ("experiment", "out"): "results/eval.json", ("experiment", "log_mode"): "full",
     ("experiment", "sync_timing"): False,
 }
@@ -334,6 +336,7 @@ class RunSettings:
         resolved["model"].update(
             dtype=self.dtype, device_map=self.device_map,
             attn=self.requested_attn, fast_attn=self.fast_attn, fast_observe=self.fast_observe,
+            cache_impl=kw["cache_impl"],
         )
         if cfg.get("vllm"):
             resolved["vllm"] = dict(cfg["vllm"])
@@ -408,7 +411,12 @@ def resolve_settings(cfg: dict, args) -> RunSettings:
         policy_params=defaults,
         log_mode=log_mode,
         sync_timing=bool(pick("sync_timing", "experiment")),
+        cache_impl=pick("cache_impl", "model"),
     )
+    if eval_kwargs["cache_impl"] not in ("growable", "dynamic"):
+        raise ConfigError(
+            f"invalid cache_impl {eval_kwargs['cache_impl']!r}; expected 'growable' or 'dynamic'"
+        )
     do_sample = (cfg.get("generation") or {}).get("do_sample")
     eval_kwargs["do_sample"] = not args.greedy and bool(True if do_sample is None else do_sample)
 

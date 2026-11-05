@@ -74,6 +74,7 @@ def _arm_generate_kwargs(arm: EvalArm, gen: dict) -> dict:
         execution_backend=gen["execution_backend"],
         cache_manager=gen["cache_manager"],
         sync_timing=gen["sync_timing"],
+        cache_impl=gen["cache_impl"],
     )
 
 
@@ -170,6 +171,7 @@ def run_generation_eval(
     prompt_template: str = DEFAULT_PROMPT_TEMPLATE,
     answer_extraction: str = "boxed",
     sync_timing: bool = False,
+    cache_impl: str = "growable",
 ) -> dict:
     """Run every arm on every problem and write the result file.
 
@@ -215,7 +217,7 @@ def run_generation_eval(
         batch_size=batch_size, problem_batch_size=problem_batch_size,
         prompt_bucket_size=prompt_bucket_size, log_mode=log_mode,
         prompt_template=prompt_template, answer_extraction=answer_extraction,
-        sync_timing=sync_timing,
+        sync_timing=sync_timing, cache_impl=cache_impl,
         shard_rank=shard_rank, shard_world_size=shard_world_size,
     )
     records: list[dict] = []
@@ -264,7 +266,7 @@ def run_generation_eval(
         temperature=temperature, top_p=top_p, seed=seed, seed_offset=seed_offset,
         num_return_sequences=num_return_sequences, candidate_batch_size=batch_size,
         policy_params=policy_params, execution_backend=execution_backend,
-        cache_manager=cache_manager, sync_timing=sync_timing,
+        cache_manager=cache_manager, sync_timing=sync_timing, cache_impl=cache_impl,
     )
 
     def write(final: bool) -> dict:
