@@ -1,6 +1,7 @@
 """Small checks for official baseline strategy registry semantics."""
 from __future__ import annotations
 
+import pytest
 import torch
 
 from kvbench.arms import parse_arm, parse_arms
@@ -149,18 +150,19 @@ def test_debug_token_samples_can_be_disabled():
     assert samples == []
 
 
-def test_legacy_tuple_cache_can_be_summarized_and_compacted():
+def test_hf_cache_can_be_summarized_and_compacted():
+    transformers = pytest.importorskip("transformers")
     keys = torch.arange(10, dtype=torch.float32).view(1, 2, 5, 1)
-    values = keys + 100
-    cache = ((keys, values),)
+    cache = transformers.DynamicCache()
+    cache.update(keys, keys + 100, 0)
     summary = cache_length_summary(cache, 5)
     assert summary["mean_effective_cache_len"] == 5.0
     assert summary["effective_kv_tokens_per_layer_head"] == [[5, 5]]
 
     new_cache, new_len = TransformersCacheManager().compact(cache, torch.tensor([3, 1, 4]))
     assert new_len == 3
-    torch.testing.assert_close(new_cache[0][0][0, :, :, 0], torch.tensor([[3.0, 1.0, 4.0], [8.0, 6.0, 9.0]]))
-    torch.testing.assert_close(new_cache[0][1][0, :, :, 0], torch.tensor([[103.0, 101.0, 104.0], [108.0, 106.0, 109.0]]))
+    torch.testing.assert_close(new_cache.layers[0].keys[0, :, :, 0], torch.tensor([[3.0, 1.0, 4.0], [8.0, 6.0, 9.0]]))
+    torch.testing.assert_close(new_cache.layers[0].values[0, :, :, 0], torch.tensor([[103.0, 101.0, 104.0], [108.0, 106.0, 109.0]]))
 
 
 def test_auto_attention_backend_selection():

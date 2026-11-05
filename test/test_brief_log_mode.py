@@ -52,7 +52,6 @@ def _candidate(*, ok: bool, seed: int, text_size: int = 0) -> dict:
         "eviction_sec_total": 0.1,
         "eviction_sec_mean": 0.03,
         "other_decode_sec": 0.1,
-        "timing": {},
     }
 
 

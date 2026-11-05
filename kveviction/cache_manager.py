@@ -1,6 +1,6 @@
 """Cache ownership boundary for reference and serving backends.
 
-The reference implementation still uses dense HF-style tensors.  Serving
+The reference implementation uses dense HF ``Cache`` tensors.  Serving
 implementations can replace this class with a paged/block cache manager while
 keeping policy code independent of cache storage.
 """
@@ -47,19 +47,19 @@ class CacheManager(Protocol):
 
 
 class TransformersCacheManager:
-    """Dense tensor cache manager for tuple and HF Cache objects."""
+    """Dense HF cache manager (transformers >= 5 ``Cache`` objects with ``.layers``).
+
+    Compaction gathers the kept slots per layer and assigns them back to
+    ``layer.keys`` / ``layer.values``; ``GrowableLayer`` turns that assignment
+    into an in-place write of its buffer prefix.
+    """
 
     @staticmethod
     def _view(cache):
-        if cache is None or hasattr(cache, "layers"):
-            return cache
-        if isinstance(cache, tuple):
-            return _CacheView([_CacheLayerView(keys, values) for keys, values in cache])
-        if hasattr(cache, "key_cache") and hasattr(cache, "value_cache"):
-            return _CacheView([
-                _CacheLayerView(keys, values)
-                for keys, values in zip(cache.key_cache, cache.value_cache)
-            ])
+        if cache is not None and not hasattr(cache, "layers"):
+            raise TypeError(
+                f"unsupported KV cache {type(cache).__name__}; expected a transformers Cache with .layers"
+            )
         return cache
 
     @staticmethod
@@ -82,61 +82,12 @@ class TransformersCacheManager:
         return int(indices.numel())
 
     def compact(self, cache, indices):
-        if hasattr(cache, "layers"):
-            return cache, self._compact(cache, indices)
-
-        if isinstance(cache, tuple):
-            compacted = []
-            if _is_headwise(indices):
-                for (keys, values), layer_indices in zip(cache, indices):
-                    layer_indices = layer_indices.to(keys.device)
-                    head_dim = keys.shape[-1]
-                    gather_indices = layer_indices.unsqueeze(0).unsqueeze(-1).expand(
-                        1, -1, -1, head_dim
-                    )
-                    compacted.append((
-                        keys.gather(2, gather_indices).contiguous(),
-                        values.gather(2, gather_indices).contiguous(),
-                    ))
-                return tuple(compacted), int(indices[0].shape[-1])
-
-            for keys, values in cache:
-                local_indices = indices.to(keys.device)
-                compacted.append((
-                    keys.index_select(2, local_indices).contiguous(),
-                    values.index_select(2, local_indices).contiguous(),
-                ))
-            return tuple(compacted), int(indices.numel())
-
-        if hasattr(cache, "key_cache") and hasattr(cache, "value_cache"):
-            if _is_headwise(indices):
-                for layer_idx, layer_indices in enumerate(indices):
-                    keys = cache.key_cache[layer_idx]
-                    values = cache.value_cache[layer_idx]
-                    layer_indices = layer_indices.to(keys.device)
-                    head_dim = keys.shape[-1]
-                    gather_indices = layer_indices.unsqueeze(0).unsqueeze(-1).expand(
-                        1, -1, -1, head_dim
-                    )
-                    cache.key_cache[layer_idx] = keys.gather(2, gather_indices).contiguous()
-                    cache.value_cache[layer_idx] = values.gather(2, gather_indices).contiguous()
-                return cache, int(indices[0].shape[-1])
-
-            for layer_idx, keys in enumerate(cache.key_cache):
-                local_indices = indices.to(keys.device)
-                cache.key_cache[layer_idx] = keys.index_select(2, local_indices).contiguous()
-                cache.value_cache[layer_idx] = cache.value_cache[layer_idx].index_select(
-                    2, local_indices
-                ).contiguous()
-            return cache, int(indices.numel())
-
-        return cache, self._compact(cache, indices)
+        return cache, self._compact(self._view(cache), indices)
 
     def compact_batch(self, cache, indices):
-        cache_view = self._view(cache)
-        batch_size = cache_view.layers[0].keys.shape[0]
-        tuple_layers = [] if isinstance(cache, tuple) else None
-        for layer_idx, layer in enumerate(cache_view.layers):
+        cache = self._view(cache)
+        batch_size = cache.layers[0].keys.shape[0]
+        for layer_idx, layer in enumerate(cache.layers):
             keys = layer.keys
             values = layer.values
             if _is_headwise(indices):
@@ -151,30 +102,19 @@ class TransformersCacheManager:
             gather_indices = layer_indices.to(keys.device).unsqueeze(-1).expand(
                 -1, -1, -1, keys.shape[-1]
             )
-            compact_keys = keys.gather(2, gather_indices).contiguous()
-            compact_values = values.gather(2, gather_indices).contiguous()
-            if hasattr(cache, "layers"):
-                cache.layers[layer_idx].keys = compact_keys
-                cache.layers[layer_idx].values = compact_values
-            elif isinstance(cache, tuple):
-                tuple_layers.append((compact_keys, compact_values))
-            else:
-                cache.key_cache[layer_idx] = compact_keys
-                cache.value_cache[layer_idx] = compact_values
-        if tuple_layers is not None:
-            cache = tuple(tuple_layers)
+            layer.keys = keys.gather(2, gather_indices).contiguous()
+            layer.values = values.gather(2, gather_indices).contiguous()
         return cache, int(_representative_indices_batch(indices).shape[-1])
 
     def metadata(self, cache):
-        view = self._view(cache)
-        if view is None or not hasattr(view, "layers"):
+        if cache is None or not hasattr(cache, "layers"):
             return {"kind": "unknown"}
         return {
             "kind": "dense",
-            "layers": len(view.layers),
-            "batch_size": int(view.layers[0].keys.shape[0]),
-            "heads": int(view.layers[0].keys.shape[1]),
-            "length": int(view.layers[0].keys.shape[2]),
+            "layers": len(cache.layers),
+            "batch_size": int(cache.layers[0].keys.shape[0]),
+            "heads": int(cache.layers[0].keys.shape[1]),
+            "length": int(cache.layers[0].keys.shape[2]),
         }
 
 
@@ -267,17 +207,6 @@ class VLLMPagedBlockCacheManager(PagedBlockCacheManager):
         if released and self.release_blocks:
             self.release_blocks(released)
         return cache, length
-
-
-class _CacheLayerView:
-    def __init__(self, keys: torch.Tensor, values: torch.Tensor):
-        self.keys = keys
-        self.values = values
-
-
-class _CacheView:
-    def __init__(self, layers: list[_CacheLayerView]):
-        self.layers = layers
 
 
 __all__ = [

@@ -1,17 +1,7 @@
-"""Stable result and timing contracts for all execution backends."""
+"""Result contract reserved for future execution backends (see kvbench.result_schema)."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
-
-@dataclass
-class TimingSink:
-    enabled: bool = True
-    values: dict[str, float] = field(default_factory=dict)
-
-    def add(self, name: str, seconds: float) -> None:
-        if self.enabled:
-            self.values[name] = self.values.get(name, 0.0) + float(seconds)
 
 
 @dataclass
@@ -43,4 +33,4 @@ class BackendResult:
         return cls(**payload)
 
 
-__all__ = ["BackendResult", "TimingSink"]
+__all__ = ["BackendResult"]
