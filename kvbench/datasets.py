@@ -38,7 +38,15 @@ def load_problems(name: str, n: int) -> list[dict]:
     Supported names: sample, aime, math500, mix.
     """
     if name == "sample":
-        return (SAMPLE_PROBLEMS * ((n // len(SAMPLE_PROBLEMS)) + 1))[:n]
+        # Repeat the fixed problems to reach n, keeping ids unique so results
+        # can be merged and aligned by id.
+        problems = []
+        for i in range(n):
+            problem = dict(SAMPLE_PROBLEMS[i % len(SAMPLE_PROBLEMS)])
+            if i >= len(SAMPLE_PROBLEMS):
+                problem["id"] = f"{problem['id']}-r{i // len(SAMPLE_PROBLEMS)}"
+            problems.append(problem)
+        return problems
     if name == "mix":
         half = (n + 1) // 2
         return load_problems("aime", half) + load_problems("math500", n - half)
