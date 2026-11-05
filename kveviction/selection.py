@@ -3,16 +3,14 @@ from __future__ import annotations
 
 import torch
 
-from kveviction.attention_logits import model_layers
 from kveviction.cache_manager import _is_headwise as is_headwise_selection
 from kveviction.cache_manager import _representative_indices as representative_indices
 from kveviction.cache_manager import _representative_indices_batch as representative_indices_batch
 from kveviction.controller import EvictionController
-from kveviction.strategies.token import SelectionContext, get_policy
 
 __all__ = [
     "is_headwise_selection", "representative_indices", "representative_indices_batch",
-    "selection_length", "key_reps", "is_cache_aware", "eviction_due",
+    "selection_length", "is_cache_aware", "eviction_due",
     "should_collect_observation", "select_tokens", "select_tokens_batch",
 ]
 
@@ -23,17 +21,8 @@ def selection_length(idx) -> int:
     return int(idx.numel())
 
 
-def key_reps(cache, device):
-    """每槽代表 key 向量 [n, D]（层/KV头平均）。"""
-    acc = None
-    for layer in cache.layers:
-        k = layer.keys[0].mean(0).float()    # [n, D]
-        acc = k if acc is None else acc + k
-    return acc / len(cache.layers)
-
-
 def is_cache_aware(policy) -> bool:
-    return policy.needs_cache or policy.needs_attn_history
+    return policy.cache_aware
 
 
 def _over_trigger(policy, cache_len: int, budget: int, anchor_k: int) -> bool:
@@ -79,127 +68,65 @@ def should_collect_observation(
 
 
 @torch.no_grad()
-def select_tokens(imp, cum_imp, win_imp, ent, key_rep, slot_pos, budget, recent, sink,
-                  backend, anchor_mode, anchor_k, rng, cum=None, con=None, sig=None,
-                  policy_params=None, cache=None, attn_history=None,
-                  model=None, return_debug=False):
-    """返回应保留的**槽下标** LongTensor。imp/ent/key_rep/slot_pos 均按当前缓存槽对齐。
-    anchor_mode="sig" 时用完整 4 维签名(熵,cum_attn,位置,concentration)打分,
-    sig=(w[4], b);cum/con 为每槽 cum_attn/concentration。"""
-    n = slot_pos.numel()
-    dev = slot_pos.device
-    if n <= budget:
+def select_tokens(policy, ctx, *, cache=None, attn_history=None, return_debug=False):
+    """Return kept slot indices for one request (head-wise list for cache-aware policies).
+
+    ``policy`` may be wrapped with anchors (``strategies.anchors.with_anchors``).
+    With ``return_debug`` also returns a dict of ``backend_keep`` (base policy
+    choice), ``anchor_extra`` (rescued slots), ``policy_score`` and ``sig_score``.
+    """
+    n = ctx.slot_pos.numel()
+    dev = ctx.slot_pos.device
+    if n <= ctx.budget:
         idx = torch.arange(n, device=dev)
         if return_debug:
             return idx, {
                 "backend_keep": idx,
                 "anchor_extra": torch.empty(0, dtype=torch.long, device=dev),
                 "sig_score": None,
-                "policy_score": imp,
+                "policy_score": ctx.importance,
             }
         return idx
 
-    policy = get_policy(backend)
-    runtime_params = dict(policy_params or {})
-    if model is not None:
-        runtime_params["_model"] = model
-        layers = model_layers(model)
-        if layers is not None:
-            runtime_params["_layers"] = layers
-    ctx = SelectionContext(
-        importance=imp,
-        cumulative_attention=cum_imp,
-        window_attention=win_imp,
-        key_reps=key_rep,
-        slot_pos=slot_pos,
-        budget=budget,
-        recent=recent,
-        sink=sink,
-        params=runtime_params,
+    decision = EvictionController(policy).decide(
+        ctx, cache=cache, attn_history=attn_history, return_debug=return_debug,
     )
-    decision = EvictionController(backend, params=runtime_params).decide(
-        ctx, cache=cache, attn_history=attn_history, model=model,
-        anchor_mode=anchor_mode, anchor_k=anchor_k,
-        anchor_features={"entropy": ent, "cumulative": cum, "concentration": con},
-        sig=sig,
-        return_debug=return_debug,
-    )
-    backend_idx = decision.keep_indices
-    policy_score = decision.policy_score
-    if is_headwise_selection(backend_idx):
-        if anchor_mode != "none" and anchor_k > 0:
-            raise ValueError("anchor modes are not supported for head-wise cache-aware strategies")
-        if return_debug:
-            return backend_idx, {
-                "backend_keep": representative_indices(backend_idx),
-                "anchor_extra": torch.empty(0, dtype=torch.long, device=dev),
-                "sig_score": None,
-                "policy_score": policy_score
-                if policy_score is not None
-                else torch.full((n,), float("nan"), device=dev),
-            }
-        return backend_idx
-
-    keep = torch.zeros(n, dtype=torch.bool, device=dev)
-    keep[backend_idx] = True
-    idx = keep.nonzero(as_tuple=True)[0]
+    idx = decision.keep_indices
     if not return_debug:
         return idx
+    policy_score = decision.policy_score
     if policy_score is None:
-        policy_score = policy.scores(ctx)
+        policy_score = torch.full((n,), float("nan"), device=dev)
     return idx, {
-        "backend_keep": idx,
+        "backend_keep": representative_indices(decision.base_indices),
         "anchor_extra": decision.rescue_indices,
-        "sig_score": None,
+        "sig_score": decision.anchor_score,
         "policy_score": policy_score,
     }
 
 
 @torch.no_grad()
-def select_tokens_batch(
-    imp,
-    cum_imp,
-    win_imp,
-    ent,
-    slot_pos,
-    budget,
-    recent,
-    sink,
-    backend,
-    anchor_mode,
-    anchor_k,
-    *,
-    policy_params,
-    cache,
-    attn_history,
-    model,
-    valid_mask=None,
-):
-    policy = get_policy(backend)
-    if is_cache_aware(policy):
-        if anchor_mode != "none" and anchor_k > 0:
-            raise ValueError("anchor modes are not supported for batched cache-aware strategies")
-        runtime_params = dict(policy_params or {})
-        runtime_params["_model"] = model
-        if valid_mask is not None:
-            runtime_params["_valid_mask"] = valid_mask
-        return policy.select_from_cache(
-            cache, attn_history, slot_pos.shape[-1], budget, runtime_params
-        )
+def select_tokens_batch(policy, features, n, *, budget, recent, sink, policy_params,
+                        cache, attn_history):
+    """Batched selection over ``features`` (a ``[B, capacity]`` ``SlotFeatures``).
+
+    Cache-aware policies select for the whole batch at once; slot-level
+    policies select per request over that request's valid slots.
+    """
+    valid_mask = features.valid[:, :n]
+    if policy.cache_aware:
+        params = dict(policy_params or {})
+        params["_valid_mask"] = valid_mask
+        return policy.select_from_cache(cache, attn_history, n, budget, params)
 
     selections = []
-    for row in range(slot_pos.shape[0]):
-        if valid_mask is None:
-            valid_idx = torch.arange(slot_pos.shape[1], device=slot_pos.device)
-        else:
-            valid_idx = valid_mask[row].nonzero(as_tuple=True)[0]
-        selected_valid = select_tokens(
-            imp[row, valid_idx], cum_imp[row, valid_idx], win_imp[row, valid_idx],
-            ent[row, valid_idx], None, slot_pos[row, valid_idx],
-            budget, recent, sink, backend, anchor_mode, anchor_k, None,
-            policy_params=policy_params, cache=None, attn_history=None, model=model,
+    for row in range(valid_mask.shape[0]):
+        valid_idx = valid_mask[row].nonzero(as_tuple=True)[0]
+        ctx = features.context(
+            n, budget=budget, recent=recent, sink=sink, params=policy_params,
+            row=row, slots=valid_idx,
         )
-        selections.append(valid_idx[selected_valid])
+        selections.append(valid_idx[select_tokens(policy, ctx)])
 
     # Rows keep different numbers of valid slots (e.g. a finished request with
     # masked filler, or anchors rescuing fewer than anchor_k tokens).  The
@@ -207,7 +134,7 @@ def select_tokens_batch(
     target_length = max(int(item.numel()) for item in selections)
     indices = []
     for row, selected in enumerate(selections):
-        if selected.numel() < target_length and valid_mask is not None:
+        if selected.numel() < target_length:
             invalid_idx = (~valid_mask[row]).nonzero(as_tuple=True)[0]
             selected = torch.cat([selected, invalid_idx[: target_length - selected.numel()]])
         indices.append(selected)

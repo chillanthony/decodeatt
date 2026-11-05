@@ -45,7 +45,6 @@ from kveviction.results import TimingSink
 from kveviction.sampling import entropy, entropy_batch, sample, sample_batch
 from kveviction.selection import (
     eviction_due,
-    key_reps,
     representative_indices,
     representative_indices_batch,
     select_tokens,
@@ -53,6 +52,8 @@ from kveviction.selection import (
     selection_length,
     should_collect_observation,
 )
+from kveviction.slot_features import SlotFeatures
+from kveviction.strategies.anchors import with_anchors
 from kveviction.strategies.token import get_policy
 
 _cache_view = TransformersCacheManager._view
@@ -74,7 +75,7 @@ def generate_token_evict(
 
     速度/忠实兼顾:平时不取观测信号; cache-aware 官方 baseline 只在压缩前
     observation window 内用 hidden states + q_proj + cache keys 重算 attention logits。
-    缓冲预分配(slot_pos/imp/ent),消掉逐步 torch.cat 的 O(n²),解锁 16k 长生成。
+    每槽特征缓冲(SlotFeatures)预分配,消掉逐步 torch.cat 的 O(n²),解锁 16k 长生成。
     返回 dict(text, gen_ids, n_evict, final_cache_len)。"""
     device = next(model.parameters()).device
     execution_backend = execution_backend or TransformersExecutionBackend(model)
@@ -95,7 +96,9 @@ def generate_token_evict(
     input_ids = input_ids.to(device)
     P = input_ids.shape[1]
     anchor_k = int(anchor_frac * budget)
-    policy = get_policy(backend)
+    use_sig = anchor_mode == "sig"                    # 完整 4 维签名锚点
+    sig_t = (torch.tensor(sig[0], device=device), float(sig[1])) if use_sig else None
+    policy = with_anchors(get_policy(backend), anchor_mode, anchor_k, sig_t)
     observation_provider = AttentionObservationProvider(
         decay=obs_decay, needs_history=policy.needs_attn_history
     )
@@ -104,18 +107,10 @@ def generate_token_evict(
     policy_params = policy_params or {}
     use_attention_logits = policy.needs_attn_history and supports_attention_logits(model)
 
-    use_sig = anchor_mode == "sig"                    # 完整 4 维签名锚点
-    N = P + max_new
-    slot_pos = torch.zeros(N, dtype=torch.long, device=device); slot_pos[:P] = torch.arange(P, device=device)
-    slot_ids = torch.full((N,), -1, dtype=torch.long, device=device); slot_ids[:P] = input_ids[0]
-    imp = torch.zeros(N, device=device)
-    cum_imp = torch.zeros(N, device=device)
-    win_imp = torch.zeros(N, device=device)
-    ent = torch.zeros(N, device=device)
-    # 完整签名需 cum_attn/concentration → 维护每槽被访问注意力的 sum/cnt/max
-    att_sum = torch.zeros(N, device=device); att_cnt = torch.zeros(N, device=device)
-    att_max = torch.zeros(N, device=device)
-    sig_t = (torch.tensor(sig[0], device=device), float(sig[1])) if use_sig else None
+    # 每槽特征缓冲预分配到 P + max_new;sig 锚点额外维护被访问注意力的 sum/cnt/max。
+    feats = SlotFeatures(P + max_new, device, track_sig=use_sig)
+    feats.slot_pos[:P] = torch.arange(P, device=device)
+    feats.slot_ids[:P] = input_ids[0]
     n = P                                             # 当前缓存长度
 
     prefill_start = time.perf_counter()
@@ -175,10 +170,7 @@ def generate_token_evict(
         decode_forward_sec += time.perf_counter() - decode_start
         cache = out.past_key_values
         logits = out.logits[:, -1]
-        slot_pos[n] = true_pos; slot_ids[n] = nxt; ent[n] = e; imp[n] = 0.0
-        cum_imp[n] = 0.0; win_imp[n] = 0.0
-        if use_sig:
-            att_sum[n] = 0.0; att_cnt[n] = 0.0; att_max[n] = 0.0
+        feats.append(n, pos=true_pos, token=nxt, entropy=e)
         n += 1
         if want_logits:
             obs_start = time.perf_counter()
@@ -202,13 +194,7 @@ def generate_token_evict(
             if policy.needs_attn_history and observed["history"] is not None:
                 attn_history.append(observed["history"])
                 attn_history = attn_history[-active_obs_window:]
-            row = observed["importance"]
-            imp[:n] = torch.maximum(imp[:n] * obs_decay, row)
-            cum_imp[:n] += row
-            win_imp[:n] = win_imp[:n] * obs_decay + row
-            if use_sig:                               # cum_attn/concentration 统计
-                att_sum[:n] += row; att_cnt[:n] += 1.0
-                att_max[:n] = torch.maximum(att_max[:n], row)
+            feats.observe(n, observed["importance"], obs_decay)
             attention_observation_sec += time.perf_counter() - obs_start
 
         if eviction_due(policy, track=track, step=step, evict_every=evict_every,
@@ -216,17 +202,9 @@ def generate_token_evict(
             evict_start = time.perf_counter()
             selection_cache = _cache_view(cache)
             before_summary = cache_length_summary(selection_cache, n)
-            key_rep = None if policy.needs_cache else (key_reps(selection_cache, device) if policy.needs_key_reps else None)
-            cum = con = None
-            if use_sig:
-                cum = att_sum[:n] / att_cnt[:n].clamp(min=1)
-                con = att_max[:n] / (cum + 1e-9)
-            selected = select_tokens(imp[:n], cum_imp[:n], win_imp[:n], ent[:n],
-                                     key_rep, slot_pos[:n], budget, recent,
-                                     sink, backend, anchor_mode, anchor_k, None,
-                                     cum=cum, con=con, sig=sig_t,
-                                     policy_params=policy_params, cache=selection_cache,
-                                     attn_history=attn_history, model=model,
+            ctx = feats.context(n, budget=budget, recent=recent, sink=sink, params=policy_params)
+            selected = select_tokens(policy, ctx, cache=selection_cache,
+                                     attn_history=attn_history,
                                      return_debug=debug is not None)
             idx, dbg = selected if debug is not None else (selected, None)
             if debug is not None:
@@ -246,31 +224,27 @@ def generate_token_evict(
                     "step": step + 1,
                     "cache_len_before": n,
                     "cache_len_after": selection_length(idx),
-                    "slot_pos": take_int(slot_pos[:n]),
-                    "token_ids": take_int(slot_ids[:n]),
-                    "imp": take_float(imp[:n]),
-                    "cum_imp": take_float(cum_imp[:n]),
-                    "win_imp": take_float(win_imp[:n]),
-                    "ent": take_float(ent[:n]),
-                    "cum_attn": take_float(cum) if cum is not None else None,
-                    "concentration": take_float(con) if con is not None else None,
+                    "slot_pos": take_int(ctx.slot_pos),
+                    "token_ids": take_int(feats.slot_ids[:n]),
+                    "imp": take_float(ctx.importance),
+                    "cum_imp": take_float(ctx.cumulative_attention),
+                    "win_imp": take_float(ctx.window_attention),
+                    "ent": take_float(ctx.entropy),
+                    "cum_attn": take_float(ctx.cumulative_mean) if ctx.cumulative_mean is not None else None,
+                    "concentration": take_float(ctx.concentration) if ctx.concentration is not None else None,
                     "sig_score": take_float(score),
                     "policy_score": take_float(dbg["policy_score"]),
                     "backend_keep_slots": take_int(dbg["backend_keep"]),
                     "anchor_extra_slots": take_int(rescued),
                     "final_keep_slots": take_int(idx_debug),
                     "evicted_slots": take_int(evicted),
-                    "anchor_extra_text": token_samples(tokenizer, slot_ids[:n], rescued, debug_topk),
-                    "evicted_top_sig_text": token_samples(tokenizer, slot_ids[:n], evicted_by_sig, debug_topk),
+                    "anchor_extra_text": token_samples(tokenizer, feats.slot_ids[:n], rescued, debug_topk),
+                    "evicted_top_sig_text": token_samples(tokenizer, feats.slot_ids[:n], evicted_by_sig, debug_topk),
                 })
             before_n = n
-            idx_slots = representative_indices(idx)
             cache, k = cache_manager.compact(cache, idx)
             after_summary = cache_length_summary(cache, k)
-            slot_pos[:k] = slot_pos[idx_slots]; slot_ids[:k] = slot_ids[idx_slots]; imp[:k] = imp[idx_slots]
-            cum_imp[:k] = cum_imp[idx_slots]; win_imp[:k] = win_imp[idx_slots]; ent[:k] = ent[idx_slots]
-            if use_sig:
-                att_sum[:k] = att_sum[idx_slots]; att_cnt[:k] = att_cnt[idx_slots]; att_max[:k] = att_max[idx_slots]
+            feats.compact(representative_indices(idx), before_n)
             n = k
             if policy.needs_attn_history:
                 attn_history = []
@@ -414,7 +388,8 @@ def generate_token_evict_batch(
         generator.manual_seed(int(seed))
         generators.append(generator)
 
-    policy = get_policy(backend)
+    anchor_k = int(anchor_frac * budget)
+    policy = with_anchors(get_policy(backend), anchor_mode, anchor_k)
     observation_provider = AttentionObservationProvider(
         decay=obs_decay, needs_history=policy.needs_attn_history
     )
@@ -422,7 +397,6 @@ def generate_token_evict_batch(
     policy_params = policy_params or {}
     track = budget < 10 ** 8 and not policy.never_evict
     use_attention_logits = policy.needs_attn_history and supports_attention_logits(model)
-    anchor_k = int(anchor_frac * budget)
     physical_prompt_len = int(input_ids.shape[1])
     capacity = physical_prompt_len + max_new
     batched_input_ids = input_ids.expand(batch_size, -1)
@@ -441,16 +415,10 @@ def generate_token_evict_batch(
     prompt_lengths = prompt_attention_mask.sum(-1).long()
     prefill_position_ids = prompt_attention_mask.cumsum(-1) - 1
     prefill_position_ids.masked_fill_(prompt_attention_mask == 0, 0)
-    slot_pos = torch.zeros(batch_size, capacity, dtype=torch.long, device=device)
-    slot_pos[:, :physical_prompt_len] = prefill_position_ids
-    slot_ids = torch.full((batch_size, capacity), -1, dtype=torch.long, device=device)
-    slot_ids[:, :physical_prompt_len] = batched_input_ids
-    valid_cache_mask = torch.zeros(batch_size, capacity, dtype=torch.bool, device=device)
-    valid_cache_mask[:, :physical_prompt_len] = prompt_attention_mask.bool()
-    imp = torch.zeros(batch_size, capacity, device=device)
-    cum_imp = torch.zeros_like(imp)
-    win_imp = torch.zeros_like(imp)
-    ent = torch.zeros_like(imp)
+    feats = SlotFeatures((batch_size, capacity), device, track_valid=True)
+    feats.slot_pos[:, :physical_prompt_len] = prefill_position_ids
+    feats.slot_ids[:, :physical_prompt_len] = batched_input_ids
+    feats.valid[:, :physical_prompt_len] = prompt_attention_mask.bool()
     n = physical_prompt_len
 
     start_time = time.perf_counter()
@@ -508,7 +476,7 @@ def generate_token_evict_batch(
         want_attn = want_observe and not want_logits
         position_ids = (prompt_lengths + step).unsqueeze(1)
         step_attention_mask = torch.cat(
-            [valid_cache_mask[:, :n], step_valid.unsqueeze(1)], dim=1
+            [feats.valid[:, :n], step_valid.unsqueeze(1)], dim=1
         ).long()
         decode_start = time.perf_counter()
         out = execution_backend.decode(
@@ -524,13 +492,8 @@ def generate_token_evict_batch(
         decode_forward_sec += time.perf_counter() - decode_start
         cache = out.past_key_values
         logits = out.logits[:, -1]
-        slot_pos[:, n] = position_ids.squeeze(1)
-        slot_ids[:, n] = next_tokens
-        valid_cache_mask[:, n] = step_valid
-        ent[:, n] = token_entropy
-        imp[:, n] = 0.0
-        cum_imp[:, n] = 0.0
-        win_imp[:, n] = 0.0
+        feats.append(n, pos=position_ids.squeeze(1), token=next_tokens,
+                     entropy=token_entropy, valid=step_valid)
         n += 1
 
         if want_logits:
@@ -558,50 +521,22 @@ def generate_token_evict_batch(
                 attention[:, :, -1, :n].mean(1).float()
                 for attention in out.attentions
             ]).mean(0)
-            imp[:, :n] = torch.maximum(imp[:, :n] * obs_decay, row_score)
-            cum_imp[:, :n] += row_score
-            win_imp[:, :n] = win_imp[:, :n] * obs_decay + row_score
+            feats.observe(n, row_score, obs_decay)
             attention_observation_sec += time.perf_counter() - observation_start
 
         if eviction_due(policy, track=track, step=step, evict_every=evict_every,
                         cache_len=n, budget=budget, anchor_k=anchor_k):
             eviction_start = time.perf_counter()
             before_n = n
-            before_summaries = batch_cache_length_summaries(
-                cache, valid_cache_mask[:, :before_n]
-            )
+            before_summaries = batch_cache_length_summaries(cache, feats.valid[:, :before_n])
             idx = select_tokens_batch(
-                imp[:, :n],
-                cum_imp[:, :n],
-                win_imp[:, :n],
-                ent[:, :n],
-                slot_pos[:, :n],
-                budget,
-                recent,
-                sink,
-                backend,
-                anchor_mode,
-                anchor_k,
-                policy_params=policy_params,
-                cache=_cache_view(cache),
+                policy, feats, n, budget=budget, recent=recent, sink=sink,
+                policy_params=policy_params, cache=_cache_view(cache),
                 attn_history=attn_history,
-                model=model,
-                valid_mask=valid_cache_mask[:, :n],
             )
-            representative = representative_indices_batch(idx)
             cache, n = cache_manager.compact_batch(cache, idx)
-            slot_pos[:, :n] = torch.gather(slot_pos[:, :before_n], 1, representative)
-            slot_ids[:, :n] = torch.gather(slot_ids[:, :before_n], 1, representative)
-            imp[:, :n] = torch.gather(imp[:, :before_n], 1, representative)
-            cum_imp[:, :n] = torch.gather(cum_imp[:, :before_n], 1, representative)
-            win_imp[:, :n] = torch.gather(win_imp[:, :before_n], 1, representative)
-            ent[:, :n] = torch.gather(ent[:, :before_n], 1, representative)
-            valid_cache_mask[:, :n] = torch.gather(
-                valid_cache_mask[:, :before_n], 1, representative
-            )
-            after_summaries = batch_cache_length_summaries(
-                cache, valid_cache_mask[:, :n]
-            )
+            feats.compact(representative_indices_batch(idx), before_n)
+            after_summaries = batch_cache_length_summaries(cache, feats.valid[:, :n])
             if policy.needs_attn_history:
                 attn_history = []
             n_evict += 1
@@ -623,7 +558,7 @@ def generate_token_evict_batch(
     timing_sink.add("eviction_sec_total", eviction_sec_total)
     batch_total_tokens = sum(len(ids) for ids in generated)
     amortized_elapsed = elapsed / batch_size
-    final_summaries = batch_cache_length_summaries(cache, valid_cache_mask[:, :n])
+    final_summaries = batch_cache_length_summaries(cache, feats.valid[:, :n])
     candidates = []
     for row, ids in enumerate(generated):
         row_events = evict_events[row]

@@ -40,7 +40,6 @@ def _ctx(n: int, budget: int, *, recent: int = 3, sink: int = 2, seed: int = 0) 
         importance=score,
         cumulative_attention=score.clone(),
         window_attention=score.clone(),
-        key_reps=None,
         slot_pos=torch.arange(n),
         budget=budget,
         recent=recent,
@@ -239,3 +238,68 @@ def test_trace_scoring_runs_with_eviction(tiny_llama):
     assert result["per_token_nll"].shape == (trace.shape[1],)
     assert result["eviction_events"]
     assert result["final_cache_len"] <= 16 + 4
+
+
+# --------------------------------------------------------------------------
+# Capability flags and anchor wrapper
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("backend", sorted(policy_names()))
+def test_needs_attention_matches_observation_window(backend):
+    """Policies that never open an observation window must not force eager attention."""
+    policy = get_policy(backend)
+    observes = not policy.never_evict and policy.observation_window({}, 8) > 0
+    assert policy.needs_attention == observes
+
+
+def _anchor_ctx(n=30, budget=10):
+    ctx = _ctx(n, budget, recent=2, sink=1)
+    entropy = torch.arange(n, dtype=torch.float32).flip(0)  # slot 0 has the highest entropy
+    return SelectionContext(**{**ctx.__dict__, "entropy": entropy})
+
+
+@pytest.mark.parametrize("mode", ["anchor", "lowent", "random"])
+def test_anchor_wrapper_rescues_k_dropped_slots(mode):
+    from kveviction.strategies.anchors import with_anchors
+
+    ctx = _anchor_ctx()
+    base_keep = set(get_policy("window").select_keep(ctx).tolist())
+    torch.manual_seed(0)
+    keep, rescue, _ = with_anchors(get_policy("window"), mode, 3).select_with_rescue(ctx)
+    assert rescue.numel() == 3
+    assert not set(rescue.tolist()) & base_keep
+    assert set(keep.tolist()) == base_keep | set(rescue.tolist())
+    assert keep.tolist() == sorted(keep.tolist())
+    dropped = sorted(set(range(ctx.slot_pos.numel())) - base_keep)
+    if mode == "anchor":
+        assert sorted(rescue.tolist()) == dropped[:3]   # highest entropy = lowest slot ids
+    elif mode == "lowent":
+        assert sorted(rescue.tolist()) == dropped[-3:]
+
+
+def test_sig_anchor_scores_and_debug_split():
+    from kveviction.selection import select_tokens
+    from kveviction.strategies.anchors import with_anchors
+
+    ctx = _anchor_ctx()
+    weights = (torch.tensor([1.0, 0.0, 0.0, 0.0]), 0.0)  # signature == entropy
+    policy = with_anchors(get_policy("window"), "sig", 2, weights)
+    idx, debug = select_tokens(policy, ctx, return_debug=True)
+    torch.testing.assert_close(debug["sig_score"], ctx.entropy)
+    assert debug["anchor_extra"].numel() == 2
+    # backend_keep is the base choice; final = base + rescued.
+    assert set(idx.tolist()) == set(debug["backend_keep"].tolist()) | set(debug["anchor_extra"].tolist())
+    assert debug["backend_keep"].numel() == ctx.budget
+
+
+def test_anchor_wrapper_rejects_invalid_configs():
+    from kveviction.strategies.anchors import with_anchors
+
+    assert with_anchors(get_policy("window"), "none", 5).name == "window"
+    assert with_anchors(get_policy("rkv"), "anchor", 0) is get_policy("rkv")
+    with pytest.raises(ValueError, match="head-wise"):
+        with_anchors(get_policy("rkv"), "anchor", 2)
+    with pytest.raises(ValueError, match="sig"):
+        with_anchors(get_policy("window"), "sig", 2)
+    with pytest.raises(ValueError, match="unknown anchor mode"):
+        with_anchors(get_policy("window"), "bogus", 2)

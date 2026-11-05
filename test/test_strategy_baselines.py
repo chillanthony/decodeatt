@@ -18,7 +18,6 @@ def _ctx(n: int, budget: int, recent: int = 4, sink: int = 2, params: dict | Non
         importance=values,
         cumulative_attention=values,
         window_attention=values,
-        key_reps=None,
         slot_pos=torch.arange(n),
         budget=budget,
         recent=recent,
@@ -165,7 +164,7 @@ def test_legacy_tuple_cache_can_be_summarized_and_compacted():
 def test_auto_attention_backend_selection():
     assert _arm_attn_backend("fullkv", "auto", "sdpa") == "sdpa"
     assert _arm_attn_backend("streamingllm", "auto", "sdpa") == "sdpa"
-    assert _arm_attn_backend("window", "auto", "sdpa") == "sdpa"
+    assert _arm_attn_backend("window", "auto", "sdpa") == "eager"
     assert _arm_attn_backend("random", "auto", "sdpa") == "sdpa"
     assert _arm_attn_backend("snapkv", "auto", "sdpa") == "eager"
     assert _arm_attn_backend("h2o", "auto", "sdpa") == "eager"

@@ -8,6 +8,7 @@ from .base import SelectionContext, TokenEvictionPolicy
 
 class StreamingLLMPolicy(TokenEvictionPolicy):
     name = "streamingllm"
+    needs_attention = False
 
     def observation_window(self, params: dict, default: int) -> int:
         return 0

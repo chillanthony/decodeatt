@@ -9,6 +9,7 @@ from .base import SelectionContext, TokenEvictionPolicy
 class FullKVPolicy(TokenEvictionPolicy):
     name = "fullkv"
     never_evict = True
+    needs_attention = False
 
     def observation_window(self, params: dict, default: int) -> int:
         return 0

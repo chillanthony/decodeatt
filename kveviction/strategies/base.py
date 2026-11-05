@@ -8,23 +8,44 @@ import torch
 
 @dataclass(frozen=True)
 class SelectionContext:
+    """Per-slot features for one request, aligned with the current cache slots."""
+
     importance: torch.Tensor
     cumulative_attention: torch.Tensor
     window_attention: torch.Tensor
-    key_reps: torch.Tensor | None
     slot_pos: torch.Tensor
     budget: int
     recent: int
     sink: int
     params: dict
+    # Anchor features (see strategies/anchors.py); None when not tracked.
+    entropy: torch.Tensor | None = None
+    cumulative_mean: torch.Tensor | None = None
+    concentration: torch.Tensor | None = None
 
 
 class TokenEvictionPolicy:
+    """Base class for token eviction policies.
+
+    Capability flags tell the runner what to compute:
+
+    - ``needs_attention``: attention observations must be collected inside the
+      observation window (forces an attention backend that returns them).
+    - ``needs_attn_history``: keep per-step, per-layer attention rows.
+    - ``needs_cache``: selection reads cache keys and may be head-wise
+      (``select_from_cache`` returns a list of per-layer index tensors).
+    - ``never_evict``: the runner never compacts (FullKV).
+    """
+
     name = "base"
-    needs_key_reps = False
+    needs_attention = True
     needs_cache = False
     needs_attn_history = False
     never_evict = False
+
+    @property
+    def cache_aware(self) -> bool:
+        return self.needs_cache or self.needs_attn_history
 
     def scores(self, ctx: SelectionContext) -> torch.Tensor:
         raise NotImplementedError

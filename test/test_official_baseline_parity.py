@@ -164,7 +164,6 @@ def test_streamingllm_matches_official_first_plus_local_window():
         importance=torch.zeros(12),
         cumulative_attention=torch.zeros(12),
         window_attention=torch.zeros(12),
-        key_reps=None,
         slot_pos=torch.arange(12),
         budget=7,
         recent=0,
