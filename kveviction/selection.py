@@ -187,7 +187,7 @@ def select_tokens_batch(
             cache, attn_history, slot_pos.shape[-1], budget, runtime_params
         )
 
-    indices = []
+    selections = []
     for row in range(slot_pos.shape[0]):
         if valid_mask is None:
             valid_idx = torch.arange(slot_pos.shape[1], device=slot_pos.device)
@@ -199,14 +199,16 @@ def select_tokens_batch(
             budget, recent, sink, backend, anchor_mode, anchor_k, None,
             policy_params=policy_params, cache=None, attn_history=None, model=model,
         )
-        selected = valid_idx[selected_valid]
-        target_length = min(budget + anchor_k, slot_pos.shape[1])
-        if selected.numel() < target_length:
-            invalid_idx = (
-                (~valid_mask[row]).nonzero(as_tuple=True)[0]
-                if valid_mask is not None
-                else torch.empty(0, dtype=torch.long, device=slot_pos.device)
-            )
+        selections.append(valid_idx[selected_valid])
+
+    # Rows keep different numbers of valid slots (e.g. a finished request with
+    # masked filler, or anchors rescuing fewer than anchor_k tokens).  The
+    # dense batched cache needs one length, so pad short rows with masked slots.
+    target_length = max(int(item.numel()) for item in selections)
+    indices = []
+    for row, selected in enumerate(selections):
+        if selected.numel() < target_length and valid_mask is not None:
+            invalid_idx = (~valid_mask[row]).nonzero(as_tuple=True)[0]
             selected = torch.cat([selected, invalid_idx[: target_length - selected.numel()]])
         indices.append(selected)
     lengths = {int(item.numel()) for item in indices}
