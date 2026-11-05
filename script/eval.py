@@ -17,9 +17,7 @@ from kvbench.models import load_causal_lm
 from kvbench.arms import parse_arms
 from kvbench.metrics import summarize_accuracy
 from kvbench.vllm_evaluator import run_vllm_generation_eval
-
-
-_FAST_ATTN_BACKENDS = {"fullkv", "streamingllm", "window", "random"}
+from kveviction.strategies.token import get_policy
 
 
 def _merge_dicts(base: dict, overlay: dict) -> dict:
@@ -179,9 +177,10 @@ def _model_name(cfg: dict):
 
 
 def _arm_attn_backend(backend: str, requested_attn: str, fast_attn: str) -> str:
+    """``auto``: policies that observe attention need eager; the rest use ``fast_attn``."""
     if requested_attn != "auto":
         return requested_attn
-    return fast_attn if backend in _FAST_ATTN_BACKENDS else "eager"
+    return "eager" if get_policy(backend).needs_attention else fast_attn
 
 
 def _arm_engine(arm) -> str:

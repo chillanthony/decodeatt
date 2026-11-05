@@ -5,80 +5,67 @@ from dataclasses import dataclass
 
 import torch
 
-from .strategies.token import SelectionContext, get_policy
+from .strategies.anchors import AnchoredPolicy
+from .strategies.base import SelectionContext, TokenEvictionPolicy
+from .strategies.token import get_policy
 
 
 @dataclass
 class EvictionDecision:
+    """Slots to keep plus diagnostics.
+
+    ``keep_indices`` is a sorted ``[k]`` tensor for slot-level policies, or a
+    list of per-layer ``[kv_heads, k]`` tensors for head-wise policies.
+    ``base_indices`` is the base policy's choice before anchor rescue.
+    """
+
     keep_indices: object
     rescue_indices: torch.Tensor
+    base_indices: object = None
     policy_score: torch.Tensor | None = None
-    debug: dict | None = None
+    anchor_score: torch.Tensor | None = None
 
 
 class EvictionController:
-    """Turn observations and cache metadata into a storage-neutral decision."""
+    """Turn a selection context (and cache, for cache-aware policies) into a decision."""
 
-    def __init__(self, backend: str, *, params: dict | None = None):
-        self.backend = backend
-        self.params = dict(params or {})
+    def __init__(self, policy: TokenEvictionPolicy | str):
+        self.policy = get_policy(policy) if isinstance(policy, str) else policy
 
-    def decide(self, context: SelectionContext, *, cache=None, attn_history=None,
-               model=None, anchor_mode: str = "none", anchor_k: int = 0,
-               anchor_features: dict | None = None, sig=None,
+    def decide(self, ctx: SelectionContext, *, cache=None, attn_history=None,
                return_debug: bool = False) -> EvictionDecision:
-        policy = get_policy(self.backend)
-        params = dict(context.params)
-        params.update(self.params)
-        if model is not None:
-            params["_model"] = model
-        if policy.needs_cache or policy.needs_attn_history:
+        policy = self.policy
+        n = ctx.slot_pos.numel()
+        dev = ctx.slot_pos.device
+        no_rescue = torch.empty(0, dtype=torch.long, device=dev)
+
+        if policy.cache_aware:
             result = policy.select_from_cache(
-                cache, attn_history, context.slot_pos.numel(), context.budget,
-                params, ctx=context, return_debug=return_debug,
+                cache, attn_history, n, ctx.budget, dict(ctx.params),
+                ctx=ctx, return_debug=return_debug,
             )
-            if return_debug:
-                indices, debug = result
-            else:
-                indices, debug = result, None
+            indices, debug = result if return_debug else (result, None)
+            score = debug.get("policy_score") if debug else None
+            if not isinstance(indices, list):
+                indices = _sorted_unique(indices, n)
+                if return_debug and score is None:
+                    score = policy.scores(ctx)
+            return EvictionDecision(indices, no_rescue, indices, score)
+
+        if isinstance(policy, AnchoredPolicy):
+            keep, rescue, anchor_score = policy.select_with_rescue(ctx)
+            base = keep[~torch.isin(keep, rescue)] if return_debug else None
         else:
-            indices = policy.select_keep(context)
-            debug = {"policy_score": policy.scores(context)} if return_debug else None
-        score = debug.get("policy_score") if debug else None
-        rescue = torch.empty(0, dtype=torch.long, device=context.slot_pos.device)
-        if isinstance(indices, list):
-            if anchor_mode != "none" and anchor_k:
-                raise ValueError("anchor modes are not supported for head-wise selection")
-            keep = indices
-        else:
-            keep_mask = torch.zeros(context.slot_pos.numel(), dtype=torch.bool,
-                                    device=context.slot_pos.device)
-            keep_mask[indices] = True
-            drop = (~keep_mask).nonzero(as_tuple=True)[0]
-            if anchor_mode != "none" and anchor_k > 0 and drop.numel():
-                features = anchor_features or {}
-                entropy = features.get("entropy", torch.zeros_like(context.slot_pos, dtype=torch.float))
-                if anchor_mode == "lowent":
-                    order = torch.argsort(entropy[drop])
-                elif anchor_mode == "sig" and sig is not None:
-                    cumulative = features.get("cumulative", torch.zeros_like(entropy))
-                    position = context.slot_pos.float() / max(int(context.slot_pos.max()), 1)
-                    concentration = features.get("concentration", torch.zeros_like(entropy))
-                    score = torch.stack([entropy, cumulative, position, concentration], 1) @ sig[0] + sig[1]
-                    order = torch.argsort(score[drop], descending=True)
-                elif anchor_mode == "random":
-                    order = torch.randperm(drop.numel(), device=drop.device)
-                else:
-                    order = torch.argsort(entropy[drop], descending=True)
-                rescue = drop[order[:anchor_k]]
-                keep_mask[rescue] = True
-            keep = keep_mask.nonzero(as_tuple=True)[0]
-        return EvictionDecision(
-            keep_indices=keep,
-            rescue_indices=rescue,
-            policy_score=score,
-            debug=debug,
-        )
+            keep = _sorted_unique(policy.select_keep(ctx), n)
+            rescue, anchor_score, base = no_rescue, None, keep
+        score = policy.scores(ctx) if return_debug else None
+        return EvictionDecision(keep, rescue, base, score, anchor_score)
+
+
+def _sorted_unique(indices: torch.Tensor, n: int) -> torch.Tensor:
+    mask = torch.zeros(n, dtype=torch.bool, device=indices.device)
+    mask[indices] = True
+    return mask.nonzero(as_tuple=True)[0]
 
 
 __all__ = ["EvictionController", "EvictionDecision"]

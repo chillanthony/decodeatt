@@ -16,10 +16,11 @@ from kveviction.sampling import entropy
 from kveviction.selection import (
     eviction_due,
     is_headwise_selection,
-    key_reps,
     representative_indices,
     select_tokens,
 )
+from kveviction.slot_features import SlotFeatures
+from kveviction.strategies.anchors import with_anchors
 from kveviction.strategies.token import get_policy
 
 
@@ -104,7 +105,7 @@ def score_trace_token(
     anchor_k = int(anchor_frac * budget)
     use_sig = anchor_mode == "sig"
     sig_t = (torch.tensor(sig[0], device=device), float(sig[1])) if use_sig else None
-    policy = get_policy(backend)
+    policy = with_anchors(get_policy(backend), anchor_mode, anchor_k, sig_t)
     policy_params = policy_params or {}
     track = budget < 10 ** 8 and not policy.never_evict
     use_attention_logits = policy.needs_attn_history and supports_attention_logits(model)
@@ -113,15 +114,9 @@ def score_trace_token(
     )
 
     N = P + Lgen
-    slot_pos = torch.zeros(N, dtype=torch.long, device=device)
-    slot_pos[:P] = torch.arange(P, device=device)
-    imp = torch.zeros(N, device=device)
-    cum_imp = torch.zeros(N, device=device)
-    win_imp = torch.zeros(N, device=device)
-    ent = torch.zeros(N, device=device)
-    att_sum = torch.zeros(N, device=device)
-    att_cnt = torch.zeros(N, device=device)
-    att_max = torch.zeros(N, device=device)
+    feats = SlotFeatures(N, device, track_sig=use_sig)
+    feats.slot_pos[:P] = torch.arange(P, device=device)
+    feats.slot_ids[:P] = full_ids[0, :P]
     n = P
     out = execution_backend.prefill(
         full_ids[:, :P], use_cache=True, output_attentions=False
@@ -168,14 +163,8 @@ def score_trace_token(
         )
         cache = out.past_key_values
         logits = out.logits[:, -1]
-        slot_pos[n] = true_pos
-        ent[n] = entropy(logits)  # anchor criterion approximates current logit entropy
-        imp[n] = 0.0
-        cum_imp[n] = 0.0
-        win_imp[n] = 0.0
-        att_sum[n] = 0.0
-        att_cnt[n] = 0.0
-        att_max[n] = 0.0
+        # anchor criterion approximates current logit entropy
+        feats.append(n, pos=true_pos, token=real, entropy=entropy(logits))
         if position_maps is not None:
             for mapping in position_maps:
                 mapping[:, n] = true_pos
@@ -195,64 +184,20 @@ def score_trace_token(
             if policy.needs_attn_history:
                 attn_history.append(observed["history"])
                 attn_history = attn_history[-active_obs_window:]
-            row = observed["importance"]
-            imp[:n] = torch.maximum(imp[:n] * obs_decay, row)
-            cum_imp[:n] += row
-            win_imp[:n] = win_imp[:n] * obs_decay + row
-            if use_sig:
-                att_sum[:n] += row
-                att_cnt[:n] += 1.0
-                att_max[:n] = torch.maximum(att_max[:n], row)
+            feats.observe(n, observed["importance"], obs_decay)
         if eviction_due(policy, track=track, step=t, evict_every=evict_every,
                         cache_len=n, budget=budget, anchor_k=anchor_k):
             selection_cache = TransformersCacheManager._view(cache)
-            key_rep = (
-                None
-                if policy.needs_cache
-                else (key_reps(selection_cache, device) if policy.needs_key_reps else None)
-            )
-            cum = con = None
-            if use_sig:
-                cum = att_sum[:n] / att_cnt[:n].clamp(min=1)
-                con = att_max[:n] / (cum + 1e-9)
-            idx = select_tokens(
-                imp[:n],
-                cum_imp[:n],
-                win_imp[:n],
-                ent[:n],
-                key_rep,
-                slot_pos[:n],
-                budget,
-                recent,
-                sink,
-                backend,
-                anchor_mode,
-                anchor_k,
-                None,
-                cum=cum,
-                con=con,
-                sig=sig_t,
-                policy_params=policy_params,
-                cache=selection_cache,
-                attn_history=attn_history,
-                model=model,
-            )
+            ctx = feats.context(n, budget=budget, recent=recent, sink=sink, params=policy_params)
+            idx = select_tokens(policy, ctx, cache=selection_cache, attn_history=attn_history)
             before_n = n
             kept_maps = kept_counts = evicted_counts = None
             if position_maps is not None:
                 kept_maps, kept_counts, evicted_counts = _selection_position_debug(
                     position_maps, n, idx
                 )
-            idx_slots = representative_indices(idx)
             cache, k = cache_manager.compact(cache, idx)
-            slot_pos[:k] = slot_pos[idx_slots]
-            imp[:k] = imp[idx_slots]
-            cum_imp[:k] = cum_imp[idx_slots]
-            win_imp[:k] = win_imp[idx_slots]
-            ent[:k] = ent[idx_slots]
-            att_sum[:k] = att_sum[idx_slots]
-            att_cnt[:k] = att_cnt[idx_slots]
-            att_max[:k] = att_max[idx_slots]
+            feats.compact(representative_indices(idx), before_n)
             if position_maps is not None:
                 for mapping, kept in zip(position_maps, kept_maps):
                     mapping[:, :k] = kept

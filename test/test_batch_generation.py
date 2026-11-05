@@ -14,6 +14,8 @@ from kvbench.arms import parse_arm
 from kveviction.cache_manager import TransformersCacheManager
 from kveviction.runner_token import generate_token_evict_batch
 from kveviction.selection import select_tokens_batch
+from kveviction.slot_features import SlotFeatures
+from kveviction.strategies.token import get_policy
 from kveviction.strategies.h2o import select_h2o
 from kveviction.strategies.rkv_official import select_rkv_layers
 from kveviction.strategies.snapkv import select_snapkv
@@ -130,20 +132,20 @@ def test_batched_attention_free_selection_pads_finished_rows():
     """
     torch.manual_seed(3)
     batch, n, budget = 2, 12, 6
-    imp = torch.rand(batch, n)
-    slot_pos = torch.arange(n).expand(batch, -1).clone()
-    valid = torch.ones(batch, n, dtype=torch.bool)
-    valid[1, -3:] = False
+    feats = SlotFeatures((batch, n), torch.device("cpu"), track_valid=True)
+    feats.imp[:] = torch.rand(batch, n)
+    feats.win_imp[:] = feats.imp
+    feats.slot_pos[:] = torch.arange(n)
+    feats.valid[:] = True
+    feats.valid[1, -3:] = False
     for backend in ["window", "streamingllm", "random"]:
         idx = select_tokens_batch(
-            imp, imp.clone(), imp.clone(), torch.zeros(batch, n), slot_pos,
-            budget, 2, 1, backend, "none", 1,
-            policy_params={}, cache=None, attn_history=None, model=None,
-            valid_mask=valid,
+            get_policy(backend), feats, n, budget=budget, recent=2, sink=1,
+            policy_params={}, cache=None, attn_history=None,
         )
         assert idx.shape == (batch, budget), backend
-        assert valid[0, idx[0]].all(), backend
-        assert int(valid[1, idx[1]].sum()) == budget, backend
+        assert feats.valid[0, idx[0]].all(), backend
+        assert int(feats.valid[1, idx[1]].sum()) == budget, backend
 
 
 def test_left_padding_helper_returns_mask_and_lengths():
