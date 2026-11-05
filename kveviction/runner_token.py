@@ -81,6 +81,7 @@ def generate_token_evict(
     cache_manager: CacheManager | None = None,
     timing_sink: TimingSink | None = None,
     sync_timing: bool = False,
+    cache_impl: str = "growable",
 ):
     """token 级淘汰生成(忠实 R-KV 架构 + 支持长生成)。
 
@@ -102,7 +103,7 @@ def generate_token_evict(
         sig=sig, policy_params=policy_params, input_attention_mask=None,
         debug_path=debug_path, debug_topk=debug_topk,
         execution_backend=execution_backend, cache_manager=cache_manager,
-        sync_timing=sync_timing,
+        sync_timing=sync_timing, cache_impl=cache_impl,
     )
     gen = run["generated"][0]
     events = run["evict_events"][0]
@@ -191,6 +192,7 @@ def generate_token_evict_batch(
     timing_sink: TimingSink | None = None,
     sig=None,
     sync_timing: bool = False,
+    cache_impl: str = "growable",
 ):
     """Generate independent candidates for one or more prompts in a static batch.
 
@@ -208,7 +210,7 @@ def generate_token_evict_batch(
         obs_window=obs_window, obs_decay=obs_decay, max_new=max_new,
         do_sample=do_sample, temperature=temperature, top_p=top_p, sig=sig,
         policy_params=policy_params, execution_backend=execution_backend,
-        cache_manager=cache_manager, sync_timing=sync_timing,
+        cache_manager=cache_manager, sync_timing=sync_timing, cache_impl=cache_impl,
     )
     if batch_size == 1 and input_ids.shape[0] == 1 and input_attention_mask is None:
         seed = int((seeds or [0])[0])
@@ -289,6 +291,30 @@ def generate_token_evict_batch(
     }
 
 
+CACHE_IMPLS = ("growable", "dynamic")
+
+
+def _new_cache(model, cache_impl: str) -> dict:
+    """Prefill kwargs selecting the KV cache implementation.
+
+    ``growable`` (default) uses ``GrowableCache``: amortized growth and
+    in-place compaction instead of ``DynamicCache``'s per-step ``torch.cat``.
+    Generations are identical; only speed and peak memory differ.  Models
+    that are not HF ``PreTrainedModel``s (test doubles) keep their own cache.
+    """
+    if cache_impl not in CACHE_IMPLS:
+        raise ValueError(f"cache_impl must be one of {CACHE_IMPLS}, got {cache_impl!r}")
+    if cache_impl == "dynamic":
+        return {}
+    from transformers import PreTrainedModel
+
+    if not isinstance(model, PreTrainedModel):
+        return {}
+    from kveviction.growable_cache import GrowableCache
+
+    return {"past_key_values": GrowableCache()}
+
+
 def _synced_clock(device):
     """``perf_counter`` after waiting for queued GPU work, so phase timings are real.
 
@@ -312,7 +338,7 @@ def _decode(
     anchor_mode, anchor_frac, evict_every, obs_window, obs_decay, max_new,
     do_sample, temperature, top_p, seeds, sig, policy_params, input_attention_mask,
     debug_path, debug_topk, execution_backend, cache_manager,
-    sync_timing=False, forced_ids=None, trace_hook=None,
+    sync_timing=False, forced_ids=None, trace_hook=None, cache_impl="growable",
 ):
     """Shared decoding loop; returns raw per-request state for the wrappers to format."""
     device = next(model.parameters()).device
@@ -388,8 +414,11 @@ def _decode(
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
     start_time = clock()
+    prefill_cache = _new_cache(model, cache_impl)
     if solo:
-        out = execution_backend.prefill(input_ids, use_cache=True, output_attentions=False)
+        out = execution_backend.prefill(
+            input_ids, use_cache=True, output_attentions=False, **prefill_cache
+        )
     else:
         out = execution_backend.prefill(
             batched_input_ids,
@@ -397,6 +426,7 @@ def _decode(
             position_ids=prefill_position_ids,
             use_cache=True,
             output_attentions=False,
+            **prefill_cache,
         )
     prefill_sec = clock() - start_time
     cache = out.past_key_values

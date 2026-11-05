@@ -98,6 +98,12 @@ def main():
     )
     parser.add_argument("--out", default=None)
     parser.add_argument(
+        "--cache-impl",
+        choices=["growable", "dynamic"],
+        default=None,
+        help="KV cache storage: growable (default, in-place) or HF dynamic (torch.cat per step).",
+    )
+    parser.add_argument(
         "--sync-timing",
         action="store_true",
         default=None,
