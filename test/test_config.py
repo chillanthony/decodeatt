@@ -1,4 +1,4 @@
-"""Split run-config loading, schema validation and CLI precedence."""
+"""Run configuration: split-YAML loading, schema validation, CLI precedence and arm parsing."""
 from __future__ import annotations
 
 from argparse import Namespace
@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from kvbench.config import ConfigError, load_run_config, resolve_settings
+from kvbench.arms import parse_arm, parse_arms
+from kvbench.config import ConfigError, arm_attn_backend, load_run_config, resolve_settings
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -113,3 +114,86 @@ def test_split_runs_require_exactly_one_arm(tmp_path):
     cfg = load_run_config(*_configs(tmp_path))
     with pytest.raises(ConfigError, match="exactly one strategy arm"):
         resolve_settings(cfg, _args(arms="rkv@64,fullkv"))
+
+
+def test_auto_attention_backend_selection():
+    for policy in ("fullkv", "streamingllm", "random"):
+        assert arm_attn_backend(policy, "auto", "sdpa") == "sdpa"
+    for policy in ("window", "snapkv", "h2o", "rkv"):
+        assert arm_attn_backend(policy, "auto", "sdpa") == "eager"
+    # fast_observe moves only the cache-aware policies (attention recomputed from hidden states).
+    for policy in ("rkv", "snapkv", "h2o"):
+        assert arm_attn_backend(policy, "auto", "sdpa", fast_observe=True) == "sdpa"
+    assert arm_attn_backend("window", "auto", "sdpa", fast_observe=True) == "eager"
+    assert arm_attn_backend("rkv", "eager", "sdpa", fast_observe=True) == "eager"
+
+
+def test_shorthand_arms_attach_policy_defaults_and_overrides():
+    arms = parse_arms(
+        "rkv@1024,rkv@2048,fullkv",
+        policy_defaults={"rkv": {"lambda": 0.1, "alpha": 8}},
+        policy_overrides={"rkv": {"lambda": 0.2}},
+    )
+    assert [arm.name for arm in arms] == ["rkv@1024", "rkv@2048", "fullkv"]
+    assert [arm.budget for arm in arms[:2]] == [1024, 2048]
+    assert arms[0].params == arms[1].params == {"lambda": 0.2, "alpha": 8}
+    assert arms[2].is_full and not arms[0].is_full
+    assert parse_arm("fullkv").backend == "fullkv"
+
+
+def test_structured_arm_parsing_allows_same_policy_with_different_params():
+    arms = parse_arms(
+        [
+            {"id": "rkv_b1024_lam01", "policy": "rkv", "budget": 1024},
+            {
+                "id": "rkv_b1024_lam02",
+                "policy": "rkv",
+                "budget": 1024,
+                "params": {"lambda": 0.2},
+            },
+        ],
+        policy_defaults={"rkv": {"lambda": 0.1, "alpha": 8}},
+    )
+    assert [arm.name for arm in arms] == ["rkv_b1024_lam01", "rkv_b1024_lam02"]
+    assert [arm.backend for arm in arms] == ["rkv", "rkv"]
+    assert arms[0].params == {"lambda": 0.1, "alpha": 8}
+    assert arms[1].params == {"lambda": 0.2, "alpha": 8}
+
+
+def test_structured_arm_selects_execution_engine():
+    arms = parse_arms([
+        {"id": "fullkv_hf", "policy": "fullkv", "engine": "hf"},
+        {"id": "fullkv_vllm", "policy": "fullkv", "engine": "vllm"},
+    ])
+    assert [arm.engine for arm in arms] == ["hf", "vllm"]
+
+
+def test_anchor_arm_parsing_and_default_ids():
+    arms = parse_arms([
+        {"policy": "window", "budget": 512, "anchor_mode": "anchor", "anchor_frac": 0.05},
+        {"policy": "window", "budget": 512, "anchor_mode": "lowent", "anchor_frac": 0.05},
+        {"policy": "window", "budget": 512, "anchor_mode": "sig", "anchor_frac": 0.1,
+         "sig": {"weights": [1, 0, 0, 0], "bias": 0}},
+        {"policy": "window", "budget": 512},
+    ])
+    assert [arm.id for arm in arms] == [
+        "window@512+anchor0.05", "window@512+lowent0.05", "window@512+sig0.1", "window@512",
+    ]
+    assert arms[2].sig == ((1.0, 0.0, 0.0, 0.0), 0.0)
+    assert arms[3].anchor_frac == 0.0 and arms[3].sig is None
+
+
+@pytest.mark.parametrize("item, message", [
+    ({"policy": "window", "budget": 64, "anchor_mode": "anchor"}, "requires anchor_frac > 0"),
+    ({"policy": "window", "budget": 64, "anchor_frac": 0.1}, "anchor_mode is 'none'"),
+    ({"policy": "rkv", "budget": 64, "anchor_mode": "anchor", "anchor_frac": 0.1}, "slot-level"),
+    ({"policy": "fullkv", "anchor_mode": "anchor", "anchor_frac": 0.1}, "slot-level"),
+    ({"policy": "window", "budget": 64, "anchor_mode": "sig", "anchor_frac": 0.1}, "requires sig"),
+    ({"policy": "random", "budget": 64, "anchor_mode": "sig", "anchor_frac": 0.1,
+      "sig": {"weights": [1, 0, 0, 0], "bias": 0}}, "never observes"),
+    ({"policy": "window", "budget": 64, "anchor_mode": "anchor", "anchor_frac": 0.1,
+      "sig": {"weights": [1, 0, 0, 0], "bias": 0}}, "only used with anchor_mode 'sig'"),
+])
+def test_invalid_anchor_arms_are_rejected(item, message):
+    with pytest.raises(ValueError, match=message):
+        parse_arms([item])
