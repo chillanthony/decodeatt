@@ -107,11 +107,12 @@ def select_tokens(policy, ctx, *, cache=None, attn_history=None, return_debug=Fa
 
 @torch.no_grad()
 def select_tokens_batch(policy, features, n, *, budget, recent, sink, policy_params,
-                        cache, attn_history):
+                        cache, attn_history, generators=None):
     """Batched selection over ``features`` (a ``[B, capacity]`` ``SlotFeatures``).
 
     Cache-aware policies select for the whole batch at once; slot-level
-    policies select per request over that request's valid slots.
+    policies select per request over that request's valid slots, drawing any
+    randomness from that request's generator so results are reproducible.
     """
     valid_mask = features.valid[:, :n]
     if policy.cache_aware:
@@ -125,6 +126,7 @@ def select_tokens_batch(policy, features, n, *, budget, recent, sink, policy_par
         ctx = features.context(
             n, budget=budget, recent=recent, sink=sink, params=policy_params,
             row=row, slots=valid_idx,
+            generator=generators[row] if generators is not None else None,
         )
         selections.append(valid_idx[select_tokens(policy, ctx)])
 

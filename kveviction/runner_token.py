@@ -532,7 +532,7 @@ def generate_token_evict_batch(
             idx = select_tokens_batch(
                 policy, feats, n, budget=budget, recent=recent, sink=sink,
                 policy_params=policy_params, cache=_cache_view(cache),
-                attn_history=attn_history,
+                attn_history=attn_history, generators=generators,
             )
             cache, n = cache_manager.compact_batch(cache, idx)
             feats.compact(representative_indices_batch(idx), before_n)

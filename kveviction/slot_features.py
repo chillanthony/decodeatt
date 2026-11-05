@@ -82,7 +82,7 @@ class SlotFeatures:
         return cum, con
 
     def context(self, n: int, *, budget: int, recent: int, sink: int, params: dict,
-                row=..., slots=None) -> SelectionContext:
+                row=..., slots=None, generator=None) -> SelectionContext:
         """Build the selection context for slots ``[:n]`` (optionally one batch row/subset)."""
         def take(buf):
             values = buf[row, :n]
@@ -103,6 +103,7 @@ class SlotFeatures:
             entropy=take(self.ent),
             cumulative_mean=cum,
             concentration=con,
+            generator=generator,
         )
 
 

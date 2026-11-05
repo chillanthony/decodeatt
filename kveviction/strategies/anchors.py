@@ -71,7 +71,7 @@ class AnchoredPolicy(TokenEvictionPolicy):
             elif self.mode == "sig":
                 order = torch.argsort(anchor_score[drop], descending=True)
             elif self.mode == "random":
-                order = torch.randperm(drop.numel(), device=drop.device)
+                order = torch.randperm(drop.numel(), device=drop.device, generator=ctx.generator)
             else:
                 order = torch.argsort(entropy[drop], descending=True)
             rescue = drop[order[: self.k]]
