@@ -42,7 +42,8 @@ ARM_KEYS = {
 }
 # Which top-level sections each split config file may define.
 FILE_SECTIONS = {
-    "model": {"model"},
+    # ``vllm`` holds engine kwargs forwarded verbatim to ``vllm.LLM`` (engine=vllm arms).
+    "model": {"model", "vllm"},
     "data": {"data", "generation"},
     "strategy": {"arms", "policy_defaults", "policy_params", "eviction", "experiment"},
 }
@@ -164,6 +165,10 @@ def validate_config(cfg: dict) -> None:
         if not isinstance(value, dict):
             raise ConfigError(f"config section {section!r} must be a mapping")
         _check_keys(section, value, schema)
+
+    vllm = cfg.get("vllm")
+    if vllm is not None and not isinstance(vllm, dict):
+        raise ConfigError("config section 'vllm' must be a mapping of vllm.LLM keyword arguments")
 
     for section in ("policy_defaults", "policy_params"):
         value = cfg.get(section)
@@ -293,6 +298,8 @@ class RunSettings:
             dtype=self.dtype, device_map=self.device_map,
             attn=self.requested_attn, fast_attn=self.fast_attn,
         )
+        if cfg.get("vllm"):
+            resolved["vllm"] = dict(cfg["vllm"])
         for arm in self.arms:
             resolved["arms"].append({
                 "id": arm.id, "policy": arm.policy, "budget": arm.budget,

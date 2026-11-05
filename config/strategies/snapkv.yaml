@@ -1,3 +1,8 @@
+arms:
+  - id: snapkv@1024
+    policy: snapkv
+    budget: 1024
+
 policy_defaults:
   snapkv:
     window_size: 8

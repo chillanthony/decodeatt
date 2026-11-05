@@ -45,8 +45,9 @@ def _configs(tmp_path, *, model=None, data=None, strategy=None):
 def test_repository_configs_validate(data, strategy):
     model = ROOT / "config/models/deepseek_r1_distill_llama8b.yaml"
     cfg = load_run_config(str(model), str(data), str(strategy))
-    settings = resolve_settings(cfg, _args(arms=f"{strategy.stem}@512" if strategy.stem != "fullkv" else "fullkv"))
+    settings = resolve_settings(cfg, _args())          # works without --arms
     assert settings.model_name == "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+    assert [arm.policy for arm in settings.arms] == [strategy.stem]
 
 
 @pytest.mark.parametrize("files, message", [
@@ -90,6 +91,21 @@ def test_cli_overrides_yaml_and_defaults_fill_gaps(tmp_path):
     assert settings.out_path == Path("results/eval.json")
     groups, vllm_arms = settings.attn_groups()
     assert list(groups) == ["eager"] and not vllm_arms
+
+
+def test_vllm_section_is_accepted_in_model_config(tmp_path):
+    cfg = load_run_config(*_configs(
+        tmp_path,
+        model={"model": {"name": "m"}, "vllm": {"gpu_memory_utilization": 0.8}},
+        strategy={"arms": [{"policy": "fullkv", "engine": "vllm"}]},
+    ))
+    settings = resolve_settings(cfg, _args())
+    assert settings.cfg["vllm"] == {"gpu_memory_utilization": 0.8}
+    assert settings.resolved()["vllm"] == {"gpu_memory_utilization": 0.8}
+    _, vllm_arms = settings.attn_groups()
+    assert [arm.id for arm in vllm_arms] == ["fullkv"]
+    with pytest.raises(ConfigError, match="'vllm' must be a mapping"):
+        load_run_config(*_configs(tmp_path, model={"model": {"name": "m"}, "vllm": "fast"}))
 
 
 def test_split_runs_require_exactly_one_arm(tmp_path):
