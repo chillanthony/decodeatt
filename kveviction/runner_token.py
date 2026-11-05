@@ -1,4 +1,4 @@
-"""Token-level KV eviction decoding loops (HuggingFace reference runner).
+"""Token-level KV eviction decoding loop (HuggingFace reference runner).
 
 后端:
   snapkv —— 重要性(观察窗注意力 maxpool)top-B + recent window + sink。
@@ -7,11 +7,20 @@
   window —— 观察窗注意力 top-B + recent window + sink。
   random —— 随机中段 token + recent window + sink。
 锚点保护(anchor=高熵 forking token):在预算外额外钉 top-k 高熵 token;
-  对照 mode:none / anchor / random / lowent。
+  对照 mode:none / anchor / random / lowent / sig。
+
+``generate_token_evict`` (one request) and ``generate_token_evict_batch``
+(static batch) are thin wrappers over a single decoding loop, ``_decode``.
+A single unpadded request ("solo" mode) keeps the dense per-request semantics:
+head-wise cache-aware selection on ``[H, N]`` rows, an optional per-eviction
+debug dump, and an unmasked prefill.  Batches select per request over valid
+slots and pad finished/left-padded rows with masked filler.  Every request
+draws sampling and policy randomness from its own seeded generator, so a batch
+row seeded with ``s`` reproduces a solo run seeded with ``s``.
 
 辅助模块: ``sampling``(采样/熵)、``attention_logits``(R-KV logit 重算)、
-``selection``(淘汰调度与选槽)、``eviction_stats``(cache 统计与指标)、
-``trace_scoring``(teacher-forced NLL 诊断)。
+``selection``(淘汰调度与选槽)、``slot_features``(每槽特征缓冲)、
+``eviction_stats``(cache 统计与指标)、``trace_scoring``(teacher-forced NLL 诊断)。
 """
 from __future__ import annotations
 
@@ -42,7 +51,7 @@ from kveviction.observations import (
     AttentionObservationProvider,
 )
 from kveviction.results import TimingSink
-from kveviction.sampling import entropy, entropy_batch, sample, sample_batch
+from kveviction.sampling import entropy_batch, sample_batch
 from kveviction.selection import (
     eviction_due,
     representative_indices,
@@ -76,235 +85,74 @@ def generate_token_evict(
     速度/忠实兼顾:平时不取观测信号; cache-aware 官方 baseline 只在压缩前
     observation window 内用 hidden states + q_proj + cache keys 重算 attention logits。
     每槽特征缓冲(SlotFeatures)预分配,消掉逐步 torch.cat 的 O(n²),解锁 16k 长生成。
-    返回 dict(text, gen_ids, n_evict, final_cache_len)。"""
-    device = next(model.parameters()).device
-    execution_backend = execution_backend or TransformersExecutionBackend(model)
-    cache_manager = cache_manager or TransformersCacheManager()
+    返回 dict(text, gen_ids, n_evict, final_cache_len, ...)。"""
+    if do_sample or backend == "random":
+        # Kept for callers relying on the global RNG state after a call; the
+        # loop itself draws from a generator seeded identically.
+        torch.manual_seed(seed)
     timing_sink = timing_sink or TimingSink()
-    start_time = time.perf_counter()
-    prefill_sec = 0.0
-    decode_forward_sec = 0.0
-    attention_observation_sec = 0.0
-    eviction_sec_total = 0.0
-    use_cuda_memory = device.type == "cuda"
-    if use_cuda_memory:
-        torch.cuda.reset_peak_memory_stats(device)
-    if do_sample:
-        torch.manual_seed(seed)
-    elif backend == "random":
-        torch.manual_seed(seed)
-    input_ids = input_ids.to(device)
-    P = input_ids.shape[1]
-    anchor_k = int(anchor_frac * budget)
-    use_sig = anchor_mode == "sig"                    # 完整 4 维签名锚点
-    sig_t = (torch.tensor(sig[0], device=device), float(sig[1])) if use_sig else None
-    policy = with_anchors(get_policy(backend), anchor_mode, anchor_k, sig_t)
-    observation_provider = AttentionObservationProvider(
-        decay=obs_decay, needs_history=policy.needs_attn_history
+    run = _decode(
+        model, tokenizer, input_ids, batch_size=1, solo=True,
+        budget=budget, recent=recent, sink=sink, backend=backend,
+        anchor_mode=anchor_mode, anchor_frac=anchor_frac, evict_every=evict_every,
+        obs_window=obs_window, obs_decay=obs_decay, max_new=max_new,
+        do_sample=do_sample, temperature=temperature, top_p=top_p, seeds=[seed],
+        sig=sig, policy_params=policy_params, input_attention_mask=None,
+        debug_path=debug_path, debug_topk=debug_topk,
+        execution_backend=execution_backend, cache_manager=cache_manager,
     )
-    logit_provider = AttentionLogitObservationProvider(attention_logit_rows)
-    track = budget < 10 ** 8 and not policy.never_evict
-    policy_params = policy_params or {}
-    use_attention_logits = policy.needs_attn_history and supports_attention_logits(model)
-
-    # 每槽特征缓冲预分配到 P + max_new;sig 锚点额外维护被访问注意力的 sum/cnt/max。
-    feats = SlotFeatures(P + max_new, device, track_sig=use_sig)
-    feats.slot_pos[:P] = torch.arange(P, device=device)
-    feats.slot_ids[:P] = input_ids[0]
-    n = P                                             # 当前缓存长度
-
-    prefill_start = time.perf_counter()
-    out = execution_backend.prefill(input_ids, use_cache=True, output_attentions=False)
-    prefill_sec = time.perf_counter() - prefill_start
-    cache = out.past_key_values
-    logits = out.logits[:, -1]
-    eos = tokenizer.eos_token_id
-    gen, n_evict = [], 0
-    evict_events = []
-    attn_history = []
-    debug = {
-        "config": {
-            "budget": budget, "recent": recent, "sink": sink, "backend": backend,
-            "anchor_mode": anchor_mode, "anchor_frac": anchor_frac,
-            "anchor_k": anchor_k, "evict_every": evict_every,
-            "obs_window": obs_window, "obs_decay": obs_decay, "max_new": max_new,
-            "policy_params": policy_params,
-        },
-        "prompt_len": P,
-        "evictions": [],
-    } if debug_path else None
-
-    for step in range(max_new):
-        true_pos = P + step
-        e = entropy(logits)
-        nxt = sample(logits, do_sample, temperature, top_p)
-        gen.append(nxt)
-        if nxt == eos:
-            break
-        # 只在下一次会真正触发压缩前的 observation window 内打开注意力观测。
-        want_observe, active_obs_window = should_collect_observation(
-            policy,
-            track=track,
-            policy_params=policy_params,
-            obs_window=obs_window,
-            evict_every=evict_every,
-            step=step,
-            cache_len=n,
-            budget=budget,
-            anchor_k=anchor_k,
-        )
-        want_logits = want_observe and policy.needs_attn_history and use_attention_logits
-        want_attn = want_observe and not want_logits
-        position_ids = torch.tensor([[true_pos]], device=device)
-        decode_start = time.perf_counter()
-        out = execution_backend.decode(
-            torch.tensor([[nxt]], device=device),
-            past_key_values=cache,
-            use_cache=True,
-            output_attentions=want_attn,
-            output_hidden_states=want_logits,
-            attention_mask=torch.ones(1, n + 1, device=device, dtype=torch.long),
-            position_ids=position_ids,
-            cache_position=torch.tensor([n], device=device),
-        )
-        decode_forward_sec += time.perf_counter() - decode_start
-        cache = out.past_key_values
-        logits = out.logits[:, -1]
-        feats.append(n, pos=true_pos, token=nxt, entropy=e)
-        n += 1
-        if want_logits:
-            obs_start = time.perf_counter()
-            rows = logit_provider.observe(
-                out, cache=_cache_view(cache), n=n,
-                position_ids=position_ids, model=model,
-            )["history"]
-            attention_observation_sec += time.perf_counter() - obs_start
-            if rows is None:
-                raise RuntimeError(
-                    "attention-logit extraction failed; use a supported RoPE decoder or disable cache-aware baselines"
-                )
-            attn_history.append(rows)
-            attn_history = attn_history[-active_obs_window:]
-        if want_attn:                                 # 观察窗:全层注意力均值 maxpool 进 imp
-            obs_start = time.perf_counter()
-            observed = observation_provider.observe(
-                out, cache=_cache_view(cache), n=n,
-                position_ids=position_ids, model=model,
-            )
-            if policy.needs_attn_history and observed["history"] is not None:
-                attn_history.append(observed["history"])
-                attn_history = attn_history[-active_obs_window:]
-            feats.observe(n, observed["importance"], obs_decay)
-            attention_observation_sec += time.perf_counter() - obs_start
-
-        if eviction_due(policy, track=track, step=step, evict_every=evict_every,
-                        cache_len=n, budget=budget, anchor_k=anchor_k):
-            evict_start = time.perf_counter()
-            selection_cache = _cache_view(cache)
-            before_summary = cache_length_summary(selection_cache, n)
-            ctx = feats.context(n, budget=budget, recent=recent, sink=sink, params=policy_params)
-            selected = select_tokens(policy, ctx, cache=selection_cache,
-                                     attn_history=attn_history,
-                                     return_debug=debug is not None)
-            idx, dbg = selected if debug is not None else (selected, None)
-            if debug is not None:
-                idx_debug = representative_indices(idx)
-                final_keep = torch.zeros(n, dtype=torch.bool, device=device)
-                final_keep[idx_debug] = True
-                evicted = (~final_keep).nonzero(as_tuple=True)[0]
-                score = dbg["sig_score"]
-                if score is None:
-                    score = torch.full((n,), float("nan"), device=device)
-                rescued = dbg["anchor_extra"]
-                evicted_by_sig = (
-                    evicted[torch.argsort(score[evicted], descending=True)]
-                    if evicted.numel() else evicted
-                )
-                debug["evictions"].append({
-                    "step": step + 1,
-                    "cache_len_before": n,
-                    "cache_len_after": selection_length(idx),
-                    "slot_pos": take_int(ctx.slot_pos),
-                    "token_ids": take_int(feats.slot_ids[:n]),
-                    "imp": take_float(ctx.importance),
-                    "cum_imp": take_float(ctx.cumulative_attention),
-                    "win_imp": take_float(ctx.window_attention),
-                    "ent": take_float(ctx.entropy),
-                    "cum_attn": take_float(ctx.cumulative_mean) if ctx.cumulative_mean is not None else None,
-                    "concentration": take_float(ctx.concentration) if ctx.concentration is not None else None,
-                    "sig_score": take_float(score),
-                    "policy_score": take_float(dbg["policy_score"]),
-                    "backend_keep_slots": take_int(dbg["backend_keep"]),
-                    "anchor_extra_slots": take_int(rescued),
-                    "final_keep_slots": take_int(idx_debug),
-                    "evicted_slots": take_int(evicted),
-                    "anchor_extra_text": token_samples(tokenizer, feats.slot_ids[:n], rescued, debug_topk),
-                    "evicted_top_sig_text": token_samples(tokenizer, feats.slot_ids[:n], evicted_by_sig, debug_topk),
-                })
-            before_n = n
-            cache, k = cache_manager.compact(cache, idx)
-            after_summary = cache_length_summary(cache, k)
-            feats.compact(representative_indices(idx), before_n)
-            n = k
-            if policy.needs_attn_history:
-                attn_history = []
-            n_evict += 1
-            event_eviction_sec = time.perf_counter() - evict_start
-            eviction_sec_total += event_eviction_sec
-            evict_events.append(eviction_event(
-                step=step + 1, before_n=before_n, after_n=k,
-                before=before_summary, after=after_summary,
-                eviction_sec=event_eviction_sec,
-            ))
-
+    gen = run["generated"][0]
+    events = run["evict_events"][0]
+    elapsed = run["elapsed"]
     text = tokenizer.decode(gen, skip_special_tokens=True)
-    elapsed = time.perf_counter() - start_time
-    peak_memory = torch.cuda.max_memory_allocated(device) if use_cuda_memory else None
-    final_length_summary = cache_length_summary(cache, n)
-    event_metrics = eviction_metrics(evict_events)
-    mean_compression = event_metrics.pop("mean_compression_ratio")
-    eviction_sec_mean = eviction_sec_total / n_evict if n_evict else 0.0
-    decode_sec = elapsed - prefill_sec
+    metrics = eviction_metrics(events)
+    mean_compression = metrics.pop("mean_compression_ratio")
+    n_evict = run["n_evict"]
+    decode_sec = elapsed - run["prefill_sec"]
     timing = {
-        "prefill_sec": prefill_sec,
+        "prefill_sec": run["prefill_sec"],
         "decode_sec": decode_sec,
-        "decode_forward_sec": decode_forward_sec,
-        "attention_observation_sec": attention_observation_sec,
-        "eviction_sec_total": eviction_sec_total,
-        "eviction_sec_mean": eviction_sec_mean,
-        "other_decode_sec": max(0.0, decode_sec - decode_forward_sec - attention_observation_sec - eviction_sec_total),
+        "decode_forward_sec": run["decode_forward_sec"],
+        "attention_observation_sec": run["attention_observation_sec"],
+        "eviction_sec_total": run["eviction_sec_total"],
+        "eviction_sec_mean": run["eviction_sec_total"] / n_evict if n_evict else 0.0,
+        "other_decode_sec": max(
+            0.0,
+            decode_sec - run["decode_forward_sec"]
+            - run["attention_observation_sec"] - run["eviction_sec_total"],
+        ),
     }
     for name, value in timing.items():
         timing_sink.add(name, value)
-    extra_metrics = {
-        **final_length_summary,
-        **event_metrics,
-        **timing,
-    }
+    extra_metrics = {**cache_length_summary(run["cache"], run["n"]), **metrics, **timing}
+    peak_memory = run["peak_memory"]
+    tokens_per_sec = len(gen) / elapsed if elapsed > 0 else 0.0
+    debug = run["debug"]
     if debug is not None:
-        debug["generated_text"] = text
-        debug["gen_ids"] = [int(x) for x in gen]
-        debug["n_evict"] = n_evict
-        debug["final_cache_len"] = n
-        debug["evict_events"] = evict_events
-        debug["elapsed_sec"] = elapsed
-        debug["tokens_per_sec"] = len(gen) / elapsed if elapsed > 0 else 0.0
-        debug["peak_memory_bytes"] = int(peak_memory) if peak_memory is not None else None
-        debug["mean_compression_ratio"] = mean_compression
-        debug.update(extra_metrics)
+        debug.update({
+            "generated_text": text,
+            "gen_ids": [int(x) for x in gen],
+            "n_evict": n_evict,
+            "final_cache_len": run["n"],
+            "evict_events": events,
+            "elapsed_sec": elapsed,
+            "tokens_per_sec": tokens_per_sec,
+            "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
+            "mean_compression_ratio": mean_compression,
+            **extra_metrics,
+        })
         path = Path(debug_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(debug, ensure_ascii=False, indent=1))
     return {"text": text, "gen_ids": gen,
-            "n_evict": n_evict, "final_cache_len": n,
+            "n_evict": n_evict, "final_cache_len": run["n"],
             "elapsed_sec": elapsed,
-            "tokens_per_sec": len(gen) / elapsed if elapsed > 0 else 0.0,
+            "tokens_per_sec": tokens_per_sec,
             "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
             "mean_compression_ratio": mean_compression,
-            "evict_events": evict_events,
+            "evict_events": events,
             "timing": dict(timing_sink.values),
             **extra_metrics}
-
 
 
 @torch.no_grad()
@@ -332,6 +180,7 @@ def generate_token_evict_batch(
     execution_backend: ExecutionBackend | None = None,
     cache_manager: CacheManager | None = None,
     timing_sink: TimingSink | None = None,
+    sig=None,
 ):
     """Generate independent candidates for one or more prompts in a static batch.
 
@@ -342,39 +191,21 @@ def generate_token_evict_batch(
     """
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
-    execution_backend = execution_backend or TransformersExecutionBackend(model)
-    cache_manager = cache_manager or TransformersCacheManager()
     timing_sink = timing_sink or TimingSink()
+    common = dict(
+        budget=budget, recent=recent, sink=sink, backend=backend,
+        anchor_mode=anchor_mode, anchor_frac=anchor_frac, evict_every=evict_every,
+        obs_window=obs_window, obs_decay=obs_decay, max_new=max_new,
+        do_sample=do_sample, temperature=temperature, top_p=top_p, sig=sig,
+        policy_params=policy_params, execution_backend=execution_backend,
+        cache_manager=cache_manager,
+    )
     if batch_size == 1 and input_ids.shape[0] == 1 and input_attention_mask is None:
         seed = int((seeds or [0])[0])
-        return {
-            "candidates": [generate_token_evict(
-                model,
-                tokenizer,
-                input_ids,
-                budget=budget,
-                recent=recent,
-                sink=sink,
-                backend=backend,
-                anchor_mode=anchor_mode,
-                anchor_frac=anchor_frac,
-                evict_every=evict_every,
-                obs_window=obs_window,
-                obs_decay=obs_decay,
-                max_new=max_new,
-                do_sample=do_sample,
-                temperature=temperature,
-                top_p=top_p,
-                seed=seed,
-                policy_params=policy_params,
-                execution_backend=execution_backend,
-                cache_manager=cache_manager,
-                timing_sink=timing_sink,
-            )]
-        }
+        return {"candidates": [generate_token_evict(
+            model, tokenizer, input_ids, seed=seed, timing_sink=timing_sink, **common,
+        )]}
 
-    device = next(model.parameters()).device
-    input_ids = input_ids.to(device)
     if input_ids.shape[0] not in {1, batch_size}:
         raise ValueError(
             f"input batch must contain 1 or {batch_size} prompts, got {input_ids.shape[0]}"
@@ -382,6 +213,83 @@ def generate_token_evict_batch(
     seeds = list(seeds if seeds is not None else range(batch_size))
     if len(seeds) != batch_size:
         raise ValueError(f"expected {batch_size} seeds, got {len(seeds)}")
+    run = _decode(
+        model, tokenizer, input_ids, batch_size=batch_size, solo=False, seeds=seeds,
+        input_attention_mask=input_attention_mask, debug_path=None, debug_topk=0,
+        **common,
+    )
+
+    elapsed, prefill_sec, n_evict = run["elapsed"], run["prefill_sec"], run["n_evict"]
+    forward_sec = run["decode_forward_sec"]
+    observe_sec = run["attention_observation_sec"]
+    evict_sec = run["eviction_sec_total"]
+    timing_sink.add("prefill_sec", prefill_sec)
+    timing_sink.add("decode_sec", max(0.0, elapsed - prefill_sec))
+    timing_sink.add("decode_forward_sec", forward_sec)
+    timing_sink.add("attention_observation_sec", observe_sec)
+    timing_sink.add("eviction_sec_total", evict_sec)
+    peak_memory = run["peak_memory"]
+    generated = run["generated"]
+    batch_total_tokens = sum(len(ids) for ids in generated)
+    amortized_elapsed = elapsed / batch_size
+    final_summaries = batch_cache_length_summaries(run["cache"], run["feats"].valid[:, :run["n"]])
+    candidates = []
+    for row, ids in enumerate(generated):
+        row_events = run["evict_events"][row]
+        row_metrics = eviction_metrics(row_events)
+        candidates.append({
+            "text": tokenizer.decode(ids, skip_special_tokens=True),
+            "gen_ids": ids,
+            "seed": int(seeds[row]),
+            "prompt_len": int(run["prompt_lengths"][row]),
+            "n_evict": n_evict,
+            "final_cache_len": run["n"],
+            "elapsed_sec": amortized_elapsed,
+            "tokens_per_sec": len(ids) / amortized_elapsed if amortized_elapsed > 0 else 0.0,
+            "batch_elapsed_sec": elapsed,
+            "batch_tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
+            "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
+            "mean_compression_ratio": row_metrics.pop("mean_compression_ratio"),
+            "evict_events": row_events,
+            **final_summaries[row],
+            **row_metrics,
+            "prefill_sec": prefill_sec / batch_size,
+            "decode_sec": max(0.0, elapsed - prefill_sec) / batch_size,
+            "decode_forward_sec": forward_sec / batch_size,
+            "attention_observation_sec": observe_sec / batch_size,
+            "eviction_sec_total": evict_sec / batch_size,
+            "eviction_sec_mean": (
+                evict_sec / (batch_size * n_evict) if n_evict else 0.0
+            ),
+            "other_decode_sec": max(
+                0.0, elapsed - prefill_sec - forward_sec - observe_sec - evict_sec,
+            ) / batch_size,
+            "timing": dict(timing_sink.values),
+        })
+    return {
+        "candidates": candidates,
+        "batch_size": batch_size,
+        "elapsed_sec": elapsed,
+        "tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
+        "batch_tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
+        "timing": dict(timing_sink.values),
+        "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
+    }
+
+
+def _decode(
+    model, tokenizer, input_ids, *, batch_size, solo, budget, recent, sink, backend,
+    anchor_mode, anchor_frac, evict_every, obs_window, obs_decay, max_new,
+    do_sample, temperature, top_p, seeds, sig, policy_params, input_attention_mask,
+    debug_path, debug_topk, execution_backend, cache_manager,
+):
+    """Shared decoding loop; returns raw per-request state for the wrappers to format."""
+    device = next(model.parameters()).device
+    execution_backend = execution_backend or TransformersExecutionBackend(model)
+    cache_manager = cache_manager or TransformersCacheManager()
+    input_ids = input_ids.to(device)
+    B = batch_size
+
     generators = []
     for seed in seeds:
         generator = torch.Generator(device=device)
@@ -389,23 +297,28 @@ def generate_token_evict_batch(
         generators.append(generator)
 
     anchor_k = int(anchor_frac * budget)
-    policy = with_anchors(get_policy(backend), anchor_mode, anchor_k)
+    use_sig = anchor_mode == "sig"                    # 完整 4 维签名锚点
+    sig_t = (torch.tensor(sig[0], device=device), float(sig[1])) if use_sig else None
+    policy = with_anchors(get_policy(backend), anchor_mode, anchor_k, sig_t)
+    policy_params = policy_params or {}
     observation_provider = AttentionObservationProvider(
         decay=obs_decay, needs_history=policy.needs_attn_history
     )
-    logit_provider = AttentionLogitObservationProvider(attention_logit_rows_batch)
-    policy_params = policy_params or {}
+    # Solo runs feed strategies [H, N] rows; batches feed [B, H, N].
+    logit_provider = AttentionLogitObservationProvider(
+        attention_logit_rows if solo else attention_logit_rows_batch
+    )
     track = budget < 10 ** 8 and not policy.never_evict
     use_attention_logits = policy.needs_attn_history and supports_attention_logits(model)
-    physical_prompt_len = int(input_ids.shape[1])
-    capacity = physical_prompt_len + max_new
-    batched_input_ids = input_ids.expand(batch_size, -1)
+
+    P = int(input_ids.shape[1])
+    batched_input_ids = input_ids.expand(B, -1)
     if input_attention_mask is None:
         prompt_attention_mask = torch.ones_like(batched_input_ids, dtype=torch.long)
     else:
         input_attention_mask = input_attention_mask.to(device=device, dtype=torch.long)
-        if input_attention_mask.shape[0] == 1 and batch_size > 1:
-            input_attention_mask = input_attention_mask.expand(batch_size, -1)
+        if input_attention_mask.shape[0] == 1 and B > 1:
+            input_attention_mask = input_attention_mask.expand(B, -1)
         if input_attention_mask.shape != batched_input_ids.shape:
             raise ValueError(
                 "input_attention_mask must match the expanded input_ids shape, got "
@@ -415,38 +328,54 @@ def generate_token_evict_batch(
     prompt_lengths = prompt_attention_mask.sum(-1).long()
     prefill_position_ids = prompt_attention_mask.cumsum(-1) - 1
     prefill_position_ids.masked_fill_(prompt_attention_mask == 0, 0)
-    feats = SlotFeatures((batch_size, capacity), device, track_valid=True)
-    feats.slot_pos[:, :physical_prompt_len] = prefill_position_ids
-    feats.slot_ids[:, :physical_prompt_len] = batched_input_ids
-    feats.valid[:, :physical_prompt_len] = prompt_attention_mask.bool()
-    n = physical_prompt_len
 
-    start_time = time.perf_counter()
+    # 每槽特征缓冲预分配到 P + max_new;sig 锚点额外维护被访问注意力的 sum/cnt/max。
+    feats = SlotFeatures((B, P + max_new), device, track_sig=use_sig, track_valid=True)
+    feats.slot_pos[:, :P] = prefill_position_ids
+    feats.slot_ids[:, :P] = batched_input_ids
+    feats.valid[:, :P] = prompt_attention_mask.bool()
+    n = P                                             # 当前缓存长度
+
+    debug = {
+        "config": {
+            "budget": budget, "recent": recent, "sink": sink, "backend": backend,
+            "anchor_mode": anchor_mode, "anchor_frac": anchor_frac,
+            "anchor_k": anchor_k, "evict_every": evict_every,
+            "obs_window": obs_window, "obs_decay": obs_decay, "max_new": max_new,
+            "policy_params": policy_params,
+        },
+        "prompt_len": P,
+        "evictions": [],
+    } if debug_path else None
+    if debug is not None and not solo:
+        raise ValueError("debug dumps are only supported for single unpadded requests")
+
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
-    prefill_start = time.perf_counter()
-    out = execution_backend.prefill(
-        batched_input_ids,
-        attention_mask=prompt_attention_mask,
-        position_ids=prefill_position_ids,
-        use_cache=True,
-        output_attentions=False,
-    )
-    prefill_sec = time.perf_counter() - prefill_start
+    start_time = time.perf_counter()
+    if solo:
+        out = execution_backend.prefill(input_ids, use_cache=True, output_attentions=False)
+    else:
+        out = execution_backend.prefill(
+            batched_input_ids,
+            attention_mask=prompt_attention_mask,
+            position_ids=prefill_position_ids,
+            use_cache=True,
+            output_attentions=False,
+        )
+    prefill_sec = time.perf_counter() - start_time
     cache = out.past_key_values
     logits = out.logits[:, -1]
     eos = tokenizer.eos_token_id
     filler = eos if eos is not None else tokenizer.pad_token_id
     if filler is None:
         filler = 0
-    finished = torch.zeros(batch_size, dtype=torch.bool, device=device)
-    generated = [[] for _ in range(batch_size)]
+    finished = torch.zeros(B, dtype=torch.bool, device=device)
+    generated = [[] for _ in range(B)]
+    evict_events = [[] for _ in range(B)]
     attn_history = []
     n_evict = 0
-    evict_events = [[] for _ in range(batch_size)]
-    decode_forward_sec = 0.0
-    attention_observation_sec = 0.0
-    eviction_sec_total = 0.0
+    decode_forward_sec = attention_observation_sec = eviction_sec_total = 0.0
 
     for step in range(max_new):
         active = ~finished
@@ -461,23 +390,15 @@ def generate_token_evict_batch(
         if bool(finished.all()):
             break
 
+        # 只在下一次会真正触发压缩前的 observation window 内打开注意力观测。
         want_observe, active_obs_window = should_collect_observation(
-            policy,
-            track=track,
-            policy_params=policy_params,
-            obs_window=obs_window,
-            evict_every=evict_every,
-            step=step,
-            cache_len=n,
-            budget=budget,
+            policy, track=track, policy_params=policy_params, obs_window=obs_window,
+            evict_every=evict_every, step=step, cache_len=n, budget=budget,
             anchor_k=anchor_k,
         )
         want_logits = want_observe and policy.needs_attn_history and use_attention_logits
         want_attn = want_observe and not want_logits
         position_ids = (prompt_lengths + step).unsqueeze(1)
-        step_attention_mask = torch.cat(
-            [feats.valid[:, :n], step_valid.unsqueeze(1)], dim=1
-        ).long()
         decode_start = time.perf_counter()
         out = execution_backend.decode(
             next_tokens.unsqueeze(1),
@@ -485,7 +406,7 @@ def generate_token_evict_batch(
             use_cache=True,
             output_attentions=want_attn,
             output_hidden_states=want_logits,
-            attention_mask=step_attention_mask,
+            attention_mask=torch.cat([feats.valid[:, :n], step_valid.unsqueeze(1)], dim=1).long(),
             position_ids=position_ids,
             cache_position=torch.tensor([n], device=device),
         )
@@ -497,109 +418,122 @@ def generate_token_evict_batch(
         n += 1
 
         if want_logits:
-            observation_start = time.perf_counter()
+            obs_start = time.perf_counter()
             rows = logit_provider.observe(
-                out, cache=_cache_view(cache), n=n,
-                position_ids=position_ids, model=model,
+                out, cache=_cache_view(cache), n=n, position_ids=position_ids, model=model,
             )["history"]
-            attention_observation_sec += time.perf_counter() - observation_start
+            attention_observation_sec += time.perf_counter() - obs_start
             if rows is None:
-                raise RuntimeError("batched attention-logit extraction failed")
+                raise RuntimeError(
+                    "attention-logit extraction failed; use a supported RoPE decoder "
+                    "or disable cache-aware baselines"
+                )
             attn_history.append(rows)
             attn_history = attn_history[-active_obs_window:]
-        if want_attn:
-            observation_start = time.perf_counter()
+        if want_attn:                                 # 观察窗:全层注意力均值进 imp/cum/win
+            obs_start = time.perf_counter()
             observed = observation_provider.observe(
-                out, cache=_cache_view(cache), n=n,
-                position_ids=position_ids, model=model,
+                out, cache=_cache_view(cache), n=n, position_ids=position_ids, model=model,
             )
             if policy.needs_attn_history and observed["history"] is not None:
                 attn_history.append(observed["history"])
                 attn_history = attn_history[-active_obs_window:]
-            # stack().mean() keeps the historical reduction order (bitwise reproducible).
-            row_score = torch.stack([
-                attention[:, :, -1, :n].mean(1).float()
-                for attention in out.attentions
-            ]).mean(0)
-            feats.observe(n, row_score, obs_decay)
-            attention_observation_sec += time.perf_counter() - observation_start
+            feats.observe(n, observed["importance"], obs_decay)
+            attention_observation_sec += time.perf_counter() - obs_start
 
-        if eviction_due(policy, track=track, step=step, evict_every=evict_every,
-                        cache_len=n, budget=budget, anchor_k=anchor_k):
-            eviction_start = time.perf_counter()
-            before_n = n
-            before_summaries = batch_cache_length_summaries(cache, feats.valid[:, :before_n])
+        if not eviction_due(policy, track=track, step=step, evict_every=evict_every,
+                            cache_len=n, budget=budget, anchor_k=anchor_k):
+            continue
+        evict_start = time.perf_counter()
+        before_n = n
+        selection_cache = _cache_view(cache)
+        if solo:
+            before = [cache_length_summary(selection_cache, n)]
+            ctx = feats.context(n, budget=budget, recent=recent, sink=sink,
+                                params=policy_params, row=0, generator=generators[0])
+            selected = select_tokens(policy, ctx, cache=selection_cache,
+                                     attn_history=attn_history,
+                                     return_debug=debug is not None)
+            idx, dbg = selected if debug is not None else (selected, None)
+            if debug is not None:
+                debug["evictions"].append(
+                    _debug_eviction(step, n, idx, dbg, ctx, feats, tokenizer, debug_topk)
+                )
+            cache, n = cache_manager.compact(cache, idx)
+            feats.compact(representative_indices(idx).unsqueeze(0), before_n)
+            after = [cache_length_summary(cache, n)]
+        else:
+            before = batch_cache_length_summaries(cache, feats.valid[:, :n])
             idx = select_tokens_batch(
                 policy, feats, n, budget=budget, recent=recent, sink=sink,
-                policy_params=policy_params, cache=_cache_view(cache),
+                policy_params=policy_params, cache=selection_cache,
                 attn_history=attn_history, generators=generators,
             )
             cache, n = cache_manager.compact_batch(cache, idx)
             feats.compact(representative_indices_batch(idx), before_n)
-            after_summaries = batch_cache_length_summaries(cache, feats.valid[:, :n])
-            if policy.needs_attn_history:
-                attn_history = []
-            n_evict += 1
-            event_sec = time.perf_counter() - eviction_start
-            eviction_sec_total += event_sec
-            for row in range(batch_size):
-                evict_events[row].append(eviction_event(
-                    step=step + 1, before_n=before_n, after_n=n,
-                    before=before_summaries[row], after=after_summaries[row],
-                    eviction_sec=event_sec,
-                ))
+            after = batch_cache_length_summaries(cache, feats.valid[:, :n])
+        if policy.needs_attn_history:
+            attn_history = []
+        n_evict += 1
+        event_sec = time.perf_counter() - evict_start
+        eviction_sec_total += event_sec
+        for row in range(B):
+            evict_events[row].append(eviction_event(
+                step=step + 1, before_n=before_n, after_n=n,
+                before=before[row], after=after[row], eviction_sec=event_sec,
+            ))
 
-    elapsed = time.perf_counter() - start_time
-    peak_memory = torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None
-    timing_sink.add("prefill_sec", prefill_sec)
-    timing_sink.add("decode_sec", max(0.0, elapsed - prefill_sec))
-    timing_sink.add("decode_forward_sec", decode_forward_sec)
-    timing_sink.add("attention_observation_sec", attention_observation_sec)
-    timing_sink.add("eviction_sec_total", eviction_sec_total)
-    batch_total_tokens = sum(len(ids) for ids in generated)
-    amortized_elapsed = elapsed / batch_size
-    final_summaries = batch_cache_length_summaries(cache, feats.valid[:, :n])
-    candidates = []
-    for row, ids in enumerate(generated):
-        row_events = evict_events[row]
-        row_metrics = eviction_metrics(row_events)
-        candidates.append({
-            "text": tokenizer.decode(ids, skip_special_tokens=True),
-            "gen_ids": ids,
-            "seed": int(seeds[row]),
-            "prompt_len": int(prompt_lengths[row]),
-            "n_evict": n_evict,
-            "final_cache_len": n,
-            "elapsed_sec": amortized_elapsed,
-            "tokens_per_sec": len(ids) / amortized_elapsed if amortized_elapsed > 0 else 0.0,
-            "batch_elapsed_sec": elapsed,
-            "batch_tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
-            "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
-            "mean_compression_ratio": row_metrics.pop("mean_compression_ratio"),
-            "evict_events": row_events,
-            **final_summaries[row],
-            **row_metrics,
-            "prefill_sec": prefill_sec / batch_size,
-            "decode_sec": max(0.0, elapsed - prefill_sec) / batch_size,
-            "decode_forward_sec": decode_forward_sec / batch_size,
-            "attention_observation_sec": attention_observation_sec / batch_size,
-            "eviction_sec_total": eviction_sec_total / batch_size,
-            "eviction_sec_mean": (
-                eviction_sec_total / (batch_size * n_evict) if n_evict else 0.0
-            ),
-            "other_decode_sec": max(
-                0.0,
-                elapsed - prefill_sec - decode_forward_sec
-                - attention_observation_sec - eviction_sec_total,
-            ) / batch_size,
-            "timing": dict(timing_sink.values),
-        })
     return {
-        "candidates": candidates,
-        "batch_size": batch_size,
-        "elapsed_sec": elapsed,
-        "tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
-        "batch_tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
-        "timing": dict(timing_sink.values),
-        "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
+        "generated": generated,
+        "evict_events": evict_events,
+        "n_evict": n_evict,
+        "n": n,
+        "cache": cache,
+        "feats": feats,
+        "prompt_lengths": prompt_lengths,
+        "prefill_sec": prefill_sec,
+        "decode_forward_sec": decode_forward_sec,
+        "attention_observation_sec": attention_observation_sec,
+        "eviction_sec_total": eviction_sec_total,
+        "elapsed": time.perf_counter() - start_time,
+        "peak_memory": torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None,
+        "debug": debug,
+    }
+
+
+def _debug_eviction(step, n, idx, dbg, ctx, feats, tokenizer, debug_topk) -> dict:
+    """Per-eviction dump for solo runs (``debug_path``)."""
+    device = ctx.slot_pos.device
+    idx_debug = representative_indices(idx)
+    final_keep = torch.zeros(n, dtype=torch.bool, device=device)
+    final_keep[idx_debug] = True
+    evicted = (~final_keep).nonzero(as_tuple=True)[0]
+    score = dbg["sig_score"]
+    if score is None:
+        score = torch.full((n,), float("nan"), device=device)
+    rescued = dbg["anchor_extra"]
+    evicted_by_sig = (
+        evicted[torch.argsort(score[evicted], descending=True)] if evicted.numel() else evicted
+    )
+    slot_ids = feats.slot_ids[0, :n]
+    return {
+        "step": step + 1,
+        "cache_len_before": n,
+        "cache_len_after": selection_length(idx),
+        "slot_pos": take_int(ctx.slot_pos),
+        "token_ids": take_int(slot_ids),
+        "imp": take_float(ctx.importance),
+        "cum_imp": take_float(ctx.cumulative_attention),
+        "win_imp": take_float(ctx.window_attention),
+        "ent": take_float(ctx.entropy),
+        "cum_attn": take_float(ctx.cumulative_mean) if ctx.cumulative_mean is not None else None,
+        "concentration": take_float(ctx.concentration) if ctx.concentration is not None else None,
+        "sig_score": take_float(score),
+        "policy_score": take_float(dbg["policy_score"]),
+        "backend_keep_slots": take_int(dbg["backend_keep"]),
+        "anchor_extra_slots": take_int(rescued),
+        "final_keep_slots": take_int(idx_debug),
+        "evicted_slots": take_int(evicted),
+        "anchor_extra_text": token_samples(tokenizer, slot_ids, rescued, debug_topk),
+        "evicted_top_sig_text": token_samples(tokenizer, slot_ids, evicted_by_sig, debug_topk),
     }

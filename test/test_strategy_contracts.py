@@ -309,3 +309,36 @@ def test_anchor_wrapper_rejects_invalid_configs():
         with_anchors(get_policy("window"), "sig", 2)
     with pytest.raises(ValueError, match="unknown anchor mode"):
         with_anchors(get_policy("window"), "bogus", 2)
+
+
+@pytest.mark.parametrize("mode", ["anchor", "lowent", "random", "sig"])
+def test_batch_matches_single_request_with_anchors(tiny_llama, mode):
+    from kveviction.runner_token import generate_token_evict, generate_token_evict_batch
+
+    model, prompt = tiny_llama
+    sig = ([1.0, -0.5, 0.3, 0.2], 0.1) if mode == "sig" else None
+    cfg = {**_E2E, "do_sample": True, "anchor_mode": mode, "anchor_frac": 0.2, "sig": sig}
+    single = generate_token_evict(model, _Tokenizer(), prompt, backend="window", seed=5, **cfg)
+    batch = generate_token_evict_batch(
+        model, _Tokenizer(), prompt, 2, backend="window", seeds=[5, 5], **cfg
+    )
+    # anchor_k = 3 extra slots on top of the budget.
+    assert single["cache_len_curve"] == [_E2E["budget"] + 3] * single["n_evict"]
+    for candidate in batch["candidates"]:
+        assert candidate["gen_ids"] == single["gen_ids"]
+        assert candidate["cache_len_curve"] == single["cache_len_curve"]
+
+
+def test_debug_dump_is_rejected_for_batches(tiny_llama, tmp_path):
+    from kveviction.runner_token import _decode
+
+    model, prompt = tiny_llama
+    with pytest.raises(ValueError, match="debug dumps"):
+        _decode(
+            model, _Tokenizer(), prompt, batch_size=2, solo=False, budget=16, recent=4,
+            sink=2, backend="window", anchor_mode="none", anchor_frac=0.0, evict_every=4,
+            obs_window=8, obs_decay=0.9, max_new=4, do_sample=False, temperature=1.0,
+            top_p=1.0, seeds=[0, 0], sig=None, policy_params=None,
+            input_attention_mask=None, debug_path=str(tmp_path / "d.json"), debug_topk=0,
+            execution_backend=None, cache_manager=None,
+        )
