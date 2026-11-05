@@ -10,8 +10,9 @@ import torch
 
 from kvbench.models import pad_input_ids
 from kvbench.evaluator import _run_cross_problem_eval
-from kvbench.policies import parse_arm
-from kveviction.runner_token import _compact_cache_update_batch, generate_token_evict_batch
+from kvbench.arms import parse_arm
+from kveviction.cache_manager import TransformersCacheManager
+from kveviction.runner_token import generate_token_evict_batch
 from kveviction.strategies.h2o import select_h2o
 from kveviction.strategies.rkv_official import select_rkv_layers
 from kveviction.strategies.snapkv import select_snapkv
@@ -106,7 +107,7 @@ def test_batched_cache_compaction_uses_per_request_per_head_indices():
         [[6, 8, 10], [7, 9, 11]],
     ])]
 
-    compacted, length = _compact_cache_update_batch(cache, indices)
+    compacted, length = TransformersCacheManager().compact_batch(cache, indices)
     assert length == 3
     for batch_idx in range(2):
         for head_idx in range(2):

@@ -12,7 +12,7 @@ from kveviction.cache_manager import CacheManager
 from kvbench.datasets import load_problems
 from kvbench.metrics import extract_answer, is_correct, summarize_accuracy
 from kvbench.models import build_input_ids, pad_input_ids
-from kvbench.policies import EvalArm
+from kvbench.arms import EvalArm
 
 
 _LOG_MODES = {"full", "brief"}
