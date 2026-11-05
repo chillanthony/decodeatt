@@ -14,7 +14,7 @@ import yaml
 from kvbench.evaluator import run_generation_eval
 from kvbench.datasets import load_problems
 from kvbench.models import load_causal_lm
-from kvbench.policies import parse_arms
+from kvbench.arms import parse_arms
 from kvbench.metrics import summarize_accuracy
 from kvbench.vllm_evaluator import run_vllm_generation_eval
 

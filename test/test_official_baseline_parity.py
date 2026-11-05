@@ -6,7 +6,8 @@ from dataclasses import dataclass
 
 import torch
 
-from kveviction.runner_token import _attention_logit_rows, _compact_cache
+from kveviction.attention_logits import attention_logit_rows
+from kveviction.cache_manager import TransformersCacheManager
 from kveviction.strategies.base import SelectionContext
 from kveviction.strategies.h2o import select_h2o
 from kveviction.strategies.rkv import select_rkv
@@ -215,7 +216,7 @@ def test_headwise_cache_compaction_gathers_each_head_independently():
     values = keys + 100
     cache = _Cache([_Layer(keys=keys.clone(), values=values.clone())])
     idx = [torch.tensor([[3, 1, 4], [0, 2, 4]])]
-    k = _compact_cache(cache, idx)
+    _, k = TransformersCacheManager().compact(cache, idx)
     assert k == 3
     torch.testing.assert_close(cache.layers[0].keys[0, :, :, 0], torch.tensor([[3.0, 1.0, 4.0], [5.0, 7.0, 9.0]]))
     torch.testing.assert_close(cache.layers[0].values[0, :, :, 0], torch.tensor([[103.0, 101.0, 104.0], [105.0, 107.0, 109.0]]))
@@ -261,7 +262,7 @@ def test_runner_attention_logit_rows_match_official_scores_without_attentions():
     hidden = torch.tensor([[[1.0, 2.0, 3.0, 4.0]]])
     keys = torch.arange(12, dtype=torch.float32).view(1, 2, 3, 2)
     cache = _Cache([_Layer(keys=keys)])
-    rows = _attention_logit_rows(_FakeModel(), _Outputs((hidden,)), cache, torch.tensor([[0]]), 3)
+    rows = attention_logit_rows(_FakeModel(), _Outputs((hidden,)), cache, torch.tensor([[0]]), 3)
     q = hidden.view(1, 1, 2, 2).transpose(1, 2)
     expected = _attention_scores(q, keys)[0, :, -1, :]
     assert rows is not None

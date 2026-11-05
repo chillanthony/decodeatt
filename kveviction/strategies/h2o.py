@@ -4,7 +4,7 @@ from __future__ import annotations
 import torch
 
 from .base import SelectionContext, TokenEvictionPolicy
-from .rkv_official import rkv_importance
+from .attention_utils import observation_importance
 
 
 def select_h2o(cache, attn_history, n, budget, params, return_debug=False):
@@ -32,7 +32,7 @@ def select_h2o(cache, attn_history, n, budget, params, return_debug=False):
     score_count = 0
     for layer_idx, layer in enumerate(cache.layers):
         kv_heads = layer.keys.shape[1]
-        importance = rkv_importance(
+        importance = observation_importance(
             attn_history[-1:],
             layer_idx,
             kv_heads,

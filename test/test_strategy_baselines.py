@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import torch
 
-from kvbench.policies import parse_arm, parse_arms
-from kveviction.runner_token import _cache_length_summary, _compact_cache_update, _should_collect_observation, _token_samples
+from kvbench.arms import parse_arm, parse_arms
+from kveviction.cache_manager import TransformersCacheManager
+from kveviction.eviction_stats import cache_length_summary, token_samples
+from kveviction.selection import should_collect_observation
 from kveviction.strategies.base import SelectionContext
 from kveviction.strategies.token import get_policy, policy_names
 from script.eval import _allocate_group_ranks, _arm_attn_backend, _claim_next_problem
@@ -103,7 +105,7 @@ def test_strategy_observation_windows_are_minimal():
 
 def test_observation_waits_until_next_evict_can_trigger():
     policy = get_policy("rkv")
-    should_observe, active_window = _should_collect_observation(
+    should_observe, active_window = should_collect_observation(
         policy,
         track=True,
         policy_params={"alpha": 2},
@@ -117,7 +119,7 @@ def test_observation_waits_until_next_evict_can_trigger():
     assert active_window == 2
     assert not should_observe
 
-    should_observe, active_window = _should_collect_observation(
+    should_observe, active_window = should_collect_observation(
         policy,
         track=True,
         policy_params={"alpha": 2},
@@ -137,7 +139,7 @@ def test_debug_token_samples_can_be_disabled():
         def decode(self, *_args, **_kwargs):
             raise AssertionError("decode should not be called when limit is 0")
 
-    samples = _token_samples(
+    samples = token_samples(
         _Tokenizer(),
         torch.tensor([11, 12, 13]),
         torch.tensor([0, 1, 2]),
@@ -150,11 +152,11 @@ def test_legacy_tuple_cache_can_be_summarized_and_compacted():
     keys = torch.arange(10, dtype=torch.float32).view(1, 2, 5, 1)
     values = keys + 100
     cache = ((keys, values),)
-    summary = _cache_length_summary(cache, 5)
+    summary = cache_length_summary(cache, 5)
     assert summary["mean_effective_cache_len"] == 5.0
     assert summary["effective_kv_tokens_per_layer_head"] == [[5, 5]]
 
-    new_cache, new_len = _compact_cache_update(cache, torch.tensor([3, 1, 4]))
+    new_cache, new_len = TransformersCacheManager().compact(cache, torch.tensor([3, 1, 4]))
     assert new_len == 3
     torch.testing.assert_close(new_cache[0][0][0, :, :, 0], torch.tensor([[3.0, 1.0, 4.0], [8.0, 6.0, 9.0]]))
     torch.testing.assert_close(new_cache[0][1][0, :, :, 0], torch.tensor([[103.0, 101.0, 104.0], [108.0, 106.0, 109.0]]))

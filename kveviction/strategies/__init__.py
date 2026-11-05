@@ -10,6 +10,7 @@ from .rkv import (
     select_rkv_global,
     select_rkv_layers,
 )
+from .attention_utils import compute_attention_scores, observation_importance, pool_importance
 from .base import SelectionContext, TokenEvictionPolicy
 from .full import FullKVPolicy
 from .h2o import H2OPolicy
@@ -32,6 +33,9 @@ __all__ = [
     "get_policy",
     "policy_names",
     "aggregate_gqa_attention",
+    "compute_attention_scores",
+    "observation_importance",
+    "pool_importance",
     "max_pool_importance",
     "rkv_importance",
     "rkv_redundancy",

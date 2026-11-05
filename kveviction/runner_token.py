@@ -1,4 +1,4 @@
-"""Token-level KV eviction decoding loop.
+"""Token-level KV eviction decoding loops (HuggingFace reference runner).
 
 后端:
   snapkv —— 重要性(观察窗注意力 maxpool)top-B + recent window + sink。
@@ -8,6 +8,10 @@
   random —— 随机中段 token + recent window + sink。
 锚点保护(anchor=高熵 forking token):在预算外额外钉 top-k 高熵 token;
   对照 mode:none / anchor / random / lowent。
+
+辅助模块: ``sampling``(采样/熵)、``attention_logits``(R-KV logit 重算)、
+``selection``(淘汰调度与选槽)、``eviction_stats``(cache 统计与指标)、
+``trace_scoring``(teacher-forced NLL 诊断)。
 """
 from __future__ import annotations
 
@@ -17,482 +21,41 @@ from pathlib import Path
 
 import torch
 
+from kveviction.attention_logits import (
+    attention_logit_rows,
+    attention_logit_rows_batch,
+    supports_attention_logits,
+)
 from kveviction.backends import ExecutionBackend, TransformersExecutionBackend
 from kveviction.cache_manager import CacheManager, TransformersCacheManager
-from kveviction.controller import EvictionController
+from kveviction.eviction_stats import (
+    batch_cache_length_summaries,
+    cache_length_summary,
+    eviction_event,
+    eviction_metrics,
+    take_float,
+    take_int,
+    token_samples,
+)
 from kveviction.observations import (
     AttentionLogitObservationProvider,
     AttentionObservationProvider,
 )
 from kveviction.results import TimingSink
-from kveviction.strategies.rkv_official import compute_attention_scores
-from kveviction.strategies.token import SelectionContext, get_policy
-
-
-def _sample(logits, do_sample, temperature, top_p):
-    """采样或贪心。logits: [1, vocab]。"""
-    if not do_sample:
-        return int(logits.argmax(-1))
-    lg = logits.float() / max(temperature, 1e-6)
-    probs = torch.softmax(lg, -1)[0]
-    if top_p < 1.0:
-        sp, si = torch.sort(probs, descending=True)
-        cdf = sp.cumsum(0)
-        keep = cdf <= top_p
-        keep[0] = True
-        probs = torch.zeros_like(probs).scatter_(0, si[keep], sp[keep])
-        probs = probs / probs.sum()
-    return int(torch.multinomial(probs, 1))
-
-
-def _sample_batch(logits, do_sample, temperature, top_p, generators):
-    """Sample one token per row while keeping an independent RNG stream."""
-    if not do_sample:
-        return logits.argmax(-1)
-    lg = logits.float() / max(temperature, 1e-6)
-    probs = torch.softmax(lg, -1)
-    if top_p < 1.0:
-        sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
-        keep = sorted_probs.cumsum(-1) <= top_p
-        keep[:, 0] = True
-        filtered = torch.zeros_like(probs)
-        filtered.scatter_(1, sorted_indices, sorted_probs * keep)
-        probs = filtered / filtered.sum(-1, keepdim=True)
-    return torch.stack([
-        torch.multinomial(probs[row], 1, generator=generators[row]).squeeze(0)
-        for row in range(probs.shape[0])
-    ])
-
-
-def _entropy(logits: torch.Tensor) -> float:
-    logp = torch.log_softmax(logits.float(), -1)
-    p = logp.exp()
-    return float(-(torch.where(p > 0, p * logp, torch.zeros_like(p))).sum())
-
-
-def _entropy_batch(logits: torch.Tensor) -> torch.Tensor:
-    logp = torch.log_softmax(logits.float(), -1)
-    p = logp.exp()
-    return -(torch.where(p > 0, p * logp, torch.zeros_like(p))).sum(-1)
-
-
-@torch.no_grad()
-def _select_tokens(imp, cum_imp, win_imp, ent, key_rep, slot_pos, budget, recent, sink,
-                   backend, anchor_mode, anchor_k, rng, cum=None, con=None, sig=None,
-                   policy_params=None, cache=None, attn_history=None,
-                   model=None, return_debug=False):
-    """返回应保留的**槽下标** LongTensor。imp/ent/key_rep/slot_pos 均按当前缓存槽对齐。
-    anchor_mode="sig" 时用完整 4 维签名(熵,cum_attn,位置,concentration)打分,
-    sig=(w[4], b);cum/con 为每槽 cum_attn/concentration。"""
-    n = slot_pos.numel()
-    dev = slot_pos.device
-    if n <= budget:
-        idx = torch.arange(n, device=dev)
-        if return_debug:
-            return idx, {
-                "backend_keep": idx,
-                "anchor_extra": torch.empty(0, dtype=torch.long, device=dev),
-                "sig_score": None,
-                "policy_score": imp,
-            }
-        return idx
-
-    policy = get_policy(backend)
-    runtime_params = dict(policy_params or {})
-    if model is not None:
-        runtime_params["_model"] = model
-        layers = _model_layers(model)
-        if layers is not None:
-            runtime_params["_layers"] = layers
-    ctx = SelectionContext(
-        importance=imp,
-        cumulative_attention=cum_imp,
-        window_attention=win_imp,
-        key_reps=key_rep,
-        slot_pos=slot_pos,
-        budget=budget,
-        recent=recent,
-        sink=sink,
-        params=runtime_params,
-    )
-    decision = EvictionController(backend, params=runtime_params).decide(
-        ctx, cache=cache, attn_history=attn_history, model=model,
-        anchor_mode=anchor_mode, anchor_k=anchor_k,
-        anchor_features={"entropy": ent, "cumulative": cum, "concentration": con},
-        sig=sig,
-        return_debug=return_debug,
-    )
-    backend_idx = decision.keep_indices
-    policy_score = decision.policy_score
-    if _is_headwise_selection(backend_idx):
-        if anchor_mode != "none" and anchor_k > 0:
-            raise ValueError("anchor modes are not supported for head-wise cache-aware strategies")
-        idx = backend_idx
-        if return_debug:
-            return idx, {
-                "backend_keep": _representative_indices(backend_idx),
-                "anchor_extra": torch.empty(0, dtype=torch.long, device=dev),
-                "sig_score": None,
-                "policy_score": policy_score
-                if policy_score is not None
-                else torch.full((n,), float("nan"), device=dev),
-            }
-        return idx
-
-    keep = torch.zeros(n, dtype=torch.bool, device=dev)
-    keep[backend_idx] = True
-    backend_keep = keep.clone()
-    anchor_extra = decision.rescue_indices
-    sig_score = None
-    if return_debug and policy_score is None:
-        policy_score = policy.scores(ctx)
-
-    idx = keep.nonzero(as_tuple=True)[0]
-    if return_debug:
-        return idx, {
-            "backend_keep": backend_keep.nonzero(as_tuple=True)[0],
-            "anchor_extra": anchor_extra,
-            "sig_score": sig_score,
-            "policy_score": policy_score,
-        }
-    return idx
-
-
-def _take_float(x):
-    return [float(v) for v in x.detach().float().cpu().tolist()]
-
-
-def _take_int(x):
-    return [int(v) for v in x.detach().cpu().tolist()]
-
-
-def _token_samples(tokenizer, slot_ids, idx, limit=64):
-    if limit <= 0:
-        return []
-    idx = idx[:limit].detach().cpu().tolist()
-    ids = slot_ids.detach().cpu().tolist()
-    return [{"slot": int(i), "token_id": int(ids[i]),
-             "text": tokenizer.decode([int(ids[i])], skip_special_tokens=False)}
-            for i in idx]
-
-
-def _key_reps(cache, device):
-    """每槽代表 key 向量 [n, D]（层/KV头平均）。"""
-    acc = None
-    for layer in cache.layers:
-        k = layer.keys[0].mean(0).float()    # [n, D]
-        acc = k if acc is None else acc + k
-    return acc / len(cache.layers)
-
-
-def _is_headwise_selection(idx) -> bool:
-    return isinstance(idx, list)
-
-
-def _representative_indices(idx):
-    if _is_headwise_selection(idx):
-        return idx[0][0]
-    return idx
-
-
-def _representative_indices_batch(idx):
-    """Return one token-index row per request from global or head-wise indices."""
-    if _is_headwise_selection(idx):
-        layer_idx = idx[0]
-        if layer_idx.ndim == 2:
-            return layer_idx[0].unsqueeze(0)
-        return layer_idx[:, 0, :]
-    if idx.ndim == 1:
-        return idx.unsqueeze(0)
-    return idx
-
-
-class _CacheLayerView:
-    def __init__(self, keys: torch.Tensor, values: torch.Tensor):
-        self.keys = keys
-        self.values = values
-
-
-class _CacheView:
-    def __init__(self, layers: list[_CacheLayerView]):
-        self.layers = layers
-
-
-def _cache_view(cache):
-    return TransformersCacheManager._view(cache)
-
-
-def _should_collect_observation(
-    policy,
-    *,
-    track: bool,
-    policy_params: dict,
-    obs_window: int,
-    evict_every: int,
-    step: int,
-    cache_len: int,
-    budget: int,
-    anchor_k: int,
-) -> tuple[bool, int]:
-    active_obs_window = policy.observation_window(policy_params, obs_window)
-    if not track or active_obs_window <= 0:
-        return False, active_obs_window
-
-    to_evict = evict_every - ((step + 1) % evict_every or evict_every)
-    if to_evict >= active_obs_window:
-        return False, active_obs_window
-
-    cache_aware = policy.needs_cache or policy.needs_attn_history
-    trigger_len = budget if cache_aware else budget + anchor_k
-    predicted_len_at_evict = cache_len + to_evict + 1
-    will_trigger = (
-        predicted_len_at_evict >= trigger_len
-        if cache_aware
-        else predicted_len_at_evict > trigger_len
-    )
-    return will_trigger, active_obs_window
-
-
-def _selection_length(idx) -> int:
-    if _is_headwise_selection(idx):
-        return int(idx[0].shape[-1])
-    return int(idx.numel())
-
-
-def _compact_cache(cache, idx):
-    if _is_headwise_selection(idx):
-        for layer, layer_idx in zip(cache.layers, idx):
-            layer_idx = layer_idx.to(layer.keys.device)
-            head_dim = layer.keys.shape[-1]
-            gather_idx = layer_idx.unsqueeze(0).unsqueeze(-1).expand(1, -1, -1, head_dim)
-            layer.keys = layer.keys.gather(2, gather_idx).contiguous()
-            layer.values = layer.values.gather(2, gather_idx).contiguous()
-        return int(idx[0].shape[-1])
-
-    for layer in cache.layers:
-        layer.keys = layer.keys.index_select(2, idx).contiguous()
-        layer.values = layer.values.index_select(2, idx).contiguous()
-    return int(idx.numel())
-
-
-def _compact_cache_update(cache, idx):
-    return TransformersCacheManager().compact(cache, idx)
-
-
-def _compact_cache_update_batch(cache, idx):
-    """Compact a batched cache with per-request, optionally per-head indices."""
-    return TransformersCacheManager().compact_batch(cache, idx)
-
-
-def _base_model(model):
-    return getattr(model, "model", getattr(model, "transformer", model))
-
-
-def _model_layers(model):
-    base = _base_model(model)
-    return getattr(base, "layers", getattr(base, "h", None))
-
-
-def _cache_length_summary(cache, physical_len: int) -> dict:
-    cache = _cache_view(cache)
-    if cache is None:
-        lengths = torch.tensor([float(physical_len)])
-    else:
-        lengths = torch.cat([
-            torch.full((layer.keys.shape[1],), float(physical_len), device=layer.keys.device)
-            for layer in cache.layers
-        ])
-
-    total = float(lengths.sum())
-    probs = lengths / max(total, 1e-12)
-    entropy = float(-(probs * probs.clamp_min(1e-12).log()).sum()) if lengths.numel() else 0.0
-    max_len = float(lengths.max()) if lengths.numel() else 0.0
-    return {
-        "mean_effective_cache_len": float(lengths.mean()) if lengths.numel() else 0.0,
-        "max_effective_cache_len": max_len,
-        "min_effective_cache_len": float(lengths.min()) if lengths.numel() else 0.0,
-        "total_effective_kv_tokens": total,
-        "effective_kv_tokens_per_layer_head": [
-            [int(physical_len)] * int(layer.keys.shape[1])
-            for layer in cache.layers
-        ] if cache is not None else [[int(physical_len)]],
-        "head_budget_mean": float(lengths.mean()) if lengths.numel() else 0.0,
-        "head_budget_std": float(lengths.std(unbiased=False)) if lengths.numel() else 0.0,
-        "head_budget_min": float(lengths.min()) if lengths.numel() else 0.0,
-        "head_budget_max": max_len,
-        "head_budget_entropy": entropy,
-        "num_underfilled_heads": int((lengths < max_len).sum()) if lengths.numel() else 0,
-    }
-
-
-def _batch_cache_length_summaries(cache, valid_mask: torch.Tensor) -> list[dict]:
-    """Summarize the effective cache length of every request in a static batch."""
-    cache_view = _cache_view(cache)
-    heads_per_layer = (
-        [int(layer.keys.shape[1]) for layer in cache_view.layers]
-        if cache_view is not None else [1]
-    )
-    num_heads = sum(heads_per_layer)
-    summaries = []
-    for row in range(valid_mask.shape[0]):
-        effective_len = int(valid_mask[row].sum())
-        lengths = torch.full(
-            (num_heads,), float(effective_len), device=valid_mask.device
-        )
-        total = float(lengths.sum())
-        probs = lengths / max(total, 1e-12)
-        entropy = float(-(probs * probs.clamp_min(1e-12).log()).sum())
-        summaries.append({
-            "mean_effective_cache_len": float(effective_len),
-            "max_effective_cache_len": float(effective_len),
-            "min_effective_cache_len": float(effective_len),
-            "total_effective_kv_tokens": total,
-            "effective_kv_tokens_per_layer_head": [
-                [effective_len] * heads for heads in heads_per_layer
-            ],
-            "head_budget_mean": float(effective_len),
-            "head_budget_std": 0.0,
-            "head_budget_min": float(effective_len),
-            "head_budget_max": float(effective_len),
-            "head_budget_entropy": entropy,
-            "num_underfilled_heads": 0,
-        })
-    return summaries
-
-
-def _mean(values: list[float], default: float = 0.0) -> float:
-    return sum(values) / len(values) if values else default
-
-
-def _rotate_half(x: torch.Tensor) -> torch.Tensor:
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2:]
-    return torch.cat((-x2, x1), dim=-1)
-
-
-def _apply_rotary_q(query_states: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
-    cos = cos.unsqueeze(1)
-    sin = sin.unsqueeze(1)
-    return (query_states * cos) + (_rotate_half(query_states) * sin)
-
-
-def _supports_attention_logits(model) -> bool:
-    layers = _model_layers(model)
-    base = _base_model(model)
-    if layers is None or not hasattr(base, "rotary_emb"):
-        return False
-    if len(layers) == 0:
-        return False
-    attn = getattr(layers[0], "self_attn", None)
-    return attn is not None and hasattr(attn, "q_proj") and hasattr(attn, "head_dim")
-
-
-def _attention_logit_rows(model, outputs, cache, position_ids, n):
-    """Compute official pre-softmax attention rows from layer inputs and cache keys."""
-    if not getattr(outputs, "hidden_states", None):
-        return None
-    layers = _model_layers(model)
-    base = _base_model(model)
-    if layers is None or not hasattr(base, "rotary_emb"):
-        return None
-
-    rows = []
-    for layer_idx, layer in enumerate(layers):
-        attn = getattr(layer, "self_attn", None)
-        if attn is None or not hasattr(attn, "q_proj") or not hasattr(attn, "head_dim"):
-            return None
-        hidden = outputs.hidden_states[layer_idx][:, -1:, :]
-        q = attn.q_proj(hidden)
-        q = q.view(*hidden.shape[:-1], -1, attn.head_dim).transpose(1, 2)
-        cos, sin = base.rotary_emb(hidden, position_ids)
-        q = _apply_rotary_q(q, cos, sin)
-        keys = cache.layers[layer_idx].keys[:, :, :n, :]
-        rows.append(compute_attention_scores(q, keys)[0, :, -1, :].detach().float())
-    return rows
-
-
-def _attention_logit_rows_batch(model, outputs, cache, position_ids, n):
-    """Batched counterpart returning one ``[B,H,N]`` row per layer."""
-    if not getattr(outputs, "hidden_states", None):
-        return None
-    layers = _model_layers(model)
-    base = _base_model(model)
-    if layers is None or not hasattr(base, "rotary_emb"):
-        return None
-
-    rows = []
-    for layer_idx, layer in enumerate(layers):
-        attn = getattr(layer, "self_attn", None)
-        if attn is None or not hasattr(attn, "q_proj") or not hasattr(attn, "head_dim"):
-            return None
-        hidden = outputs.hidden_states[layer_idx][:, -1:, :]
-        q = attn.q_proj(hidden)
-        q = q.view(*hidden.shape[:-1], -1, attn.head_dim).transpose(1, 2)
-        cos, sin = base.rotary_emb(hidden, position_ids)
-        q = _apply_rotary_q(q, cos, sin)
-        keys = cache.layers[layer_idx].keys[:, :, :n, :]
-        rows.append(compute_attention_scores(q, keys)[:, :, -1, :].detach().float())
-    return rows
-
-
-@torch.no_grad()
-def _select_tokens_batch(
-    imp,
-    cum_imp,
-    win_imp,
-    ent,
-    slot_pos,
-    budget,
-    recent,
-    sink,
-    backend,
-    anchor_mode,
-    anchor_k,
-    *,
-    policy_params,
-    cache,
-    attn_history,
-    model,
-    valid_mask=None,
-):
-    policy = get_policy(backend)
-    if policy.needs_cache or policy.needs_attn_history:
-        if anchor_mode != "none" and anchor_k > 0:
-            raise ValueError("anchor modes are not supported for batched cache-aware strategies")
-        runtime_params = dict(policy_params or {})
-        runtime_params["_model"] = model
-        if valid_mask is not None:
-            runtime_params["_valid_mask"] = valid_mask
-        return policy.select_from_cache(
-            cache, attn_history, slot_pos.shape[-1], budget, runtime_params
-        )
-
-    indices = []
-    for row in range(slot_pos.shape[0]):
-        if valid_mask is None:
-            valid_idx = torch.arange(slot_pos.shape[1], device=slot_pos.device)
-        else:
-            valid_idx = valid_mask[row].nonzero(as_tuple=True)[0]
-        selected_valid = _select_tokens(
-            imp[row, valid_idx], cum_imp[row, valid_idx], win_imp[row, valid_idx],
-            ent[row, valid_idx], None, slot_pos[row, valid_idx],
-            budget, recent, sink, backend, anchor_mode, anchor_k, None,
-            policy_params=policy_params, cache=None, attn_history=None, model=model,
-        )
-        selected = valid_idx[selected_valid]
-        target_length = min(budget + anchor_k, slot_pos.shape[1])
-        if selected.numel() < target_length:
-            invalid_idx = (
-                (~valid_mask[row]).nonzero(as_tuple=True)[0]
-                if valid_mask is not None
-                else torch.empty(0, dtype=torch.long, device=slot_pos.device)
-            )
-            selected = torch.cat([selected, invalid_idx[: target_length - selected.numel()]])
-        indices.append(selected)
-    lengths = {int(item.numel()) for item in indices}
-    if len(lengths) != 1:
-        raise RuntimeError(f"batched selections must have equal lengths, got {sorted(lengths)}")
-    return torch.stack(indices)
+from kveviction.sampling import entropy, entropy_batch, sample, sample_batch
+from kveviction.selection import (
+    eviction_due,
+    key_reps,
+    representative_indices,
+    representative_indices_batch,
+    select_tokens,
+    select_tokens_batch,
+    selection_length,
+    should_collect_observation,
+)
+from kveviction.strategies.token import get_policy
+
+_cache_view = TransformersCacheManager._view
 
 
 @torch.no_grad()
@@ -536,10 +99,10 @@ def generate_token_evict(
     observation_provider = AttentionObservationProvider(
         decay=obs_decay, needs_history=policy.needs_attn_history
     )
-    logit_provider = AttentionLogitObservationProvider(_attention_logit_rows)
+    logit_provider = AttentionLogitObservationProvider(attention_logit_rows)
     track = budget < 10 ** 8 and not policy.never_evict
     policy_params = policy_params or {}
-    use_attention_logits = policy.needs_attn_history and _supports_attention_logits(model)
+    use_attention_logits = policy.needs_attn_history and supports_attention_logits(model)
 
     use_sig = anchor_mode == "sig"                    # 完整 4 维签名锚点
     N = P + max_new
@@ -578,13 +141,13 @@ def generate_token_evict(
 
     for step in range(max_new):
         true_pos = P + step
-        e = _entropy(logits)
-        nxt = _sample(logits, do_sample, temperature, top_p)
+        e = entropy(logits)
+        nxt = sample(logits, do_sample, temperature, top_p)
         gen.append(nxt)
         if nxt == eos:
             break
         # 只在下一次会真正触发压缩前的 observation window 内打开注意力观测。
-        want_observe, active_obs_window = _should_collect_observation(
+        want_observe, active_obs_window = should_collect_observation(
             policy,
             track=track,
             policy_params=policy_params,
@@ -648,36 +211,26 @@ def generate_token_evict(
                 att_max[:n] = torch.maximum(att_max[:n], row)
             attention_observation_sec += time.perf_counter() - obs_start
 
-        cache_aware = policy.needs_cache or policy.needs_attn_history
-        trigger_len = budget if cache_aware else budget + anchor_k
-        over_trigger = n >= trigger_len if cache_aware else n > trigger_len
-        if track and (step + 1) % evict_every == 0 and over_trigger:
+        if eviction_due(policy, track=track, step=step, evict_every=evict_every,
+                        cache_len=n, budget=budget, anchor_k=anchor_k):
             evict_start = time.perf_counter()
             selection_cache = _cache_view(cache)
-            before_summary = _cache_length_summary(selection_cache, n)
-            key_rep = None if policy.needs_cache else (_key_reps(selection_cache, device) if policy.needs_key_reps else None)
+            before_summary = cache_length_summary(selection_cache, n)
+            key_rep = None if policy.needs_cache else (key_reps(selection_cache, device) if policy.needs_key_reps else None)
             cum = con = None
             if use_sig:
                 cum = att_sum[:n] / att_cnt[:n].clamp(min=1)
                 con = att_max[:n] / (cum + 1e-9)
-            if debug is not None:
-                idx, dbg = _select_tokens(imp[:n], cum_imp[:n], win_imp[:n], ent[:n],
-                                          key_rep, slot_pos[:n], budget, recent,
-                                          sink, backend, anchor_mode, anchor_k, None,
-                                          cum=cum, con=con, sig=sig_t,
-                                          policy_params=policy_params, cache=selection_cache,
-                                          attn_history=attn_history,
-                                          model=model,
-                                          return_debug=True)
-            else:
-                idx = _select_tokens(imp[:n], cum_imp[:n], win_imp[:n], ent[:n],
+            selected = select_tokens(imp[:n], cum_imp[:n], win_imp[:n], ent[:n],
                                      key_rep, slot_pos[:n], budget, recent,
                                      sink, backend, anchor_mode, anchor_k, None,
                                      cum=cum, con=con, sig=sig_t,
                                      policy_params=policy_params, cache=selection_cache,
-                                     attn_history=attn_history, model=model)
+                                     attn_history=attn_history, model=model,
+                                     return_debug=debug is not None)
+            idx, dbg = selected if debug is not None else (selected, None)
             if debug is not None:
-                idx_debug = _representative_indices(idx)
+                idx_debug = representative_indices(idx)
                 final_keep = torch.zeros(n, dtype=torch.bool, device=device)
                 final_keep[idx_debug] = True
                 evicted = (~final_keep).nonzero(as_tuple=True)[0]
@@ -692,28 +245,28 @@ def generate_token_evict(
                 debug["evictions"].append({
                     "step": step + 1,
                     "cache_len_before": n,
-                    "cache_len_after": _selection_length(idx),
-                    "slot_pos": _take_int(slot_pos[:n]),
-                    "token_ids": _take_int(slot_ids[:n]),
-                    "imp": _take_float(imp[:n]),
-                    "cum_imp": _take_float(cum_imp[:n]),
-                    "win_imp": _take_float(win_imp[:n]),
-                    "ent": _take_float(ent[:n]),
-                    "cum_attn": _take_float(cum) if cum is not None else None,
-                    "concentration": _take_float(con) if con is not None else None,
-                    "sig_score": _take_float(score),
-                    "policy_score": _take_float(dbg["policy_score"]),
-                    "backend_keep_slots": _take_int(dbg["backend_keep"]),
-                    "anchor_extra_slots": _take_int(rescued),
-                    "final_keep_slots": _take_int(idx_debug),
-                    "evicted_slots": _take_int(evicted),
-                    "anchor_extra_text": _token_samples(tokenizer, slot_ids[:n], rescued, debug_topk),
-                    "evicted_top_sig_text": _token_samples(tokenizer, slot_ids[:n], evicted_by_sig, debug_topk),
+                    "cache_len_after": selection_length(idx),
+                    "slot_pos": take_int(slot_pos[:n]),
+                    "token_ids": take_int(slot_ids[:n]),
+                    "imp": take_float(imp[:n]),
+                    "cum_imp": take_float(cum_imp[:n]),
+                    "win_imp": take_float(win_imp[:n]),
+                    "ent": take_float(ent[:n]),
+                    "cum_attn": take_float(cum) if cum is not None else None,
+                    "concentration": take_float(con) if con is not None else None,
+                    "sig_score": take_float(score),
+                    "policy_score": take_float(dbg["policy_score"]),
+                    "backend_keep_slots": take_int(dbg["backend_keep"]),
+                    "anchor_extra_slots": take_int(rescued),
+                    "final_keep_slots": take_int(idx_debug),
+                    "evicted_slots": take_int(evicted),
+                    "anchor_extra_text": token_samples(tokenizer, slot_ids[:n], rescued, debug_topk),
+                    "evicted_top_sig_text": token_samples(tokenizer, slot_ids[:n], evicted_by_sig, debug_topk),
                 })
             before_n = n
-            idx_slots = _representative_indices(idx)
+            idx_slots = representative_indices(idx)
             cache, k = cache_manager.compact(cache, idx)
-            after_summary = _cache_length_summary(cache, k)
+            after_summary = cache_length_summary(cache, k)
             slot_pos[:k] = slot_pos[idx_slots]; slot_ids[:k] = slot_ids[idx_slots]; imp[:k] = imp[idx_slots]
             cum_imp[:k] = cum_imp[idx_slots]; win_imp[:k] = win_imp[idx_slots]; ent[:k] = ent[idx_slots]
             if use_sig:
@@ -724,49 +277,18 @@ def generate_token_evict(
             n_evict += 1
             event_eviction_sec = time.perf_counter() - evict_start
             eviction_sec_total += event_eviction_sec
-            evict_events.append({
-                "step": step + 1,
-                "cache_len_before": int(before_n),
-                "cache_len_after": int(k),
-                "compression_ratio": float(k / max(before_n, 1)),
-                "evicted": int(before_n - k),
-                "effective_cache_len_before_mean": before_summary["mean_effective_cache_len"],
-                "effective_cache_len_after_mean": after_summary["mean_effective_cache_len"],
-                "effective_cache_len_before_max": before_summary["max_effective_cache_len"],
-                "effective_cache_len_after_max": after_summary["max_effective_cache_len"],
-                "effective_compression_ratio": float(
-                    after_summary["total_effective_kv_tokens"]
-                    / max(before_summary["total_effective_kv_tokens"], 1.0)
-                ),
-                "effective_evicted": float(
-                    before_summary["total_effective_kv_tokens"]
-                    - after_summary["total_effective_kv_tokens"]
-                ),
-                "head_budget_mean": after_summary["head_budget_mean"],
-                "head_budget_std": after_summary["head_budget_std"],
-                "head_budget_min": after_summary["head_budget_min"],
-                "head_budget_max": after_summary["head_budget_max"],
-                "head_budget_entropy": after_summary["head_budget_entropy"],
-                "num_underfilled_heads": after_summary["num_underfilled_heads"],
-                "eviction_sec": event_eviction_sec,
-            })
+            evict_events.append(eviction_event(
+                step=step + 1, before_n=before_n, after_n=k,
+                before=before_summary, after=after_summary,
+                eviction_sec=event_eviction_sec,
+            ))
 
     text = tokenizer.decode(gen, skip_special_tokens=True)
     elapsed = time.perf_counter() - start_time
     peak_memory = torch.cuda.max_memory_allocated(device) if use_cuda_memory else None
-    mean_compression = (
-        sum(event["compression_ratio"] for event in evict_events) / len(evict_events)
-        if evict_events else 1.0
-    )
-    final_length_summary = _cache_length_summary(cache, n)
-    compression_ratios = [event["compression_ratio"] for event in evict_events]
-    effective_compression_ratios = [event["effective_compression_ratio"] for event in evict_events]
-    total_evicted_tokens = sum(event["evicted"] for event in evict_events)
-    total_effective_evicted_tokens = sum(event["effective_evicted"] for event in evict_events)
-    mean_evicted_per_event = _mean([event["evicted"] for event in evict_events])
-    mean_effective_evicted_per_event = _mean([event["effective_evicted"] for event in evict_events])
-    cache_len_curve = [event["cache_len_after"] for event in evict_events]
-    effective_cache_len_curve = [event["effective_cache_len_after_mean"] for event in evict_events]
+    final_length_summary = cache_length_summary(cache, n)
+    event_metrics = eviction_metrics(evict_events)
+    mean_compression = event_metrics.pop("mean_compression_ratio")
     eviction_sec_mean = eviction_sec_total / n_evict if n_evict else 0.0
     decode_sec = elapsed - prefill_sec
     timing = {
@@ -782,17 +304,7 @@ def generate_token_evict(
         timing_sink.add(name, value)
     extra_metrics = {
         **final_length_summary,
-        "total_evicted_tokens": int(total_evicted_tokens),
-        "total_effective_evicted_tokens": float(total_effective_evicted_tokens),
-        "mean_evicted_per_event": float(mean_evicted_per_event),
-        "mean_effective_evicted_per_event": float(mean_effective_evicted_per_event),
-        "min_compression_ratio": min(compression_ratios) if compression_ratios else 1.0,
-        "max_compression_ratio": max(compression_ratios) if compression_ratios else 1.0,
-        "mean_effective_compression_ratio": _mean(effective_compression_ratios, 1.0),
-        "min_effective_compression_ratio": min(effective_compression_ratios) if effective_compression_ratios else 1.0,
-        "max_effective_compression_ratio": max(effective_compression_ratios) if effective_compression_ratios else 1.0,
-        "cache_len_curve": cache_len_curve,
-        "effective_cache_len_curve": effective_cache_len_curve,
+        **event_metrics,
         **timing,
     }
     if debug is not None:
@@ -818,6 +330,7 @@ def generate_token_evict(
             "evict_events": evict_events,
             "timing": dict(timing_sink.values),
             **extra_metrics}
+
 
 
 @torch.no_grad()
@@ -905,10 +418,10 @@ def generate_token_evict_batch(
     observation_provider = AttentionObservationProvider(
         decay=obs_decay, needs_history=policy.needs_attn_history
     )
-    logit_provider = AttentionLogitObservationProvider(_attention_logit_rows_batch)
+    logit_provider = AttentionLogitObservationProvider(attention_logit_rows_batch)
     policy_params = policy_params or {}
     track = budget < 10 ** 8 and not policy.never_evict
-    use_attention_logits = policy.needs_attn_history and _supports_attention_logits(model)
+    use_attention_logits = policy.needs_attn_history and supports_attention_logits(model)
     anchor_k = int(anchor_frac * budget)
     physical_prompt_len = int(input_ids.shape[1])
     capacity = physical_prompt_len + max_new
@@ -970,8 +483,8 @@ def generate_token_evict_batch(
     for step in range(max_new):
         active = ~finished
         step_valid = active.clone()
-        token_entropy = _entropy_batch(logits)
-        next_tokens = _sample_batch(logits, do_sample, temperature, top_p, generators)
+        token_entropy = entropy_batch(logits)
+        next_tokens = sample_batch(logits, do_sample, temperature, top_p, generators)
         next_tokens = torch.where(active, next_tokens, torch.full_like(next_tokens, filler))
         for row in active.nonzero(as_tuple=True)[0].tolist():
             generated[row].append(int(next_tokens[row]))
@@ -980,7 +493,7 @@ def generate_token_evict_batch(
         if bool(finished.all()):
             break
 
-        want_observe, active_obs_window = _should_collect_observation(
+        want_observe, active_obs_window = should_collect_observation(
             policy,
             track=track,
             policy_params=policy_params,
@@ -1040,6 +553,7 @@ def generate_token_evict_batch(
             if policy.needs_attn_history and observed["history"] is not None:
                 attn_history.append(observed["history"])
                 attn_history = attn_history[-active_obs_window:]
+            # stack().mean() keeps the historical reduction order (bitwise reproducible).
             row_score = torch.stack([
                 attention[:, :, -1, :n].mean(1).float()
                 for attention in out.attentions
@@ -1049,16 +563,14 @@ def generate_token_evict_batch(
             win_imp[:, :n] = win_imp[:, :n] * obs_decay + row_score
             attention_observation_sec += time.perf_counter() - observation_start
 
-        cache_aware = policy.needs_cache or policy.needs_attn_history
-        trigger_len = budget if cache_aware else budget + anchor_k
-        over_trigger = n >= trigger_len if cache_aware else n > trigger_len
-        if track and (step + 1) % evict_every == 0 and over_trigger:
+        if eviction_due(policy, track=track, step=step, evict_every=evict_every,
+                        cache_len=n, budget=budget, anchor_k=anchor_k):
             eviction_start = time.perf_counter()
             before_n = n
-            before_summaries = _batch_cache_length_summaries(
+            before_summaries = batch_cache_length_summaries(
                 cache, valid_cache_mask[:, :before_n]
             )
-            idx = _select_tokens_batch(
+            idx = select_tokens_batch(
                 imp[:, :n],
                 cum_imp[:, :n],
                 win_imp[:, :n],
@@ -1076,7 +588,7 @@ def generate_token_evict_batch(
                 model=model,
                 valid_mask=valid_cache_mask[:, :n],
             )
-            representative = _representative_indices_batch(idx)
+            representative = representative_indices_batch(idx)
             cache, n = cache_manager.compact_batch(cache, idx)
             slot_pos[:, :n] = torch.gather(slot_pos[:, :before_n], 1, representative)
             slot_ids[:, :n] = torch.gather(slot_ids[:, :before_n], 1, representative)
@@ -1087,7 +599,7 @@ def generate_token_evict_batch(
             valid_cache_mask[:, :n] = torch.gather(
                 valid_cache_mask[:, :before_n], 1, representative
             )
-            after_summaries = _batch_cache_length_summaries(
+            after_summaries = batch_cache_length_summaries(
                 cache, valid_cache_mask[:, :n]
             )
             if policy.needs_attn_history:
@@ -1096,34 +608,11 @@ def generate_token_evict_batch(
             event_sec = time.perf_counter() - eviction_start
             eviction_sec_total += event_sec
             for row in range(batch_size):
-                before_summary = before_summaries[row]
-                after_summary = after_summaries[row]
-                evict_events[row].append({
-                    "step": step + 1,
-                    "cache_len_before": int(before_n),
-                    "cache_len_after": int(n),
-                    "compression_ratio": float(n / max(before_n, 1)),
-                    "evicted": int(before_n - n),
-                    "effective_cache_len_before_mean": before_summary["mean_effective_cache_len"],
-                    "effective_cache_len_after_mean": after_summary["mean_effective_cache_len"],
-                    "effective_cache_len_before_max": before_summary["max_effective_cache_len"],
-                    "effective_cache_len_after_max": after_summary["max_effective_cache_len"],
-                    "effective_compression_ratio": float(
-                        after_summary["total_effective_kv_tokens"]
-                        / max(before_summary["total_effective_kv_tokens"], 1.0)
-                    ),
-                    "effective_evicted": float(
-                        before_summary["total_effective_kv_tokens"]
-                        - after_summary["total_effective_kv_tokens"]
-                    ),
-                    "head_budget_mean": after_summary["head_budget_mean"],
-                    "head_budget_std": after_summary["head_budget_std"],
-                    "head_budget_min": after_summary["head_budget_min"],
-                    "head_budget_max": after_summary["head_budget_max"],
-                    "head_budget_entropy": after_summary["head_budget_entropy"],
-                    "num_underfilled_heads": after_summary["num_underfilled_heads"],
-                    "eviction_sec": event_sec,
-                })
+                evict_events[row].append(eviction_event(
+                    step=step + 1, before_n=before_n, after_n=n,
+                    before=before_summaries[row], after=after_summaries[row],
+                    eviction_sec=event_sec,
+                ))
 
     elapsed = time.perf_counter() - start_time
     peak_memory = torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None
@@ -1134,18 +623,11 @@ def generate_token_evict_batch(
     timing_sink.add("eviction_sec_total", eviction_sec_total)
     batch_total_tokens = sum(len(ids) for ids in generated)
     amortized_elapsed = elapsed / batch_size
-    final_summaries = _batch_cache_length_summaries(cache, valid_cache_mask[:, :n])
+    final_summaries = batch_cache_length_summaries(cache, valid_cache_mask[:, :n])
     candidates = []
     for row, ids in enumerate(generated):
         row_events = evict_events[row]
-        compression_ratios = [event["compression_ratio"] for event in row_events]
-        effective_compression_ratios = [
-            event["effective_compression_ratio"] for event in row_events
-        ]
-        total_evicted_tokens = sum(event["evicted"] for event in row_events)
-        total_effective_evicted_tokens = sum(
-            event["effective_evicted"] for event in row_events
-        )
+        row_metrics = eviction_metrics(row_events)
         candidates.append({
             "text": tokenizer.decode(ids, skip_special_tokens=True),
             "gen_ids": ids,
@@ -1158,30 +640,10 @@ def generate_token_evict_batch(
             "batch_elapsed_sec": elapsed,
             "batch_tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
             "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
-            "mean_compression_ratio": _mean(compression_ratios, 1.0),
+            "mean_compression_ratio": row_metrics.pop("mean_compression_ratio"),
             "evict_events": row_events,
             **final_summaries[row],
-            "total_evicted_tokens": int(total_evicted_tokens),
-            "total_effective_evicted_tokens": float(total_effective_evicted_tokens),
-            "mean_evicted_per_event": _mean(
-                [event["evicted"] for event in row_events]
-            ),
-            "mean_effective_evicted_per_event": _mean(
-                [event["effective_evicted"] for event in row_events]
-            ),
-            "min_compression_ratio": min(compression_ratios) if compression_ratios else 1.0,
-            "max_compression_ratio": max(compression_ratios) if compression_ratios else 1.0,
-            "mean_effective_compression_ratio": _mean(effective_compression_ratios, 1.0),
-            "min_effective_compression_ratio": (
-                min(effective_compression_ratios) if effective_compression_ratios else 1.0
-            ),
-            "max_effective_compression_ratio": (
-                max(effective_compression_ratios) if effective_compression_ratios else 1.0
-            ),
-            "cache_len_curve": [event["cache_len_after"] for event in row_events],
-            "effective_cache_len_curve": [
-                event["effective_cache_len_after_mean"] for event in row_events
-            ],
+            **row_metrics,
             "prefill_sec": prefill_sec / batch_size,
             "decode_sec": max(0.0, elapsed - prefill_sec) / batch_size,
             "decode_forward_sec": decode_forward_sec / batch_size,
@@ -1206,295 +668,3 @@ def generate_token_evict_batch(
         "timing": dict(timing_sink.values),
         "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
     }
-
-
-def _position_count_pairs(positions: torch.Tensor) -> list[list[int]]:
-    """Compress exact per-layer/head positions into ``[position, count]`` rows."""
-    if positions.numel() == 0:
-        return []
-    unique, counts = torch.unique(positions.reshape(-1), sorted=True, return_counts=True)
-    return [
-        [int(position), int(count)]
-        for position, count in zip(unique.detach().cpu(), counts.detach().cpu())
-    ]
-
-
-def _selection_position_debug(position_maps, n: int, idx) -> tuple[list, list, list]:
-    """Return kept maps plus exact kept/evicted true-position multiplicities."""
-    kept_maps = []
-    kept_positions = []
-    evicted_positions = []
-    headwise = _is_headwise_selection(idx)
-    for layer_index, position_map in enumerate(position_maps):
-        num_heads = position_map.shape[0]
-        if headwise:
-            layer_idx = idx[layer_index]
-            if layer_idx.ndim == 3:
-                layer_idx = layer_idx[0]
-        else:
-            layer_idx = idx.unsqueeze(0).expand(num_heads, -1)
-        layer_idx = layer_idx.to(position_map.device)
-        kept = position_map[:, :n].gather(1, layer_idx)
-        keep_mask = torch.zeros((num_heads, n), dtype=torch.bool, device=position_map.device)
-        keep_mask.scatter_(1, layer_idx, True)
-        kept_maps.append(kept)
-        kept_positions.append(kept.reshape(-1))
-        evicted_positions.append(position_map[:, :n][~keep_mask])
-    return (
-        kept_maps,
-        _position_count_pairs(torch.cat(kept_positions)),
-        _position_count_pairs(torch.cat(evicted_positions)),
-    )
-
-
-@torch.no_grad()
-def score_trace_token(
-    model,
-    tokenizer,
-    full_ids,
-    prompt_len,
-    refl_steps,
-    anchor_mode,
-    budget=1024,
-    recent=64,
-    sink=8,
-    backend="rkv",
-    anchor_frac=0.05,
-    evict_every=128,
-    obs_window=16,
-    obs_decay=0.9,
-    span_len=32,
-    sig=None,
-    policy_params=None,
-    debug=False,
-    seed=0,
-    execution_backend: ExecutionBackend | None = None,
-    cache_manager: CacheManager | None = None,
-):
-    """NLL 兜底:token 级淘汰下 teacher-forced 喂真 trace,测纠错 span 的 NLL。
-    与 generate_token_evict 同淘汰逻辑,但不采样、喂 gen_ids,累计纠错/非纠错 NLL。"""
-    device = next(model.parameters()).device
-    execution_backend = execution_backend or TransformersExecutionBackend(model)
-    cache_manager = cache_manager or TransformersCacheManager()
-    torch.manual_seed(int(seed))
-    full_ids = full_ids.to(device)
-    if full_ids.dim() == 1:
-        full_ids = full_ids.unsqueeze(0)
-    P = prompt_len
-    gen_ids = full_ids[0, P:]
-    Lgen = gen_ids.numel()
-    corr = torch.zeros(Lgen, dtype=torch.bool)
-    for s in refl_steps:
-        corr[s: min(s + span_len, Lgen)] = True
-    anchor_k = int(anchor_frac * budget)
-    use_sig = anchor_mode == "sig"
-    sig_t = (torch.tensor(sig[0], device=device), float(sig[1])) if use_sig else None
-    policy = get_policy(backend)
-    policy_params = policy_params or {}
-    track = budget < 10 ** 8 and not policy.never_evict
-    use_attention_logits = policy.needs_attn_history and _supports_attention_logits(model)
-
-    N = P + Lgen
-    slot_pos = torch.zeros(N, dtype=torch.long, device=device)
-    slot_pos[:P] = torch.arange(P, device=device)
-    imp = torch.zeros(N, device=device)
-    cum_imp = torch.zeros(N, device=device)
-    win_imp = torch.zeros(N, device=device)
-    ent = torch.zeros(N, device=device)
-    att_sum = torch.zeros(N, device=device)
-    att_cnt = torch.zeros(N, device=device)
-    att_max = torch.zeros(N, device=device)
-    n = P
-    out = execution_backend.prefill(
-        full_ids[:, :P], use_cache=True, output_attentions=False
-    )
-    cache = out.past_key_values
-    logits = out.logits[:, -1]
-    nll_c, nll_n, c_c, c_n = 0.0, 0.0, 0, 0
-    attn_history = []
-    nll_values = []
-    eviction_events = []
-    position_maps = None
-    if debug:
-        cache_view = _cache_view(cache)
-        position_maps = []
-        initial_positions = torch.arange(P, device=device)
-        for layer in cache_view.layers:
-            mapping = torch.empty((layer.keys.shape[1], N), dtype=torch.long, device=device)
-            mapping[:, :P] = initial_positions
-            position_maps.append(mapping)
-
-    for t in range(Lgen):
-        real = int(gen_ids[t])
-        nll = -float(torch.log_softmax(logits.float(), -1)[0, real])
-        if debug:
-            nll_values.append(nll)
-        if corr[t]: nll_c += nll; c_c += 1
-        else: nll_n += nll; c_n += 1
-        true_pos = P + t
-        to_evict = evict_every - ((t + 1) % evict_every or evict_every)
-        active_obs_window = policy.observation_window(policy_params, obs_window)
-        want_observe = track and active_obs_window > 0 and to_evict < active_obs_window
-        want_logits = want_observe and policy.needs_attn_history and use_attention_logits
-        want_attn = want_observe and not want_logits
-        position_ids = torch.tensor([[true_pos]], device=device)
-        out = execution_backend.decode(
-            full_ids[:, P + t:P + t + 1],
-            past_key_values=cache,
-            use_cache=True,
-            output_attentions=want_attn,
-            output_hidden_states=want_logits,
-            attention_mask=torch.ones(1, n + 1, device=device, dtype=torch.long),
-            position_ids=position_ids,
-            cache_position=torch.tensor([n], device=device),
-        )
-        cache = out.past_key_values
-        logits = out.logits[:, -1]
-        slot_pos[n] = true_pos
-        ent[n] = _entropy(logits)  # anchor criterion approximates current logit entropy
-        imp[n] = 0.0
-        cum_imp[n] = 0.0
-        win_imp[n] = 0.0
-        att_sum[n] = 0.0
-        att_cnt[n] = 0.0
-        att_max[n] = 0.0
-        if position_maps is not None:
-            for mapping in position_maps:
-                mapping[:, n] = true_pos
-        n += 1
-        if want_logits:
-            rows = _attention_logit_rows(model, out, cache, position_ids, n)
-            if rows is None:
-                raise RuntimeError(
-                    "attention-logit extraction failed; use a supported RoPE decoder or disable cache-aware baselines"
-                )
-            attn_history.append(rows)
-            attn_history = attn_history[-active_obs_window:]
-        if want_attn:
-            if policy.needs_attn_history:
-                attn_history.append(
-                    [
-                        torch.log(a[0, :, -1, :n].detach().float().clamp_min(1e-30))
-                        for a in out.attentions
-                    ]
-                )
-                attn_history = attn_history[-active_obs_window:]
-            row = torch.zeros(n, device=device)
-            for a in out.attentions:
-                row += a[0, :, -1, :].mean(0).float()
-            row /= len(out.attentions)
-            imp[:n] = torch.maximum(imp[:n] * obs_decay, row)
-            cum_imp[:n] += row
-            win_imp[:n] = win_imp[:n] * obs_decay + row
-            if use_sig:
-                att_sum[:n] += row
-                att_cnt[:n] += 1.0
-                att_max[:n] = torch.maximum(att_max[:n], row)
-        cache_aware = policy.needs_cache or policy.needs_attn_history
-        trigger_len = budget if cache_aware else budget + anchor_k
-        over_trigger = n >= trigger_len if cache_aware else n > trigger_len
-        if track and (t + 1) % evict_every == 0 and over_trigger:
-            selection_cache = _cache_view(cache)
-            key_rep = (
-                None
-                if policy.needs_cache
-                else (_key_reps(selection_cache, device) if policy.needs_key_reps else None)
-            )
-            cum = con = None
-            if use_sig:
-                cum = att_sum[:n] / att_cnt[:n].clamp(min=1)
-                con = att_max[:n] / (cum + 1e-9)
-            idx = _select_tokens(
-                imp[:n],
-                cum_imp[:n],
-                win_imp[:n],
-                ent[:n],
-                key_rep,
-                slot_pos[:n],
-                budget,
-                recent,
-                sink,
-                backend,
-                anchor_mode,
-                anchor_k,
-                None,
-                cum=cum,
-                con=con,
-                sig=sig_t,
-                policy_params=policy_params,
-                cache=selection_cache,
-                attn_history=attn_history,
-                model=model,
-            )
-            before_n = n
-            kept_maps = kept_counts = evicted_counts = None
-            if position_maps is not None:
-                kept_maps, kept_counts, evicted_counts = _selection_position_debug(
-                    position_maps, n, idx
-                )
-            idx_slots = _representative_indices(idx)
-            cache, k = cache_manager.compact(cache, idx)
-            slot_pos[:k] = slot_pos[idx_slots]
-            imp[:k] = imp[idx_slots]
-            cum_imp[:k] = cum_imp[idx_slots]
-            win_imp[:k] = win_imp[idx_slots]
-            ent[:k] = ent[idx_slots]
-            att_sum[:k] = att_sum[idx_slots]
-            att_cnt[:k] = att_cnt[idx_slots]
-            att_max[:k] = att_max[idx_slots]
-            if position_maps is not None:
-                for mapping, kept in zip(position_maps, kept_maps):
-                    mapping[:, :k] = kept
-                if before_n > k:
-                    eviction_events.append(
-                        {
-                            "eviction_step": t + 1,
-                            "cache_len_before": before_n,
-                            "cache_len_after": k,
-                            "evicted": before_n - k,
-                            "kept_positions": [position for position, _ in kept_counts],
-                            "evicted_positions": [position for position, _ in evicted_counts],
-                            "kept_position_counts": kept_counts,
-                            "evicted_position_counts": evicted_counts,
-                        }
-                    )
-            n = k
-            if policy.needs_attn_history:
-                attn_history = []
-    result = {
-        "nll_corr": nll_c / max(c_c, 1),
-        "n_corr": c_c,
-        "nll_noncorr": nll_n / max(c_n, 1),
-        "n_noncorr": c_n,
-    }
-    if debug:
-        result.update(
-            {
-                "per_token_nll": torch.tensor(nll_values, dtype=torch.float32),
-                "eviction_events": eviction_events,
-                "final_cache_len": n,
-                "seed": int(seed),
-            }
-        )
-    return result
-
-
-def _smoke(model_path, max_new=200):
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-    tok = AutoTokenizer.from_pretrained(model_path)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path, dtype=torch.bfloat16, device_map="cuda", attn_implementation="eager").eval()
-    ids = tok.apply_chat_template([{"role": "user", "content": "Compute 12*13 then 7*8."}],
-                                  add_generation_prompt=True, return_tensors="pt").to("cuda")
-    for be in ["snapkv", "rkv", "h2o", "window", "random"]:
-        for am in ["none", "anchor"]:
-            r = generate_token_evict(model, tok, ids, budget=128, recent=32, sink=4,
-                                     backend=be, anchor_mode=am, evict_every=32, max_new=max_new)
-            print(f"backend={be:6s} anchor={am:6s} gen={len(r['gen_ids'])} "
-                  f"evict={r['n_evict']} cache={r['final_cache_len']} (budget128)")
-    print("TOKEN SMOKE OK")
-
-
-if __name__ == "__main__":
-    import sys
-    _smoke(sys.argv[1], int(sys.argv[2]) if len(sys.argv) > 2 else 200)
