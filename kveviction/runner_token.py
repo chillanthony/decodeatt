@@ -80,6 +80,7 @@ def generate_token_evict(
     execution_backend: ExecutionBackend | None = None,
     cache_manager: CacheManager | None = None,
     timing_sink: TimingSink | None = None,
+    sync_timing: bool = False,
 ):
     """token 级淘汰生成(忠实 R-KV 架构 + 支持长生成)。
 
@@ -101,6 +102,7 @@ def generate_token_evict(
         sig=sig, policy_params=policy_params, input_attention_mask=None,
         debug_path=debug_path, debug_topk=debug_topk,
         execution_backend=execution_backend, cache_manager=cache_manager,
+        sync_timing=sync_timing,
     )
     gen = run["generated"][0]
     events = run["evict_events"][0]
@@ -188,6 +190,7 @@ def generate_token_evict_batch(
     cache_manager: CacheManager | None = None,
     timing_sink: TimingSink | None = None,
     sig=None,
+    sync_timing: bool = False,
 ):
     """Generate independent candidates for one or more prompts in a static batch.
 
@@ -205,7 +208,7 @@ def generate_token_evict_batch(
         obs_window=obs_window, obs_decay=obs_decay, max_new=max_new,
         do_sample=do_sample, temperature=temperature, top_p=top_p, sig=sig,
         policy_params=policy_params, execution_backend=execution_backend,
-        cache_manager=cache_manager,
+        cache_manager=cache_manager, sync_timing=sync_timing,
     )
     if batch_size == 1 and input_ids.shape[0] == 1 and input_attention_mask is None:
         seed = int((seeds or [0])[0])
@@ -286,11 +289,30 @@ def generate_token_evict_batch(
     }
 
 
+def _synced_clock(device):
+    """``perf_counter`` after waiting for queued GPU work, so phase timings are real.
+
+    CUDA kernels run asynchronously: without a sync a timer around a forward
+    pass only measures the launch, and the GPU time lands in whichever phase
+    next blocks.  Syncing makes every phase timing exact at a small throughput
+    cost, so it is opt-in (``sync_timing``).
+    """
+    if device.type != "cuda":
+        return time.perf_counter
+
+    def clock():
+        torch.cuda.synchronize(device)
+        return time.perf_counter()
+
+    return clock
+
+
 def _decode(
     model, tokenizer, input_ids, *, batch_size, solo, budget, recent, sink, backend,
     anchor_mode, anchor_frac, evict_every, obs_window, obs_decay, max_new,
     do_sample, temperature, top_p, seeds, sig, policy_params, input_attention_mask,
     debug_path, debug_topk, execution_backend, cache_manager,
+    sync_timing=False, forced_ids=None, trace_hook=None,
 ):
     """Shared decoding loop; returns raw per-request state for the wrappers to format."""
     device = next(model.parameters()).device
@@ -298,6 +320,7 @@ def _decode(
     cache_manager = cache_manager or TransformersCacheManager()
     input_ids = input_ids.to(device)
     B = batch_size
+    clock = _synced_clock(device) if sync_timing else time.perf_counter
 
     generators = []
     for seed in seeds:
@@ -357,12 +380,14 @@ def _decode(
         "prompt_len": P,
         "evictions": [],
     } if debug_path else None
+    if (forced_ids is not None or trace_hook is not None) and not solo:
+        raise ValueError("teacher forcing is only supported for single unpadded requests")
     if debug is not None and not solo:
         raise ValueError("debug dumps are only supported for single unpadded requests")
 
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
-    start_time = time.perf_counter()
+    start_time = clock()
     if solo:
         out = execution_backend.prefill(input_ids, use_cache=True, output_attentions=False)
     else:
@@ -373,7 +398,7 @@ def _decode(
             use_cache=True,
             output_attentions=False,
         )
-    prefill_sec = time.perf_counter() - start_time
+    prefill_sec = clock() - start_time
     cache = out.past_key_values
     logits = out.logits[:, -1]
     eos = tokenizer.eos_token_id
@@ -387,15 +412,25 @@ def _decode(
     n_evict = 0
     decode_forward_sec = attention_observation_sec = eviction_sec_total = 0.0
 
+    if trace_hook is not None:
+        trace_hook.prefill(_cache_view(cache), P)
+    forced_nll = []
     for step in range(max_new):
         active = ~finished
         step_valid = active.clone()
         token_entropy = entropy_batch(logits)
-        next_tokens = sample_batch(logits, do_sample, temperature, top_p, generators)
+        if forced_ids is None:
+            next_tokens = sample_batch(logits, do_sample, temperature, top_p, generators)
+        else:
+            # Teacher forcing: feed the given trace and record its NLL instead of sampling.
+            next_tokens = forced_ids[:, step]
+            forced_nll.append(
+                -torch.log_softmax(logits.float(), -1).gather(1, next_tokens.unsqueeze(1)).squeeze(1)
+            )
         next_tokens = torch.where(active, next_tokens, torch.full_like(next_tokens, filler))
         for row in active.nonzero(as_tuple=True)[0].tolist():
             generated[row].append(int(next_tokens[row]))
-        if eos is not None:
+        if eos is not None and forced_ids is None:
             finished |= active & next_tokens.eq(eos)
         if bool(finished.all()):
             break
@@ -409,7 +444,7 @@ def _decode(
         want_logits = want_observe and policy.needs_attn_history and use_attention_logits
         want_attn = want_observe and not want_logits
         position_ids = (prompt_lengths + step).unsqueeze(1)
-        decode_start = time.perf_counter()
+        decode_start = clock()
         out = execution_backend.decode(
             next_tokens.unsqueeze(1),
             past_key_values=cache,
@@ -420,19 +455,21 @@ def _decode(
             position_ids=position_ids,
             cache_position=torch.tensor([n], device=device),
         )
-        decode_forward_sec += time.perf_counter() - decode_start
+        decode_forward_sec += clock() - decode_start
         cache = out.past_key_values
         logits = out.logits[:, -1]
         feats.append(n, pos=position_ids.squeeze(1), token=next_tokens,
                      entropy=token_entropy, valid=step_valid)
+        if trace_hook is not None:
+            trace_hook.append(n, int(position_ids[0, 0]))
         n += 1
 
         if want_logits:
-            obs_start = time.perf_counter()
+            obs_start = clock()
             rows = logit_provider.observe(
                 out, cache=_cache_view(cache), n=n, position_ids=position_ids, model=model,
             )["history"]
-            attention_observation_sec += time.perf_counter() - obs_start
+            attention_observation_sec += clock() - obs_start
             if rows is None:
                 raise RuntimeError(
                     "attention-logit extraction failed; use a supported RoPE decoder "
@@ -441,7 +478,7 @@ def _decode(
             attn_history.append(rows)
             attn_history = attn_history[-active_obs_window:]
         if want_attn:                                 # 观察窗:全层注意力均值进 imp/cum/win
-            obs_start = time.perf_counter()
+            obs_start = clock()
             observed = observation_provider.observe(
                 out, cache=_cache_view(cache), n=n, position_ids=position_ids, model=model,
             )
@@ -449,12 +486,12 @@ def _decode(
                 attn_history.append(observed["history"])
                 attn_history = attn_history[-active_obs_window:]
             feats.observe(n, observed["importance"], obs_decay)
-            attention_observation_sec += time.perf_counter() - obs_start
+            attention_observation_sec += clock() - obs_start
 
         if not eviction_due(policy, track=track, step=step, evict_every=evict_every,
                             cache_len=n, budget=budget, anchor_k=anchor_k):
             continue
-        evict_start = time.perf_counter()
+        evict_start = clock()
         before_n = n
         selection_cache = _cache_view(cache)
         if solo:
@@ -471,6 +508,8 @@ def _decode(
                 )
             cache, n = cache_manager.compact(cache, idx)
             feats.compact(representative_indices(idx).unsqueeze(0), before_n)
+            if trace_hook is not None:
+                trace_hook.compact(step, before_n, idx, n)
             after = [cache_length_summary(cache, n)]
         else:
             before = batch_cache_length_summaries(cache, feats.valid[:, :n])
@@ -485,7 +524,7 @@ def _decode(
         if policy.needs_attn_history:
             attn_history = []
         n_evict += 1
-        event_sec = time.perf_counter() - evict_start
+        event_sec = clock() - evict_start
         eviction_sec_total += event_sec
         for row in range(B):
             evict_events[row].append(eviction_event(
@@ -495,6 +534,7 @@ def _decode(
 
     return {
         "generated": generated,
+        "forced_nll": torch.stack(forced_nll) if forced_nll else None,   # [steps, B]
         # True when the request ended with EOS, False when it hit max_new.
         "finished": [bool(x) for x in finished.tolist()],
         "evict_events": evict_events,
@@ -507,7 +547,7 @@ def _decode(
         "decode_forward_sec": decode_forward_sec,
         "attention_observation_sec": attention_observation_sec,
         "eviction_sec_total": eviction_sec_total,
-        "elapsed": time.perf_counter() - start_time,
+        "elapsed": clock() - start_time,
         "peak_memory": torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None,
         "debug": debug,
     }

@@ -98,6 +98,13 @@ def main():
     )
     parser.add_argument("--out", default=None)
     parser.add_argument(
+        "--sync-timing",
+        action="store_true",
+        default=None,
+        help="Synchronize CUDA around every timed phase so prefill/forward/eviction "
+        "timings are exact (slightly lowers throughput).",
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Start over instead of resuming an existing --out file.",
