@@ -29,7 +29,7 @@ CANDIDATE_KEYS = (
     "max_effective_compression_ratio", "cache_len_curve", "effective_cache_len_curve",
     # timing breakdown
     "prefill_sec", "decode_sec", "decode_forward_sec", "attention_observation_sec",
-    "eviction_sec_total", "eviction_sec_mean", "other_decode_sec", "timing",
+    "eviction_sec_total", "eviction_sec_mean", "other_decode_sec",
 )
 
 
@@ -92,7 +92,6 @@ def no_eviction_candidate(
         "eviction_sec_total": 0.0,
         "eviction_sec_mean": 0.0,
         "other_decode_sec": None,
-        "timing": {},
     }
     return check_candidate(result)
 

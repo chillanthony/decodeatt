@@ -51,7 +51,6 @@ from kveviction.observations import (
     AttentionLogitObservationProvider,
     AttentionObservationProvider,
 )
-from kveviction.results import TimingSink
 from kveviction.sampling import entropy_batch, sample_batch
 from kveviction.selection import (
     eviction_due,
@@ -79,7 +78,6 @@ def generate_token_evict(
     debug_path=None, debug_topk=0,
     execution_backend: ExecutionBackend | None = None,
     cache_manager: CacheManager | None = None,
-    timing_sink: TimingSink | None = None,
     sync_timing: bool = False,
     cache_impl: str = "growable",
 ):
@@ -93,7 +91,6 @@ def generate_token_evict(
         # Kept for callers relying on the global RNG state after a call; the
         # loop itself draws from a generator seeded identically.
         torch.manual_seed(seed)
-    timing_sink = timing_sink or TimingSink()
     run = _decode(
         model, tokenizer, input_ids, batch_size=1, solo=True,
         budget=budget, recent=recent, sink=sink, backend=backend,
@@ -126,8 +123,6 @@ def generate_token_evict(
             - run["attention_observation_sec"] - run["eviction_sec_total"],
         ),
     }
-    for name, value in timing.items():
-        timing_sink.add(name, value)
     extra_metrics = {**cache_length_summary(run["cache"], run["n"]), **metrics, **timing}
     peak_memory = run["peak_memory"]
     tokens_per_sec = len(gen) / elapsed if elapsed > 0 else 0.0
@@ -161,7 +156,6 @@ def generate_token_evict(
             "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
             "mean_compression_ratio": mean_compression,
             "evict_events": events,
-            "timing": dict(timing_sink.values),
             **extra_metrics}
 
 
@@ -189,7 +183,6 @@ def generate_token_evict_batch(
     input_attention_mask=None,
     execution_backend: ExecutionBackend | None = None,
     cache_manager: CacheManager | None = None,
-    timing_sink: TimingSink | None = None,
     sig=None,
     sync_timing: bool = False,
     cache_impl: str = "growable",
@@ -203,7 +196,6 @@ def generate_token_evict_batch(
     """
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
-    timing_sink = timing_sink or TimingSink()
     common = dict(
         budget=budget, recent=recent, sink=sink, backend=backend,
         anchor_mode=anchor_mode, anchor_frac=anchor_frac, evict_every=evict_every,
@@ -215,7 +207,7 @@ def generate_token_evict_batch(
     if batch_size == 1 and input_ids.shape[0] == 1 and input_attention_mask is None:
         seed = int((seeds or [0])[0])
         return {"candidates": [generate_token_evict(
-            model, tokenizer, input_ids, seed=seed, timing_sink=timing_sink, **common,
+            model, tokenizer, input_ids, seed=seed, **common,
         )]}
 
     if input_ids.shape[0] not in {1, batch_size}:
@@ -235,11 +227,6 @@ def generate_token_evict_batch(
     forward_sec = run["decode_forward_sec"]
     observe_sec = run["attention_observation_sec"]
     evict_sec = run["eviction_sec_total"]
-    timing_sink.add("prefill_sec", prefill_sec)
-    timing_sink.add("decode_sec", max(0.0, elapsed - prefill_sec))
-    timing_sink.add("decode_forward_sec", forward_sec)
-    timing_sink.add("attention_observation_sec", observe_sec)
-    timing_sink.add("eviction_sec_total", evict_sec)
     peak_memory = run["peak_memory"]
     generated = run["generated"]
     batch_total_tokens = sum(len(ids) for ids in generated)
@@ -278,7 +265,6 @@ def generate_token_evict_batch(
             "other_decode_sec": max(
                 0.0, elapsed - prefill_sec - forward_sec - observe_sec - evict_sec,
             ) / batch_size,
-            "timing": dict(timing_sink.values),
         })
     return {
         "candidates": candidates,
@@ -286,7 +272,6 @@ def generate_token_evict_batch(
         "elapsed_sec": elapsed,
         "tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
         "batch_tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
-        "timing": dict(timing_sink.values),
         "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
     }
 

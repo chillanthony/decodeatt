@@ -57,7 +57,7 @@ def test_no_eviction_candidate_matches_hf_fullkv(tiny_llama):
         batch_tokens_per_sec=6.0, batch_size=1,
     )
     assert set(built) == set(CANDIDATE_KEYS)
-    timing_keys = {key for key in CANDIDATE_KEYS if "sec" in key} | {"timing", "peak_memory_bytes"}
+    timing_keys = {key for key in CANDIDATE_KEYS if "sec" in key} | {"peak_memory_bytes"}
     for key in sorted(set(CANDIDATE_KEYS) - timing_keys):
         if isinstance(hf[key], float):
             assert built[key] == pytest.approx(hf[key]), key
