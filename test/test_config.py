@@ -90,7 +90,7 @@ def test_cli_overrides_yaml_and_defaults_fill_gaps(tmp_path):
     assert kw["sink"] == 8 and kw["evict_every"] == 128      # defaults
     assert kw["do_sample"] is False                          # --greedy wins
     assert settings.arms[0].params == {"alpha": 4, "lambda": 0.1}
-    assert settings.out_path == Path("results/eval.json")
+    assert settings.out_path == Path("result/eval.json")
     groups, vllm_arms = settings.attn_groups()
     assert list(groups) == ["eager"] and not vllm_arms
 

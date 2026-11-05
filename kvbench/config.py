@@ -67,7 +67,7 @@ DEFAULTS = {
     ("model", "dtype"): "bfloat16", ("model", "device_map"): "cuda",
     ("model", "attn"): "auto", ("model", "fast_attn"): "sdpa", ("model", "fast_observe"): False,
     ("model", "cache_impl"): "growable",
-    ("experiment", "out"): "results/eval.json", ("experiment", "log_mode"): "full",
+    ("experiment", "out"): "result/eval.json", ("experiment", "log_mode"): "full",
     ("experiment", "sync_timing"): False,
 }
 DEFAULT_ARMS = "fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024"
