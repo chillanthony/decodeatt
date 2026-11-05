@@ -9,7 +9,9 @@ from kveviction.eviction_stats import cache_length_summary, token_samples
 from kveviction.selection import should_collect_observation
 from kveviction.strategies.base import SelectionContext
 from kveviction.strategies.token import get_policy, policy_names
-from script.eval import _allocate_group_ranks, _arm_attn_backend, _claim_next_problem
+from kvbench.config import arm_attn_backend as _arm_attn_backend
+from kvbench.sharding import allocate_group_ranks as _allocate_group_ranks
+from kvbench.sharding import claim_next_problem as _claim_next_problem
 
 
 def _ctx(n: int, budget: int, recent: int = 4, sink: int = 2, params: dict | None = None):
