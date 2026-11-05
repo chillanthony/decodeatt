@@ -60,6 +60,29 @@ def cache_length_summary(cache, physical_len: int) -> dict:
     }
 
 
+def uniform_length_summary(effective_len: int, heads_per_layer: list[int], device=None) -> dict:
+    """Cache-length summary when every layer/KV head holds ``effective_len`` tokens."""
+    lengths = torch.full((sum(heads_per_layer),), float(effective_len), device=device)
+    total = float(lengths.sum())
+    probs = lengths / max(total, 1e-12)
+    entropy = float(-(probs * probs.clamp_min(1e-12).log()).sum())
+    return {
+        "mean_effective_cache_len": float(effective_len),
+        "max_effective_cache_len": float(effective_len),
+        "min_effective_cache_len": float(effective_len),
+        "total_effective_kv_tokens": total,
+        "effective_kv_tokens_per_layer_head": [
+            [effective_len] * heads for heads in heads_per_layer
+        ],
+        "head_budget_mean": float(effective_len),
+        "head_budget_std": 0.0,
+        "head_budget_min": float(effective_len),
+        "head_budget_max": float(effective_len),
+        "head_budget_entropy": entropy,
+        "num_underfilled_heads": 0,
+    }
+
+
 def batch_cache_length_summaries(cache, valid_mask: torch.Tensor) -> list[dict]:
     """Summarize the effective cache length of every request in a static batch."""
     cache_view = TransformersCacheManager._view(cache)
@@ -67,32 +90,10 @@ def batch_cache_length_summaries(cache, valid_mask: torch.Tensor) -> list[dict]:
         [int(layer.keys.shape[1]) for layer in cache_view.layers]
         if cache_view is not None else [1]
     )
-    num_heads = sum(heads_per_layer)
-    summaries = []
-    for row in range(valid_mask.shape[0]):
-        effective_len = int(valid_mask[row].sum())
-        lengths = torch.full(
-            (num_heads,), float(effective_len), device=valid_mask.device
-        )
-        total = float(lengths.sum())
-        probs = lengths / max(total, 1e-12)
-        entropy = float(-(probs * probs.clamp_min(1e-12).log()).sum())
-        summaries.append({
-            "mean_effective_cache_len": float(effective_len),
-            "max_effective_cache_len": float(effective_len),
-            "min_effective_cache_len": float(effective_len),
-            "total_effective_kv_tokens": total,
-            "effective_kv_tokens_per_layer_head": [
-                [effective_len] * heads for heads in heads_per_layer
-            ],
-            "head_budget_mean": float(effective_len),
-            "head_budget_std": 0.0,
-            "head_budget_min": float(effective_len),
-            "head_budget_max": float(effective_len),
-            "head_budget_entropy": entropy,
-            "num_underfilled_heads": 0,
-        })
-    return summaries
+    return [
+        uniform_length_summary(int(valid_mask[row].sum()), heads_per_layer, valid_mask.device)
+        for row in range(valid_mask.shape[0])
+    ]
 
 
 def eviction_event(*, step: int, before_n: int, after_n: int,

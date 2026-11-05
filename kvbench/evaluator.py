@@ -13,6 +13,7 @@ from kvbench.datasets import load_problems
 from kvbench.metrics import extract_answer, is_correct, summarize_accuracy
 from kvbench.models import build_input_ids, pad_input_ids
 from kvbench.arms import EvalArm
+from kvbench.result_schema import check_candidate
 
 
 _LOG_MODES = {"full", "brief"}
@@ -288,6 +289,7 @@ def _evaluated_candidates(
 ):
     evaluated = []
     for candidate_idx, result in enumerate(candidate_results):
+        check_candidate(result)
         pred = extract_answer(result["text"])
         ok = is_correct(pred, gold)
         candidate = {
@@ -296,11 +298,9 @@ def _evaluated_candidates(
             "ok": ok,
             "pred": pred,
             "gen_len": len(result["gen_ids"]),
-            # Normalize single-request and batched results for serving-style
-            # throughput summaries.
-            "batch_elapsed_sec": result.get("batch_elapsed_sec", result["elapsed_sec"]),
-            "batch_tokens_per_sec": result.get("batch_tokens_per_sec", result["tokens_per_sec"]),
-            "batch_size": result.get("batch_size", 1),
+            "batch_elapsed_sec": result["batch_elapsed_sec"],
+            "batch_tokens_per_sec": result["batch_tokens_per_sec"],
+            "batch_size": result["batch_size"],
         }
         if log_mode == "full":
             candidate["raw_output"] = result["text"]
@@ -359,11 +359,9 @@ def _arm_payload(
     # Batched generation reports both per-request and aggregate throughput. Keep
     # the latter at arm level so serving-style smoke tests do not lose it when
     # candidates are serialized in brief mode.
-    payload["batch_elapsed_sec"] = first_result.get("batch_elapsed_sec", first_result["elapsed_sec"])
-    payload["batch_tokens_per_sec"] = first_result.get(
-        "batch_tokens_per_sec", first_result["tokens_per_sec"]
-    )
-    payload["batch_size"] = first_result.get("batch_size", 1)
+    payload["batch_elapsed_sec"] = first_result["batch_elapsed_sec"]
+    payload["batch_tokens_per_sec"] = first_result["batch_tokens_per_sec"]
+    payload["batch_size"] = first_result["batch_size"]
     if log_mode == "full":
         payload["raw_output"] = first_result["text"]
         payload["evict_events"] = first_result["evict_events"]
