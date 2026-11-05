@@ -91,3 +91,25 @@ def test_evaluator_forwards_anchor_settings(monkeypatch, tmp_path, tiny_llama):
     # anchor_k = 2 rescued slots on top of the budget at every compaction.
     assert result["n_evict"] > 0
     assert set(result["cache_len_curve"]) == {8 + 2}
+
+
+@pytest.mark.parametrize("backend, anchor_mode", [("window", "anchor"), ("rkv", "none"), ("snapkv", "none")])
+def test_teacher_forcing_own_generation_replays_the_same_evictions(tiny_llama, backend, anchor_mode):
+    """score_trace_token shares the decode loop, so replaying a greedy generation
+    must reproduce its eviction schedule and final cache exactly."""
+    from kveviction.runner_token import generate_token_evict
+    from kveviction.trace_scoring import score_trace_token
+
+    model, prompt = tiny_llama
+    kw = dict(backend=backend, anchor_mode=anchor_mode, budget=16, recent=4, sink=2, evict_every=4)
+    gen = generate_token_evict(model, _Tokenizer(), prompt, max_new=40, do_sample=False, **kw)
+    full = torch.cat([prompt, torch.tensor([gen["gen_ids"]])], dim=1)
+    trace = score_trace_token(model, _Tokenizer(), full, prompt.shape[1], [], debug=True, **kw)
+    assert trace["final_cache_len"] == gen["final_cache_len"]
+    # Trace debug events skip no-op compactions (nothing evicted).
+    expected = [(e["step"], e["cache_len_before"], e["cache_len_after"])
+                for e in gen["evict_events"] if e["evicted"] > 0]
+    got = [(e["eviction_step"], e["cache_len_before"], e["cache_len_after"])
+           for e in trace["eviction_events"]]
+    assert got == expected and expected
+    assert trace["n_noncorr"] == len(gen["gen_ids"])

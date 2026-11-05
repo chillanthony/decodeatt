@@ -39,7 +39,7 @@ SCHEMA: dict[str, dict[str, tuple]] = {
         "recent": (int,), "sink": (int,), "evict_every": (int,),
         "obs_window": (int,), "obs_decay": _NUM,
     },
-    "experiment": {"out": (str,), "log_mode": (str,)},
+    "experiment": {"out": (str,), "log_mode": (str,), "sync_timing": (bool,)},
 }
 ARM_KEYS = {
     "id": (str,), "name": (str,), "policy": (str,), "backend": (str,), "budget": (int,),
@@ -66,6 +66,7 @@ DEFAULTS = {
     ("model", "dtype"): "bfloat16", ("model", "device_map"): "cuda",
     ("model", "attn"): "auto", ("model", "fast_attn"): "sdpa", ("model", "fast_observe"): False,
     ("experiment", "out"): "results/eval.json", ("experiment", "log_mode"): "full",
+    ("experiment", "sync_timing"): False,
 }
 DEFAULT_ARMS = "fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024"
 
@@ -308,7 +309,10 @@ class RunSettings:
         """Canonical effective config, as printed by ``--print-config``."""
         cfg, kw = self.cfg, self.eval_kwargs
         resolved = {
-            "experiment": {**(cfg.get("experiment") or {}), "out": str(self.out_path), "log_mode": self.log_mode},
+            "experiment": {
+                **(cfg.get("experiment") or {}), "out": str(self.out_path), "log_mode": self.log_mode,
+                "sync_timing": kw["sync_timing"],
+            },
             "model": {**(cfg.get("model") or {}), "name": self.model_name},
             "data": {
                 **(cfg.get("data") or {}), "dataset": kw["dataset"], "n": kw["n"],
@@ -403,6 +407,7 @@ def resolve_settings(cfg: dict, args) -> RunSettings:
         debug_topk=args.debug_topk if args.debug_topk is not None else 0,
         policy_params=defaults,
         log_mode=log_mode,
+        sync_timing=bool(pick("sync_timing", "experiment")),
     )
     do_sample = (cfg.get("generation") or {}).get("do_sample")
     eval_kwargs["do_sample"] = not args.greedy and bool(True if do_sample is None else do_sample)
