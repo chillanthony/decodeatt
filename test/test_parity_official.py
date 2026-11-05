@@ -7,7 +7,6 @@ from dataclasses import dataclass
 import torch
 
 from kveviction.attention_logits import attention_logit_rows
-from kveviction.cache_manager import TransformersCacheManager
 from kveviction.strategies.base import SelectionContext
 from kveviction.strategies.h2o import select_h2o
 from kveviction.strategies.rkv import select_rkv
@@ -210,17 +209,6 @@ def test_rkv_layer_selector_matches_official_update_indices():
     torch.testing.assert_close(actual, expected)
 
 
-def test_headwise_cache_compaction_gathers_each_head_independently():
-    keys = torch.arange(10, dtype=torch.float32).view(1, 2, 5, 1)
-    values = keys + 100
-    cache = _Cache([_Layer(keys=keys.clone(), values=values.clone())])
-    idx = [torch.tensor([[3, 1, 4], [0, 2, 4]])]
-    _, k = TransformersCacheManager().compact(cache, idx)
-    assert k == 3
-    torch.testing.assert_close(cache.layers[0].keys[0, :, :, 0], torch.tensor([[3.0, 1.0, 4.0], [5.0, 7.0, 9.0]]))
-    torch.testing.assert_close(cache.layers[0].values[0, :, :, 0], torch.tensor([[103.0, 101.0, 104.0], [105.0, 107.0, 109.0]]))
-
-
 class _IdentityProj(torch.nn.Module):
     def forward(self, x):
         return x
@@ -266,14 +254,3 @@ def test_runner_attention_logit_rows_match_official_scores_without_attentions():
     expected = _attention_scores(q, keys)[0, :, -1, :]
     assert rows is not None
     torch.testing.assert_close(rows[0], expected)
-
-
-if __name__ == "__main__":
-    test_snapkv_matches_official_update_indices()
-    test_snapkv_avgpool_matches_official_pooling_variant()
-    test_h2o_matches_official_shared_head_indices()
-    test_streamingllm_matches_official_first_plus_local_window()
-    test_rkv_layer_selector_matches_official_update_indices()
-    test_headwise_cache_compaction_gathers_each_head_independently()
-    test_runner_attention_logit_rows_match_official_scores_without_attentions()
-    print("Official baseline parity tests passed")

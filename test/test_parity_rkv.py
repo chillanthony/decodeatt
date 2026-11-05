@@ -2,7 +2,7 @@
 
 Run from the repository root:
 
-    python test/test_rkv_parity.py
+    python -m pytest -q test/test_parity_rkv.py
 """
 from __future__ import annotations
 
@@ -225,12 +225,3 @@ def test_select_rkv_rejects_budget_not_greater_than_alpha():
         assert "budget must be greater than alpha" in str(exc)
     else:
         raise AssertionError("expected ValueError for budget <= alpha")
-
-
-if __name__ == "__main__":
-    test_importance_matches_reference_candidate_softmax()
-    test_redundancy_matches_reference_cal_similarity()
-    test_select_rkv_matches_reference_single_layer_single_head()
-    test_select_rkv_debug_scores_are_aligned()
-    test_select_rkv_rejects_budget_not_greater_than_alpha()
-    print("R-KV parity tests passed")
