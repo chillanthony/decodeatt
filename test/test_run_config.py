@@ -60,6 +60,7 @@ def test_repository_configs_validate(data, strategy):
     (dict(strategy={"arms": [{"policy": "rkv", "budget": 64, "bugdet": 1}]}), r"unknown key\(s\) \['bugdet'\] in arms\[0\]"),
     (dict(strategy={"arms": [{"policy": "window", "budget": 64, "anchor_mode": "anchr"}]}), r"anchor_mode"),
     (dict(strategy={"eviction": {"obs_decay": "high"}}), r"eviction.obs_decay must be int/float"),
+    (dict(strategy={"arms": [{"policy": "rkv", "budget": 64, "anchor_mode": "anchor", "anchor_frac": 0.1}]}), r"arms\[0\]: anchor modes need a slot-level"),
 ])
 def test_invalid_configs_are_rejected(tmp_path, files, message):
     with pytest.raises(ConfigError, match=message):
