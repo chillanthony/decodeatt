@@ -206,15 +206,21 @@ def test_end_to_end_generation_respects_budget(tiny_llama, backend):
     assert result["cache_len_curve"] == [_E2E["budget"]] * result["n_evict"]
 
 
-@pytest.mark.parametrize("backend", sorted(set(policy_names()) - {"random"}))
-def test_greedy_batch_matches_single_request(tiny_llama, backend):
-    """The single and batched loops are separate code paths; keep them in sync."""
+@pytest.mark.parametrize("do_sample", [False, True], ids=["greedy", "sampled"])
+@pytest.mark.parametrize("backend", sorted(policy_names()))
+def test_batch_matches_single_request(tiny_llama, backend, do_sample):
+    """The single and batched loops are separate code paths; keep them in sync.
+
+    A batch row seeded with ``s`` must reproduce a single request seeded with
+    ``s``, including sampling and the random policy's slot choices.
+    """
     from kveviction.runner_token import generate_token_evict, generate_token_evict_batch
 
     model, prompt = tiny_llama
-    single = generate_token_evict(model, _Tokenizer(), prompt, backend=backend, **_E2E)
+    cfg = {**_E2E, "do_sample": do_sample}
+    single = generate_token_evict(model, _Tokenizer(), prompt, backend=backend, seed=3, **cfg)
     batch = generate_token_evict_batch(
-        model, _Tokenizer(), prompt, 2, backend=backend, seeds=[0, 0], **_E2E
+        model, _Tokenizer(), prompt, 2, backend=backend, seeds=[3, 3], **cfg
     )
     for candidate in batch["candidates"]:
         assert candidate["gen_ids"] == single["gen_ids"]

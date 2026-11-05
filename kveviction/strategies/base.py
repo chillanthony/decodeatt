@@ -22,6 +22,8 @@ class SelectionContext:
     entropy: torch.Tensor | None = None
     cumulative_mean: torch.Tensor | None = None
     concentration: torch.Tensor | None = None
+    # Per-request RNG for stochastic policies/anchors; None uses the global RNG.
+    generator: torch.Generator | None = None
 
 
 class TokenEvictionPolicy:

@@ -17,5 +17,5 @@ class RandomPolicy(TokenEvictionPolicy):
         return torch.zeros_like(ctx.importance)
 
     def _pick_free(self, ctx: SelectionContext, free: torch.Tensor, n_pick: int) -> torch.Tensor:
-        order = torch.randperm(free.numel(), device=free.device)
+        order = torch.randperm(free.numel(), device=free.device, generator=ctx.generator)
         return free[order[:n_pick]]
