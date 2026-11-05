@@ -16,6 +16,7 @@ from pathlib import Path
 
 from kvbench.datasets import load_problems
 from kvbench.evaluator import _arm_payload, _write_result
+from kvbench.models import DEFAULT_PROMPT_TEMPLATE, format_prompt
 from kvbench.result_schema import no_eviction_candidate
 
 
@@ -29,7 +30,8 @@ def _heads_per_layer(model_name: str) -> list[int]:
     return [int(kv_heads)] * int(config.num_hidden_layers)
 
 
-def _prompt_text(tokenizer, question: str) -> str:
+def _prompt_text(tokenizer, question: str, prompt_template: str = DEFAULT_PROMPT_TEMPLATE) -> str:
+    question = format_prompt(question, prompt_template)
     if tokenizer.chat_template:
         return tokenizer.apply_chat_template(
             [{"role": "user", "content": question}],
@@ -70,6 +72,8 @@ def run_vllm_generation_eval(
     debug_dir: str | Path | None = None,
     vllm_config: dict | None = None,
     only_ids: set[str] | None = None,
+    prompt_template: str = DEFAULT_PROMPT_TEMPLATE,
+    answer_extraction: str = "boxed",
 ) -> dict:
     """Run explicitly vLLM-selected arms as one serving-style batch.
 
@@ -104,7 +108,7 @@ def run_vllm_generation_eval(
     problems = load_problems(dataset, n)
     if only_ids:
         problems = [problem for problem in problems if problem["id"] in only_ids]
-    prompts = [_prompt_text(tokenizer, problem["question"]) for problem in problems]
+    prompts = [_prompt_text(tokenizer, problem["question"], prompt_template) for problem in problems]
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     records = [
@@ -147,6 +151,7 @@ def run_vllm_generation_eval(
                 no_eviction_candidate(
                     text=candidate.text,
                     gen_ids=list(candidate.token_ids),
+                    finished=candidate.finish_reason == "stop",
                     seed=seed + seed_offset + candidate_idx,
                     prompt_len=prompt_len,
                     heads_per_layer=heads_per_layer,
@@ -165,6 +170,7 @@ def run_vllm_generation_eval(
                 seed,
                 seed_offset,
                 log_mode=log_mode,
+                answer_extraction=answer_extraction,
             )
 
     return _write_result(out_path, records, log_mode, final=True)

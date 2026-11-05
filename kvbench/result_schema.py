@@ -11,7 +11,7 @@ from __future__ import annotations
 from kveviction.eviction_stats import eviction_metrics, uniform_length_summary
 
 CANDIDATE_KEYS = (
-    "text", "gen_ids", "seed", "prompt_len",
+    "text", "gen_ids", "finished", "seed", "prompt_len",
     "n_evict", "final_cache_len",
     "elapsed_sec", "tokens_per_sec",
     "batch_elapsed_sec", "batch_tokens_per_sec", "batch_size",
@@ -49,6 +49,7 @@ def no_eviction_candidate(
     *,
     text: str,
     gen_ids: list[int],
+    finished: bool,
     seed: int,
     prompt_len: int,
     heads_per_layer: list[int],
@@ -69,6 +70,7 @@ def no_eviction_candidate(
     result = {
         "text": text,
         "gen_ids": list(gen_ids),
+        "finished": bool(finished),
         "seed": int(seed),
         "prompt_len": int(prompt_len),
         "n_evict": 0,

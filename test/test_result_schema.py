@@ -52,7 +52,7 @@ def test_no_eviction_candidate_matches_hf_fullkv(tiny_llama):
     model, prompt = tiny_llama
     hf = generate_token_evict(model, _Tokenizer(), prompt, backend="fullkv", max_new=6, do_sample=False)
     built = no_eviction_candidate(
-        text=hf["text"], gen_ids=hf["gen_ids"], seed=0, prompt_len=prompt.shape[1],
+        text=hf["text"], gen_ids=hf["gen_ids"], finished=hf["finished"], seed=0, prompt_len=prompt.shape[1],
         heads_per_layer=[2, 2], elapsed_sec=1.0, batch_elapsed_sec=1.0,
         batch_tokens_per_sec=6.0, batch_size=1,
     )
@@ -82,7 +82,7 @@ def test_vllm_and_hf_payloads_merge_into_one_summary(tiny_llama, tmp_path):
     model, prompt = tiny_llama
     hf = generate_token_evict(model, _Tokenizer(), prompt, backend="fullkv", max_new=6, do_sample=False)
     vllm_like = no_eviction_candidate(
-        text=hf["text"], gen_ids=hf["gen_ids"], seed=0, prompt_len=prompt.shape[1],
+        text=hf["text"], gen_ids=hf["gen_ids"], finished=hf["finished"], seed=0, prompt_len=prompt.shape[1],
         heads_per_layer=[2, 2], elapsed_sec=0.5, batch_elapsed_sec=0.5,
         batch_tokens_per_sec=12.0, batch_size=4,
     )
@@ -121,7 +121,7 @@ def test_vllm_greedy_multi_candidate_uses_repeated_requests(monkeypatch, tmp_pat
             return [
                 types.SimpleNamespace(
                     prompt_token_ids=[1, 2, 3],
-                    outputs=[types.SimpleNamespace(text=r"\boxed{1}", token_ids=[7, 8])
+                    outputs=[types.SimpleNamespace(text=r"\boxed{1}", token_ids=[7, 8], finish_reason="stop")
                              for _ in range(sampling_params.n)],
                 )
                 for _ in prompts

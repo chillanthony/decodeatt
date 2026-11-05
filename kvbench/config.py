@@ -13,6 +13,8 @@ from pathlib import Path
 import yaml
 
 from kvbench.arms import EvalArm, _parse_anchor, parse_arms
+from kvbench.metrics import ANSWER_EXTRACTIONS
+from kvbench.models import DEFAULT_PROMPT_TEMPLATE, format_prompt
 from kveviction.strategies.anchors import ANCHOR_MODES
 from kveviction.strategies.token import get_policy, policy_names
 
@@ -24,7 +26,10 @@ SCHEMA: dict[str, dict[str, tuple]] = {
         "name": (str,), "dtype": (str,), "device_map": (str, dict),
         "attn": (str,), "fast_attn": (str,), "fast_observe": (bool,),
     },
-    "data": {"dataset": (str,), "n": (int,), "only_ids": (str, list)},
+    "data": {
+        "dataset": (str,), "n": (int,), "only_ids": (str, list),
+        "prompt_template": (str,), "answer_extraction": (str,),
+    },
     "generation": {
         "max_new": (int,), "do_sample": (bool,), "temperature": _NUM, "top_p": _NUM,
         "seed": (int,), "batch_size": (int,), "num_return_sequences": (int,),
@@ -50,6 +55,7 @@ FILE_SECTIONS = {
 }
 DEFAULTS = {
     ("data", "dataset"): "sample", ("data", "n"): 2,
+    ("data", "prompt_template"): DEFAULT_PROMPT_TEMPLATE, ("data", "answer_extraction"): "boxed",
     ("generation", "max_new"): 4096, ("generation", "temperature"): 0.6,
     ("generation", "top_p"): 0.95, ("generation", "seed"): 0,
     ("generation", "batch_size"): 1, ("generation", "num_return_sequences"): 1,
@@ -304,7 +310,11 @@ class RunSettings:
         resolved = {
             "experiment": {**(cfg.get("experiment") or {}), "out": str(self.out_path), "log_mode": self.log_mode},
             "model": {**(cfg.get("model") or {}), "name": self.model_name},
-            "data": {**(cfg.get("data") or {}), "dataset": kw["dataset"], "n": kw["n"]},
+            "data": {
+                **(cfg.get("data") or {}), "dataset": kw["dataset"], "n": kw["n"],
+                "prompt_template": kw["prompt_template"],
+                "answer_extraction": kw["answer_extraction"],
+            },
             "generation": {**(cfg.get("generation") or {})},
             "eviction": {**(cfg.get("eviction") or {})},
             "policy_defaults": policy_defaults(cfg),
@@ -366,9 +376,22 @@ def resolve_settings(cfg: dict, args) -> RunSettings:
     if isinstance(only_ids, list):
         only_ids = ",".join(map(str, only_ids))
 
+    answer_extraction = pick("answer_extraction", "data")
+    if answer_extraction not in ANSWER_EXTRACTIONS:
+        raise ConfigError(
+            f"invalid answer_extraction {answer_extraction!r}; expected one of {ANSWER_EXTRACTIONS}"
+        )
+    prompt_template = pick("prompt_template", "data")
+    try:
+        format_prompt("", prompt_template)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from None
+
     eval_kwargs = dict(
         dataset=pick("dataset", "data"),
         n=pick("n", "data"),
+        prompt_template=prompt_template,
+        answer_extraction=answer_extraction,
         **{key: pick(key, "eviction") for key in SCHEMA["eviction"]},
         **{
             key: pick(key, "generation")

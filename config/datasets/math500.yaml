@@ -1,6 +1,10 @@
 data:
   dataset: math500
   n: 500
+  # DeepSeek-R1 recommended prompt; use "{question}" to reproduce pre-2026-11-05 runs.
+  prompt_template: "{question}\nPlease reason step by step, and put your final answer within \\boxed{}."
+  # boxed: only the last \boxed{} counts; lenient: legacy fallbacks (last expression / '= N').
+  answer_extraction: boxed
 
 generation:
   max_new: 16384
