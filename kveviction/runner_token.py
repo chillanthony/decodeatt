@@ -445,10 +445,12 @@ def _decode(
     if trace_hook is not None:
         trace_hook.prefill(_cache_view(cache), P)
     forced_nll = []
+    need_entropy = policy.needs_entropy or debug is not None
     for step in range(max_new):
         active = ~finished
         step_valid = active.clone()
-        token_entropy = entropy_batch(logits)
+        # Slot entropy is only read by entropy-based anchors and debug dumps.
+        token_entropy = entropy_batch(logits) if need_entropy else 0.0
         if forced_ids is None:
             next_tokens = sample_batch(logits, do_sample, temperature, top_p, generators)
         else:
@@ -458,11 +460,16 @@ def _decode(
                 -torch.log_softmax(logits.float(), -1).gather(1, next_tokens.unsqueeze(1)).squeeze(1)
             )
         next_tokens = torch.where(active, next_tokens, torch.full_like(next_tokens, filler))
-        for row in active.nonzero(as_tuple=True)[0].tolist():
-            generated[row].append(int(next_tokens[row]))
         if eos is not None and forced_ids is None:
             finished |= active & next_tokens.eq(eos)
-        if bool(finished.all()):
+        # One device->host copy per step for tokens, active rows and the stop check.
+        host_tokens, host_active, host_finished = torch.stack(
+            [next_tokens.long(), active.long(), finished.long()]
+        ).tolist()
+        for row, (token, is_active) in enumerate(zip(host_tokens, host_active)):
+            if is_active:
+                generated[row].append(token)
+        if all(host_finished):
             break
 
         # 只在下一次会真正触发压缩前的 observation window 内打开注意力观测。

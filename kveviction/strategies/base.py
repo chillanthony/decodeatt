@@ -37,6 +37,8 @@ class TokenEvictionPolicy:
     - ``needs_cache``: selection reads cache keys and may be head-wise
       (``select_from_cache`` returns a list of per-layer index tensors).
     - ``never_evict``: the runner never compacts (FullKV).
+    - ``needs_entropy``: selection reads per-slot next-token entropy; the runner
+      skips the per-step vocabulary softmax otherwise.
     """
 
     name = "base"
@@ -44,6 +46,7 @@ class TokenEvictionPolicy:
     needs_cache = False
     needs_attn_history = False
     never_evict = False
+    needs_entropy = False
 
     @property
     def cache_aware(self) -> bool:

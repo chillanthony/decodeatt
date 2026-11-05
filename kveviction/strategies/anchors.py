@@ -33,6 +33,7 @@ class AnchoredPolicy(TokenEvictionPolicy):
         self.name = base.name
         self.never_evict = base.never_evict
         self.needs_attention = base.needs_attention
+        self.needs_entropy = mode in ("anchor", "lowent", "sig")
 
     def scores(self, ctx: SelectionContext) -> torch.Tensor:
         return self.base.scores(ctx)
