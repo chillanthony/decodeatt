@@ -19,6 +19,7 @@ from kvbench.config import ConfigError, load_run_config, resolve_settings
 from kvbench.datasets import load_problems
 from kvbench.evaluator import run_generation_eval
 from kvbench.models import load_causal_lm
+from kvbench.resume import ResumeMismatch
 from kvbench.sharding import (
     allocate_group_ranks,
     claim_next_problem,
@@ -52,6 +53,14 @@ def main():
     parser.add_argument("--device-map", default=None)
     parser.add_argument("--attn", default=None, help="Attention backend, or auto for per-strategy selection")
     parser.add_argument("--fast-attn", default=None, help="Fast backend used by --attn auto, default sdpa")
+    parser.add_argument(
+        "--fast-observe",
+        action="store_true",
+        default=None,
+        help="With --attn auto, run cache-aware policies (rkv/snapkv/h2o) on the fast backend: "
+        "their attention is recomputed from hidden states, so eager is not needed. "
+        "Faster, but bf16 greedy text differs from eager runs.",
+    )
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--top-p", type=float, default=None)
     parser.add_argument("--greedy", action="store_true")
@@ -83,6 +92,11 @@ def main():
     )
     parser.add_argument("--out", default=None)
     parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Start over instead of resuming an existing --out file.",
+    )
+    parser.add_argument(
         "--log-mode",
         choices=["full", "brief"],
         default=None,
@@ -102,6 +116,7 @@ def main():
     groups, vllm_arms = settings.attn_groups()
     eval_kwargs = settings.eval_kwargs
     out_path, log_mode = settings.out_path, settings.log_mode
+    eval_kwargs = {**eval_kwargs, "resume": not args.overwrite}
 
     env_world_size = int(os.environ.get("WORLD_SIZE", "1"))
     distributed = args.distributed or env_world_size > 1
@@ -131,6 +146,21 @@ def main():
         attn_backend, group_rank, group_world_size = assignments[rank]
         group_arms = groups[attn_backend]
         shard_out = distributed_shard_path(out_path, rank, attn_backend)
+        # Resume: skip problems already finished in any shard of this backend.
+        backend_shards = [
+            distributed_shard_path(out_path, shard_rank, backend)
+            for shard_rank, (backend, _, _) in enumerate(assignments)
+            if backend == attn_backend and shard_rank != rank
+        ]
+        stale = sorted(
+            str(path) for path in shard_out.parent.glob(f"{out_path.stem}.rank*{out_path.suffix}")
+            if path not in {distributed_shard_path(out_path, r, b) for r, (b, _, _) in enumerate(assignments)}
+        ) if eval_kwargs["resume"] and shard_out.parent.exists() else []
+        if stale:
+            raise SystemExit(
+                f"shard files from a run with a different world size or grouping: {', '.join(stale)}; "
+                "rerun with the same number of ranks or pass --overwrite"
+            )
         store = torch.distributed.distributed_c10d._get_default_store()
         queue_key = f"kvbench:next_problem:{attn_backend}"
 
@@ -172,6 +202,7 @@ def main():
                 out_path=shard_out,
                 claim_problem_index=claim_problem_index,
                 progress_prefix=f"[rank {rank}] ",
+                resume_from=[path for path in backend_shards if path.exists()],
                 **eval_kwargs,
             )
             del model, tokenizer
@@ -258,4 +289,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ResumeMismatch as exc:
+        raise SystemExit(f"resume error: {exc}") from None

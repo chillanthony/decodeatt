@@ -44,6 +44,23 @@ def supports_attention_logits(model) -> bool:
     return attn is not None and hasattr(attn, "q_proj") and hasattr(attn, "head_dim")
 
 
+def require_eager_attention(model, policy, *, use_attention_logits: bool, track: bool = True) -> None:
+    """Fail fast when a policy needs softmax probabilities from a non-eager forward.
+
+    Policies whose attention rows are recomputed from hidden states
+    (``use_attention_logits``) run on any backend; the rest read
+    ``output_attentions``, which only the eager implementation returns.
+    """
+    if not track or not policy.needs_attention or use_attention_logits:
+        return
+    impl = getattr(getattr(model, "config", None), "_attn_implementation", None)
+    if impl not in (None, "eager"):
+        raise ValueError(
+            f"policy {type(policy).__name__} reads attention probabilities from the forward pass, "
+            f"which requires attn_implementation='eager' (model uses {impl!r})"
+        )
+
+
 def attention_logit_rows_batch(model, outputs, cache, position_ids, n):
     """Return one ``[B, H, N]`` pre-softmax attention row per layer, or None."""
     if not getattr(outputs, "hidden_states", None):

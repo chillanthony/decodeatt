@@ -5,11 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import torch
 
 from kvbench.models import pad_input_ids
-from kvbench.evaluator import _run_cross_problem_eval
+from kvbench.evaluator import run_generation_eval
 from kvbench.arms import parse_arm
 from kveviction.cache_manager import TransformersCacheManager
 from kveviction.runner_token import generate_token_evict_batch
@@ -315,22 +316,22 @@ def test_cross_problem_evaluator_restores_order_and_candidates():
             return SimpleNamespace(logits=logits, past_key_values=None)
 
     problems = [
-        (1, 3, {"id": "short", "question": "a", "answer": "0"}),
-        (2, 3, {"id": "long", "question": "abcdefgh", "answer": "0"}),
-        (3, 3, {"id": "medium", "question": "abcd", "answer": "0"}),
+        {"id": "short", "question": "a", "answer": "0"},
+        {"id": "long", "question": "abcdefgh", "answer": "0"},
+        {"id": "medium", "question": "abcd", "answer": "0"},
     ]
-    with TemporaryDirectory() as tmp_dir:
-        payload = _run_cross_problem_eval(
-            model=_Model(),
-            tokenizer=_Tokenizer(),
-            problem_iter=iter(problems),
+    with TemporaryDirectory() as tmp_dir, patch("kvbench.evaluator.load_problems", return_value=problems):
+        payload = run_generation_eval(
+            _Model(),
+            _Tokenizer(),
+            dataset="sample",
+            n=3,
             arms=[parse_arm("fullkv")],
             out_path=Path(tmp_dir) / "result.json",
-            progress_prefix="",
             problem_batch_size=2,
             prompt_bucket_size=3,
             num_return_sequences=3,
-            candidate_batch_size=2,
+            batch_size=2,
             seed=10,
             seed_offset=5,
             max_new=2,

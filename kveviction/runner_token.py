@@ -33,6 +33,7 @@ import torch
 from kveviction.attention_logits import (
     attention_logit_rows,
     attention_logit_rows_batch,
+    require_eager_attention,
     supports_attention_logits,
 )
 from kveviction.backends import ExecutionBackend, TransformersExecutionBackend
@@ -316,6 +317,7 @@ def _decode(
     )
     track = budget < 10 ** 8 and not policy.never_evict
     use_attention_logits = policy.needs_attn_history and supports_attention_logits(model)
+    require_eager_attention(model, policy, use_attention_logits=use_attention_logits, track=track)
 
     P = int(input_ids.shape[1])
     batched_input_ids = input_ids.expand(B, -1)

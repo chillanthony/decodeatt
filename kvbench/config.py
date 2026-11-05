@@ -22,7 +22,7 @@ _NUM = (int, float)
 SCHEMA: dict[str, dict[str, tuple]] = {
     "model": {
         "name": (str,), "dtype": (str,), "device_map": (str, dict),
-        "attn": (str,), "fast_attn": (str,),
+        "attn": (str,), "fast_attn": (str,), "fast_observe": (bool,),
     },
     "data": {"dataset": (str,), "n": (int,), "only_ids": (str, list)},
     "generation": {
@@ -58,7 +58,7 @@ DEFAULTS = {
     ("eviction", "recent"): 64, ("eviction", "sink"): 8, ("eviction", "evict_every"): 128,
     ("eviction", "obs_window"): 16, ("eviction", "obs_decay"): 0.9,
     ("model", "dtype"): "bfloat16", ("model", "device_map"): "cuda",
-    ("model", "attn"): "auto", ("model", "fast_attn"): "sdpa",
+    ("model", "attn"): "auto", ("model", "fast_attn"): "sdpa", ("model", "fast_observe"): False,
     ("experiment", "out"): "results/eval.json", ("experiment", "log_mode"): "full",
 }
 DEFAULT_ARMS = "fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024"
@@ -248,11 +248,24 @@ def _section_value(cfg: dict, section: str, key: str):
     return DEFAULTS.get((section, key)) if value is None else value
 
 
-def arm_attn_backend(policy: str, requested_attn: str, fast_attn: str) -> str:
-    """``auto``: policies that observe attention need eager; the rest use ``fast_attn``."""
+def arm_attn_backend(
+    policy: str, requested_attn: str, fast_attn: str, fast_observe: bool = False
+) -> str:
+    """Pick the attention backend for ``--attn auto``.
+
+    Policies that never read attention use ``fast_attn``.  Cache-aware
+    policies (``needs_attn_history``: rkv/snapkv/h2o) recompute their attention
+    rows from hidden states, so with ``fast_observe`` they also use
+    ``fast_attn``; by default they stay on eager so results match earlier
+    eager baselines bit for bit.  Policies that read softmax probabilities
+    from the forward pass (window and its anchors) always need eager.
+    """
     if requested_attn != "auto":
         return requested_attn
-    return "eager" if get_policy(policy).needs_attention else fast_attn
+    spec = get_policy(policy)
+    if not spec.needs_attention or (fast_observe and spec.needs_attn_history):
+        return fast_attn
+    return "eager"
 
 
 @dataclass
@@ -266,6 +279,7 @@ class RunSettings:
     device_map: object
     requested_attn: str
     fast_attn: str
+    fast_observe: bool
     out_path: Path
     log_mode: str
     eval_kwargs: dict
@@ -278,7 +292,9 @@ class RunSettings:
             if arm.engine == "vllm":
                 vllm_arms.append(arm)
             else:
-                backend = arm_attn_backend(arm.backend, self.requested_attn, self.fast_attn)
+                backend = arm_attn_backend(
+                    arm.backend, self.requested_attn, self.fast_attn, self.fast_observe
+                )
                 groups.setdefault(backend, []).append(arm)
         return groups, vllm_arms
 
@@ -303,7 +319,7 @@ class RunSettings:
         resolved["debug"] = {"dir": kw["debug_dir"], "topk": kw["debug_topk"]}
         resolved["model"].update(
             dtype=self.dtype, device_map=self.device_map,
-            attn=self.requested_attn, fast_attn=self.fast_attn,
+            attn=self.requested_attn, fast_attn=self.fast_attn, fast_observe=self.fast_observe,
         )
         if cfg.get("vllm"):
             resolved["vllm"] = dict(cfg["vllm"])
@@ -376,6 +392,7 @@ def resolve_settings(cfg: dict, args) -> RunSettings:
         device_map=pick("device_map", "model"),
         requested_attn=pick("attn", "model"),
         fast_attn=pick("fast_attn", "model"),
+        fast_observe=bool(pick("fast_observe", "model")),
         out_path=Path(pick("out", "experiment")),
         log_mode=log_mode,
         eval_kwargs=eval_kwargs,

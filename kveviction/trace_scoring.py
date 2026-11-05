@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import torch
 
-from kveviction.attention_logits import attention_logit_rows, supports_attention_logits
+from kveviction.attention_logits import (
+    attention_logit_rows,
+    require_eager_attention,
+    supports_attention_logits,
+)
 from kveviction.backends import ExecutionBackend, TransformersExecutionBackend
 from kveviction.cache_manager import CacheManager, TransformersCacheManager
 from kveviction.observations import AttentionObservationProvider
@@ -109,6 +113,7 @@ def score_trace_token(
     policy_params = policy_params or {}
     track = budget < 10 ** 8 and not policy.never_evict
     use_attention_logits = policy.needs_attn_history and supports_attention_logits(model)
+    require_eager_attention(model, policy, use_attention_logits=use_attention_logits, track=track)
     observation_provider = AttentionObservationProvider(
         decay=obs_decay, needs_history=policy.needs_attn_history
     )

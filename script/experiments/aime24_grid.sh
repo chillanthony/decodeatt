@@ -98,6 +98,7 @@ for index in "${!STRATEGIES[@]}"; do
       --num-return-sequences "$NUM_RETURN_SEQUENCES" \
       --problem-batch-size "$PROBLEM_BATCH_SIZE" \
       --log-mode "$LOG_MODE" \
+      $([[ "${OVERWRITE:-0}" == "1" ]] && echo --overwrite) \
       --out "$OUT"
   )
   if [[ "${DRY_RUN:-0}" == "1" ]]; then
