@@ -3,7 +3,7 @@
 #
 #   bash script/experiments/run_grid.sh aime24|math500
 #
-# Every arm runs as its own torchrun job, then all results are summarized.
+# Every arm runs as its own torchrun job and writes runs/<name>/<name>.json.
 # Environment overrides:
 #   NUM_RETURN_SEQUENCES  samples per problem (default 4)
 #   BUDGETS               space-separated budgets (default per dataset below)
@@ -39,7 +39,6 @@ esac
 
 SAMPLES="${NUM_RETURN_SEQUENCES:-4}"
 GRID_NAME="${DATASET}_llama8b_main_grid_s${SAMPLES}"
-SUMMARY_DIR="${SUMMARY_DIR:-$RUNS_ROOT/$GRID_NAME}"
 MODEL_CONFIG="config/models/deepseek_r1_distill_llama8b.yaml"
 DATA_CONFIG="config/datasets/${DATASET}.yaml"
 read -r -a BUDGET_LIST <<< "${BUDGETS:-$DEFAULT_BUDGETS}"
@@ -54,7 +53,6 @@ for strategy in "${STRATEGY_LIST[@]}"; do
   done
 done
 
-RESULT_PATHS=()
 require_python
 
 export PYTHONPATH HF_HOME HF_ENDPOINT
@@ -154,20 +152,11 @@ for index in "${!STRATEGIES[@]}"; do
     echo "Missing result after successful run: $result_path" >&2
     exit 1
   fi
-  RESULT_PATHS+=("$result_path")
   echo "[$GRID_NAME] completed $run_name result=$result_path"
 done
 
 if [[ "${DRY_RUN:-0}" == "1" ]]; then
   echo "[$GRID_NAME] dry run complete"
-  exit 0
+else
+  echo "[$GRID_NAME] all runs complete under $RUNS_ROOT"
 fi
-
-mkdir -p "$SUMMARY_DIR"
-"$PYTHON_BIN" script/summarize_results.py \
-  "${RESULT_PATHS[@]}" \
-  --out "$SUMMARY_DIR/summary.csv" \
-  --json-out "$SUMMARY_DIR/summary.json"
-
-echo "[$GRID_NAME] summary_csv=$SUMMARY_DIR/summary.csv"
-echo "[$GRID_NAME] summary_json=$SUMMARY_DIR/summary.json"

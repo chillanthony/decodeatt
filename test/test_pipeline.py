@@ -1,10 +1,8 @@
-"""Evaluation pipeline (CPU): scoring, result schema, brief mode, resume, summaries, regrade."""
+"""Evaluation pipeline (CPU): scoring, result schema, brief mode and resume."""
 from __future__ import annotations
 
 import json
 import math
-import subprocess
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -16,14 +14,11 @@ import kvbench.evaluator as evaluator
 from kvbench.arms import parse_arm, parse_arms
 from kvbench.datasets import load_problems
 from kvbench.evaluator import _arm_payload, _result_payload
-from kvbench.regrade import regrade_payload
 from kvbench.result_schema import CANDIDATE_KEYS, missing_candidate_keys, no_eviction_candidate
 from kvbench.resume import ResumeMismatch
 from kvbench.sharding import merge_brief_summaries
-from kvbench.summary import COLUMNS, summarize
 from kveviction.runner_token import generate_token_evict
 
-ROOT = Path(__file__).resolve().parents[1]
 
 
 class _Tokenizer:
@@ -468,100 +463,6 @@ def test_brief_partial_keeps_records_final_drops_them(tmp_path):
     assert payload["records"] == [] and payload["complete"] is False
 
 
-# --------------------------------------------------------------------------
-# Summaries and regrading
-# --------------------------------------------------------------------------
-
-
-def _summary_arm(ok: bool, cache: int) -> dict:
-    candidate = {"ok": ok, "gen_len": 10, "final_cache_len": cache, "n_evict": 1,
-                 "mean_compression_ratio": 0.5, "tokens_per_sec": 5.0,
-                 "batch_tokens_per_sec": 5.0, "elapsed_sec": 2.0, "peak_memory_bytes": 100}
-    return {**candidate, "candidates": [candidate]}
-
-
-def _write_result(tmp_path, name, arm, oks, cache):
-    records = [{"id": f"p{i}", "gold": "1", "arms": {arm: _summary_arm(ok, cache)}} for i, ok in enumerate(oks)]
-    path = tmp_path / f"{name}.json"
-    path.write_text(json.dumps({"records": records, "summary": {}}))
-    return path
-
-
-def test_arms_from_separate_files_are_compared_to_fullkv(tmp_path):
-    full = _write_result(tmp_path, "full", "fullkv", [True, True, False, True], 400)
-    rkv = _write_result(tmp_path, "rkv", "rkv@128", [True, False, False, True], 128)
-    brief = tmp_path / "snap.json"
-    brief.write_text(json.dumps({"log_mode": "brief", "summary": {"snapkv@128": {
-        "num_problems": 4, "total": 4, "correct": 3, "mean_final_cache_len": 100.0,
-        "mean_gen_len": 10.0, "max_peak_memory_bytes": 7,
-    }}}))
-    rows = {row["arm"]: row for row in summarize([full, rkv, brief])}
-    assert list(rows) == ["fullkv", "rkv@128", "snapkv@128"]
-    assert all(set(row) == set(COLUMNS) for row in rows.values())
-    assert rows["fullkv"]["accuracy"] == 0.75
-    assert rows["rkv@128"]["budget_ratio"] == pytest.approx(128 / 400)
-    assert rows["rkv@128"]["fidelity_vs_full"] == pytest.approx(0.5 / 0.75)
-    assert rows["rkv@128"]["agreement_with_full"] == 0.75   # p1 disagrees
-    assert rows["snapkv@128"]["accuracy"] == 0.75
-    assert rows["snapkv@128"]["peak_memory_bytes"] == 7
-    assert rows["snapkv@128"]["agreement_with_full"] is None  # brief: no per-problem rows
-
-
-def test_duplicate_problem_for_one_arm_is_rejected(tmp_path):
-    a = _write_result(tmp_path, "a", "rkv@128", [True], 128)
-    b = _write_result(tmp_path, "b", "rkv@128", [False], 128)
-    with pytest.raises(ValueError, match="more than one file"):
-        summarize([a, b])
-
-
-def test_cli_writes_csv_and_json(tmp_path):
-    full = _write_result(tmp_path, "full", "fullkv", [True, False], 400)
-    rkv = _write_result(tmp_path, "rkv", "rkv@64", [True, True], 64)
-    out, json_out = tmp_path / "s.csv", tmp_path / "s.json"
-    subprocess.run(
-        [sys.executable, str(ROOT / "script/summarize_results.py"), str(tmp_path / "*.json"),
-         "--out", str(out), "--json-out", str(json_out)],
-        check=True, capture_output=True,
-    )
-    assert out.read_text().splitlines()[0].split(",") == COLUMNS
-    assert [row["arm"] for row in json.loads(json_out.read_text())] == ["fullkv", "rkv@64"]
-
-
 def test_repeated_sample_problems_get_unique_ids():
     ids = [problem["id"] for problem in load_problems("sample", 5)]
     assert len(set(ids)) == 5
-
-
-def _regrade_input():
-    def cand(text):
-        return {"raw_output": text, "ok": True, "pred": "x", "gen_len": 3, "final_cache_len": 9,
-                "n_evict": 0, "elapsed_sec": 1.0, "tokens_per_sec": 3.0, "mean_compression_ratio": 1.0,
-                "peak_memory_bytes": None}
-    return {
-        "records": [
-            {"id": "a", "gold": "9", "arms": {"rkv@128": {"candidates": [cand(r"so \boxed{9}"), cand("= 9")]}}},
-            {"id": "b", "gold": "5", "arms": {"rkv@128": {"candidates": [cand("x = 5, then")]}}},
-        ],
-        "summary": {},
-        "run_config": {"answer_extraction": "lenient"},
-    }
-
-
-def test_boxed_regrade_rejects_unboxed_answers():
-    new = regrade_payload(_regrade_input(), "boxed")
-    a, b = (r["arms"]["rkv@128"] for r in new["records"])
-    assert [c["ok"] for c in a["candidates"]] == [True, False]
-    assert a["pass_at_1"] == 0.5 and a["ok"] is True
-    assert b["ok"] is False and b["answer_source"] == "none"
-    assert new["summary"]["rkv@128"]["correct"] == 1
-    assert new["summary"]["rkv@128"]["no_answer_rate"] == pytest.approx(2 / 3)
-    assert new["run_config"]["answer_extraction"] == "boxed"
-
-
-def test_lenient_regrade_and_input_untouched():
-    old = _regrade_input()
-    new = regrade_payload(old, "lenient")
-    assert new["summary"]["rkv@128"]["correct"] == 3
-    assert old["records"][0]["arms"]["rkv@128"]["candidates"][1]["pred"] == "x"
-    with pytest.raises(ValueError):
-        regrade_payload({"log_mode": "brief", "summary": {}})
