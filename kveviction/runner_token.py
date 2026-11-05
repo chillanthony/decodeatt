@@ -145,9 +145,14 @@ def generate_token_evict(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(debug, ensure_ascii=False, indent=1))
     return {"text": text, "gen_ids": gen,
+            "seed": int(seed),
+            "prompt_len": int(run["prompt_lengths"][0]),
             "n_evict": n_evict, "final_cache_len": run["n"],
             "elapsed_sec": elapsed,
             "tokens_per_sec": tokens_per_sec,
+            "batch_elapsed_sec": elapsed,
+            "batch_tokens_per_sec": tokens_per_sec,
+            "batch_size": 1,
             "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
             "mean_compression_ratio": mean_compression,
             "evict_events": events,
@@ -248,6 +253,7 @@ def generate_token_evict_batch(
             "tokens_per_sec": len(ids) / amortized_elapsed if amortized_elapsed > 0 else 0.0,
             "batch_elapsed_sec": elapsed,
             "batch_tokens_per_sec": batch_total_tokens / elapsed if elapsed > 0 else 0.0,
+            "batch_size": batch_size,
             "peak_memory_bytes": int(peak_memory) if peak_memory is not None else None,
             "mean_compression_ratio": row_metrics.pop("mean_compression_ratio"),
             "evict_events": row_events,
