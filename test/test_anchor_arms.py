@@ -113,3 +113,15 @@ def test_teacher_forcing_own_generation_replays_the_same_evictions(tiny_llama, b
            for e in trace["eviction_events"]]
     assert got == expected and expected
     assert trace["n_noncorr"] == len(gen["gen_ids"])
+
+
+def test_only_entropy_anchors_request_entropy():
+    from kveviction.strategies.anchors import with_anchors
+    from kveviction.strategies.token import get_policy, policy_names
+
+    assert not any(get_policy(name).needs_entropy for name in policy_names())
+    window = get_policy("window")
+    assert with_anchors(window, "anchor", 4).needs_entropy
+    assert with_anchors(window, "lowent", 4).needs_entropy
+    assert with_anchors(window, "sig", 4, sig=(torch.ones(4), 0.0)).needs_entropy
+    assert not with_anchors(window, "random", 4).needs_entropy
