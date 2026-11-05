@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from kveviction.strategies.token import policy_names
+from kveviction.strategies.anchors import ANCHOR_MODES
+from kveviction.strategies.token import get_policy, policy_names
 
 
 @dataclass(frozen=True)
@@ -14,6 +15,11 @@ class EvalArm:
     params: dict
     anchor_mode: str = "none"
     engine: str = "hf"
+    # Anchor protection (kveviction/strategies/anchors.py): rescue
+    # int(anchor_frac * budget) evicted slots per compaction.  ``sig`` is the
+    # (weights[4], bias) signature used by anchor_mode="sig".
+    anchor_frac: float = 0.0
+    sig: tuple | None = None
 
     @property
     def name(self) -> str:
@@ -39,6 +45,44 @@ def _parse_engine(value) -> str:
     if engine not in {"hf", "vllm"}:
         raise ValueError(f"unknown execution engine {engine!r}; expected 'hf' or 'vllm'")
     return engine
+
+
+def _parse_anchor(policy: str, item: dict) -> tuple[str, float, tuple | None]:
+    """Validate the anchor settings of a structured arm."""
+    mode = str(item.get("anchor_mode", "none"))
+    if mode not in ANCHOR_MODES:
+        raise ValueError(f"anchor_mode {mode!r} must be one of {ANCHOR_MODES}")
+    frac = float(item.get("anchor_frac", 0.0))
+    if frac < 0:
+        raise ValueError("anchor_frac cannot be negative")
+    raw_sig = item.get("sig")
+    if mode == "none":
+        if frac > 0 or raw_sig is not None:
+            raise ValueError("anchor_frac/sig are set but anchor_mode is 'none'")
+        return mode, 0.0, None
+    if frac <= 0:
+        raise ValueError(f"anchor_mode {mode!r} requires anchor_frac > 0")
+    base = get_policy(policy)
+    if base.never_evict or base.cache_aware:
+        raise ValueError(
+            f"anchor modes need a slot-level evicting policy (window, random, "
+            f"streamingllm); {policy!r} does not support them"
+        )
+    sig = None
+    if mode == "sig":
+        if not isinstance(raw_sig, dict) or set(raw_sig) != {"weights", "bias"}:
+            raise ValueError("anchor_mode 'sig' requires sig: {weights: [4 floats], bias: float}")
+        weights = [float(w) for w in raw_sig["weights"]]
+        if len(weights) != 4:
+            raise ValueError("sig.weights must have 4 entries (entropy, cum_attn, position, concentration)")
+        if not base.needs_attention:
+            raise ValueError(
+                f"sig anchors use attention statistics, which {policy!r} never observes; use window"
+            )
+        sig = (tuple(weights), float(raw_sig["bias"]))
+    elif raw_sig is not None:
+        raise ValueError("sig is only used with anchor_mode 'sig'")
+    return mode, frac, sig
 
 
 def parse_arm(
@@ -88,14 +132,18 @@ def parse_structured_arm(
         valid = ", ".join(policy_names())
         raise ValueError(f"unknown arm policy {policy!r}; expected one of: {valid}")
 
+    anchor_mode, anchor_frac, sig = _parse_anchor(policy, item)
     if policy == "fullkv":
         budget = int(item.get("budget", 10**9))
-        arm_id = str(item.get("id") or item.get("name") or "fullkv")
+        default_id = "fullkv"
     else:
         if "budget" not in item:
             raise ValueError(f"structured arm {policy!r} is missing budget")
         budget = int(item["budget"])
-        arm_id = str(item.get("id") or item.get("name") or f"{policy}@{budget}")
+        default_id = f"{policy}@{budget}"
+    if anchor_mode != "none":
+        default_id += f"+{anchor_mode}{anchor_frac:g}"
+    arm_id = str(item.get("id") or item.get("name") or default_id)
 
     params = dict((policy_defaults or {}).get(policy, {}) or {})
     params.update(item.get("params") or {})
@@ -105,8 +153,10 @@ def parse_structured_arm(
         policy=policy,
         budget=budget,
         params=params,
-        anchor_mode=str(item.get("anchor_mode", "none")),
+        anchor_mode=anchor_mode,
         engine=_parse_engine(item.get("engine", item.get("runtime", "hf"))),
+        anchor_frac=anchor_frac,
+        sig=sig,
     )
 
 

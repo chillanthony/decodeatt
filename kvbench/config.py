@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-from kvbench.arms import EvalArm, parse_arms
+from kvbench.arms import EvalArm, _parse_anchor, parse_arms
 from kveviction.strategies.anchors import ANCHOR_MODES
 from kveviction.strategies.token import get_policy, policy_names
 
@@ -38,7 +38,8 @@ SCHEMA: dict[str, dict[str, tuple]] = {
 }
 ARM_KEYS = {
     "id": (str,), "name": (str,), "policy": (str,), "backend": (str,), "budget": (int,),
-    "params": (dict,), "anchor_mode": (str,), "engine": (str,), "runtime": (str,),
+    "params": (dict,), "anchor_mode": (str,), "anchor_frac": _NUM, "sig": (dict,),
+    "engine": (str,), "runtime": (str,),
 }
 # Which top-level sections each split config file may define.
 FILE_SECTIONS = {
@@ -193,6 +194,12 @@ def validate_config(cfg: dict) -> None:
             mode = item.get("anchor_mode", "none")
             if mode not in ANCHOR_MODES:
                 raise ConfigError(f"{where}.anchor_mode {mode!r} must be one of {ANCHOR_MODES}")
+            policy = item.get("policy") or item.get("backend")
+            if policy in policy_names():
+                try:
+                    _parse_anchor(policy, item)
+                except ValueError as exc:
+                    raise ConfigError(f"{where}: {exc}") from None
     elif arms is not None and not isinstance(arms, str):
         raise ConfigError("arms must be a comma-separated string or a list of mappings")
 
@@ -303,8 +310,11 @@ class RunSettings:
         for arm in self.arms:
             resolved["arms"].append({
                 "id": arm.id, "policy": arm.policy, "budget": arm.budget,
-                "params": arm.params, "anchor_mode": arm.anchor_mode, "engine": arm.engine,
+                "params": arm.params, "anchor_mode": arm.anchor_mode,
+                "anchor_frac": arm.anchor_frac, "engine": arm.engine,
             })
+            if arm.sig is not None:
+                resolved["arms"][-1]["sig"] = {"weights": list(arm.sig[0]), "bias": arm.sig[1]}
         return resolved
 
 
