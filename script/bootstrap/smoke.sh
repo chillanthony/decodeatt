@@ -9,7 +9,7 @@ require_python
 cd "$ROOT_DIR"
 
 MODEL_CONFIG="${SMOKE_MODEL_CONFIG:-config/models/deepseek_r1_distill_llama8b.yaml}"
-OUT="${SMOKE_OUT:-$ROOT_DIR/runs/smoke/eval.json}"
+OUT="${SMOKE_OUT:-$RUNS_ROOT/smoke/eval.json}"   # RUNS_ROOT defaults to <repo>/result
 
 "$PYTHON_BIN" -c 'import torch; assert torch.cuda.is_available(), "CUDA is unavailable"; print(f"[smoke] torch={torch.__version__} cuda={torch.version.cuda} device={torch.cuda.get_device_name(0)}")'
 "$PYTHON_BIN" -m pytest -q test
