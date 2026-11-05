@@ -91,6 +91,10 @@ def is_correct(prediction: str | None, gold: str) -> bool:
         try:
             if _math_verify(_parse_math(gold), _parse_math(prediction)):
                 return True
+            # Bare LaTeX such as "\sqrt2", "\frac12" or "\text{(C)}" only parses
+            # inside math delimiters; retry with both sides wrapped in $...$.
+            if _math_verify(_parse_math(f"${gold}$"), _parse_math(f"${prediction}$")):
+                return True
         except Exception:
             pass
     try:
