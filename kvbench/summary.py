@@ -19,12 +19,15 @@ from typing import Any
 
 COLUMNS = [
     "arm", "budget", "files", "num_problems", "total", "correct", "accuracy",
+    "truncation_rate", "no_answer_rate",
     "mean_gen_len", "mean_final_cache_len", "mean_n_evict", "mean_compression_ratio",
     "mean_tokens_per_sec", "mean_batch_tokens_per_sec", "mean_elapsed_sec",
     "peak_memory_bytes", "budget_ratio", "fidelity_vs_full", "agreement_with_full",
 ]
 # summary key in the result file -> column, used when only a summary exists.
 _SUMMARY_FALLBACK = {
+    "truncation_rate": "truncation_rate",
+    "no_answer_rate": "no_answer_rate",
     "mean_gen_len": "mean_gen_len",
     "mean_final_cache_len": "mean_final_cache_len",
     "mean_n_evict": "mean_n_evict",
@@ -45,6 +48,11 @@ def _budget(arm: str) -> int | None:
 def _mean(rows, key):
     values = [row[key] for row in rows if isinstance(row.get(key), (int, float))]
     return mean(values) if values else None
+
+
+def _share(rows, key, predicate):
+    values = [row[key] for row in rows if row.get(key) is not None]
+    return sum(bool(predicate(value)) for value in values) / len(values) if values else None
 
 
 def _ratio(num, den):
@@ -99,6 +107,8 @@ def summarize(paths: list[str | Path]) -> list[dict[str, Any]]:
                 "num_problems": len(problems),
                 "total": len(candidates),
                 "correct": sum(bool(c.get("ok")) for c in candidates),
+                "truncation_rate": _share(candidates, "finished", lambda value: not value),
+                "no_answer_rate": _share(candidates, "answer_source", lambda value: value == "none"),
                 "mean_gen_len": _mean(candidates, "gen_len"),
                 "mean_final_cache_len": _mean(candidates, "final_cache_len"),
                 "mean_n_evict": _mean(candidates, "n_evict"),

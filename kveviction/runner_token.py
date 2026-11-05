@@ -146,6 +146,7 @@ def generate_token_evict(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(debug, ensure_ascii=False, indent=1))
     return {"text": text, "gen_ids": gen,
+            "finished": run["finished"][0],
             "seed": int(seed),
             "prompt_len": int(run["prompt_lengths"][0]),
             "n_evict": n_evict, "final_cache_len": run["n"],
@@ -246,6 +247,7 @@ def generate_token_evict_batch(
         candidates.append({
             "text": tokenizer.decode(ids, skip_special_tokens=True),
             "gen_ids": ids,
+            "finished": run["finished"][row],
             "seed": int(seeds[row]),
             "prompt_len": int(run["prompt_lengths"][row]),
             "n_evict": n_evict,
@@ -493,6 +495,8 @@ def _decode(
 
     return {
         "generated": generated,
+        # True when the request ended with EOS, False when it hit max_new.
+        "finished": [bool(x) for x in finished.tolist()],
         "evict_events": evict_events,
         "n_evict": n_evict,
         "n": n,

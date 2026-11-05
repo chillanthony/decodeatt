@@ -24,6 +24,23 @@ def load_causal_lm(model_name: str, dtype: str = "bfloat16", device_map: str | d
     return model, tokenizer
 
 
+# DeepSeek-R1 recommended usage: no system prompt, the instruction in the user turn.
+DEFAULT_PROMPT_TEMPLATE = (
+    "{question}\nPlease reason step by step, and put your final answer within \\boxed{}."
+)
+
+
+def format_prompt(question: str, template: str = DEFAULT_PROMPT_TEMPLATE) -> str:
+    """Insert ``question`` into ``template`` at ``{question}``.
+
+    Plain substitution rather than ``str.format`` so LaTeX braces such as
+    ``\\boxed{}`` in the template need no escaping.
+    """
+    if "{question}" not in template:
+        raise ValueError("prompt_template must contain '{question}'")
+    return template.replace("{question}", question)
+
+
 def build_input_ids(tokenizer, question: str, device):
     if tokenizer.chat_template:
         ids = tokenizer.apply_chat_template(

@@ -39,6 +39,12 @@ def main():
     parser.add_argument("--dataset", default=None, choices=["sample", "aime", "math500", "mix"])
     parser.add_argument("--n", type=int, default=None)
     parser.add_argument(
+        "--answer-extraction",
+        choices=["boxed", "lenient"],
+        default=None,
+        help="boxed (default): only the last \\boxed{} counts; lenient: legacy fallbacks.",
+    )
+    parser.add_argument(
         "--arms",
         default=None,
         help="Comma-separated arms, e.g. fullkv,snapkv@1024,h2o@1024,streamingllm@1024,rkv@1024",
@@ -248,6 +254,8 @@ def main():
                 debug_dir=eval_kwargs["debug_dir"],
                 only_ids=eval_kwargs["only_ids"],
                 vllm_config=settings.cfg.get("vllm", {}),
+                prompt_template=eval_kwargs["prompt_template"],
+                answer_extraction=eval_kwargs["answer_extraction"],
             )
         )
     for attn_backend, group_arms in groups.items():

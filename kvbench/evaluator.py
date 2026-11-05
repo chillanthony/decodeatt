@@ -9,8 +9,8 @@ from kveviction.backends import ExecutionBackend
 from kveviction.cache_manager import CacheManager
 
 from kvbench.datasets import load_problems
-from kvbench.metrics import extract_answer, is_correct, summarize_accuracy
-from kvbench.models import build_input_ids, pad_input_ids
+from kvbench.metrics import ANSWER_EXTRACTIONS, extract_answer_with_source, is_correct, summarize_accuracy
+from kvbench.models import DEFAULT_PROMPT_TEMPLATE, build_input_ids, format_prompt, pad_input_ids
 from kvbench.arms import EvalArm
 from kvbench.result_schema import check_candidate
 from kvbench.resume import atomic_write_json, load_resumable, run_fingerprint
@@ -166,6 +166,8 @@ def run_generation_eval(
     cache_manager: CacheManager | None = None,
     resume: bool = True,
     resume_from: list[str | Path] | None = None,
+    prompt_template: str = DEFAULT_PROMPT_TEMPLATE,
+    answer_extraction: str = "boxed",
 ) -> dict:
     """Run every arm on every problem and write the result file.
 
@@ -193,6 +195,9 @@ def run_generation_eval(
         raise ValueError("dynamic problem claiming cannot be combined with static sharding")
     if log_mode not in _LOG_MODES:
         raise ValueError(f"log_mode must be one of {sorted(_LOG_MODES)}, got {log_mode!r}")
+    if answer_extraction not in ANSWER_EXTRACTIONS:
+        raise ValueError(f"answer_extraction must be one of {ANSWER_EXTRACTIONS}, got {answer_extraction!r}")
+    format_prompt("", prompt_template)  # validate the template before loading anything
     if debug_dir and problem_batch_size > 1:
         raise ValueError("debug traces currently require problem_batch_size=1")
 
@@ -207,6 +212,7 @@ def run_generation_eval(
         seed_offset=seed_offset, num_return_sequences=num_return_sequences,
         batch_size=batch_size, problem_batch_size=problem_batch_size,
         prompt_bucket_size=prompt_bucket_size, log_mode=log_mode,
+        prompt_template=prompt_template, answer_extraction=answer_extraction,
         shard_rank=shard_rank, shard_world_size=shard_world_size,
     )
     records: list[dict] = []
@@ -272,6 +278,8 @@ def run_generation_eval(
             write=write,
             gen=gen,
             progress_prefix=progress_prefix,
+            prompt_template=prompt_template,
+            answer_extraction=answer_extraction,
             problem_batch_size=problem_batch_size,
             prompt_bucket_size=(
                 prompt_bucket_size
@@ -284,7 +292,7 @@ def run_generation_eval(
     device = next(model.parameters()).device
     for progress_index, progress_total, problem in next_problem():
         row = {"id": problem["id"], "gold": problem["answer"], "arms": {}}
-        input_ids = build_input_ids(tokenizer, problem["question"], device)
+        input_ids = build_input_ids(tokenizer, format_prompt(problem["question"], prompt_template), device)
         for arm in arms:
             debug_path = debug_dir / f"{problem['id']}_{arm.name}.json" if debug_dir else None
             candidate_results = _generate_arm(
@@ -293,6 +301,7 @@ def run_generation_eval(
             )[0]
             row["arms"][arm.name] = arm_result = _arm_payload(
                 candidate_results, problem["answer"], seed, seed_offset, log_mode=log_mode,
+                answer_extraction=answer_extraction,
             )
             result = candidate_results[0]
             print(
@@ -349,17 +358,20 @@ def _evaluated_candidates(
     seed_offset: int,
     *,
     log_mode: str,
+    answer_extraction: str = "boxed",
 ):
     evaluated = []
     for candidate_idx, result in enumerate(candidate_results):
         check_candidate(result)
-        pred = extract_answer(result["text"])
+        pred, answer_source = extract_answer_with_source(result["text"], answer_extraction)
         ok = is_correct(pred, gold)
         candidate = {
             "candidate_idx": candidate_idx,
             "seed": seed + seed_offset + candidate_idx,
             "ok": ok,
             "pred": pred,
+            "answer_source": answer_source,
+            "finished": result["finished"],
             "gen_len": len(result["gen_ids"]),
             "batch_elapsed_sec": result["batch_elapsed_sec"],
             "batch_tokens_per_sec": result["batch_tokens_per_sec"],
@@ -399,15 +411,19 @@ def _arm_payload(
     seed_offset: int,
     *,
     log_mode: str = "full",
+    answer_extraction: str = "boxed",
 ):
     evaluated = _evaluated_candidates(
-        candidate_results, gold, seed, seed_offset, log_mode=log_mode
+        candidate_results, gold, seed, seed_offset, log_mode=log_mode,
+        answer_extraction=answer_extraction,
     )
     first_result = candidate_results[0]
     first = evaluated[0]
     payload = {
         "ok": first["ok"],
         "pred": first["pred"],
+        "answer_source": first["answer_source"],
+        "finished": first["finished"],
         "gen_len": len(first_result["gen_ids"]),
         "n_evict": first_result["n_evict"],
         "final_cache_len": first_result["final_cache_len"],
@@ -458,6 +474,8 @@ def _run_cross_problem_eval(
     write,
     gen,
     progress_prefix,
+    prompt_template,
+    answer_extraction,
     problem_batch_size,
     prompt_bucket_size,
     log_mode="full",
@@ -475,7 +493,7 @@ def _run_cross_problem_eval(
             break
         tokenized = []
         for progress_index, progress_total, problem in raw_window:
-            ids = build_input_ids(tokenizer, problem["question"], device)
+            ids = build_input_ids(tokenizer, format_prompt(problem["question"], prompt_template), device)
             tokenized.append((int(ids.numel()), progress_index, progress_total, problem, ids))
         tokenized.sort(key=lambda item: item[0])
 
@@ -497,6 +515,7 @@ def _run_cross_problem_eval(
                         gen["seed"],
                         gen["seed_offset"],
                         log_mode=log_mode,
+                        answer_extraction=answer_extraction,
                     )
 
             for item, record in zip(group, group_records):

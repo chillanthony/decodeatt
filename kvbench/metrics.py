@@ -64,21 +64,41 @@ def _parse_math(value: str):
         return []
 
 
-def extract_answer(text: str) -> str | None:
+ANSWER_EXTRACTIONS = ("boxed", "lenient")
+
+
+def extract_answer_with_source(text: str, mode: str = "boxed") -> tuple[str | None, str]:
+    """Return ``(prediction, source)``; source is ``boxed``, ``parsed``, ``regex`` or ``none``.
+
+    ``boxed`` (default) only accepts the last ``\\boxed{...}``: an output
+    without one, typically a generation cut off by ``max_new``, has no answer.
+    ``lenient`` falls back to the last math expression in the text, then to an
+    ``answer is N`` / ``= N`` pattern near the end.  It recovers some
+    unboxed answers but also grades intermediate numbers of truncated
+    reasoning, so it is kept only for comparison with older results.
+    """
+    if mode not in ANSWER_EXTRACTIONS:
+        raise ValueError(f"answer_extraction must be one of {ANSWER_EXTRACTIONS}, got {mode!r}")
     boxed = _last_boxed_content(text)
     if boxed is not None:
-        return normalize_answer(boxed)
+        return normalize_answer(boxed), "boxed"
+    if mode == "boxed":
+        return None, "none"
 
     parsed = _parse_math(text)
     if parsed:
-        return normalize_answer(str(parsed[-1]))
+        return normalize_answer(str(parsed[-1])), "parsed"
 
     fallback = re.findall(
         r"(?:answer\s*(?:is)?\s*[:=]?|=)\s*(-?\d+(?:\.\d+)?)",
         text[-200:],
         re.I,
     )
-    return normalize_answer(fallback[-1]) if fallback else None
+    return (normalize_answer(fallback[-1]), "regex") if fallback else (None, "none")
+
+
+def extract_answer(text: str, mode: str = "boxed") -> str | None:
+    return extract_answer_with_source(text, mode)[0]
 
 
 def is_correct(prediction: str | None, gold: str) -> bool:
@@ -101,6 +121,11 @@ def is_correct(prediction: str | None, gold: str) -> bool:
         return abs(float(prediction) - float(gold_norm)) < 1e-6
     except (TypeError, ValueError):
         return False
+
+
+def _rate(rows: list[dict], key: str, predicate) -> float | None:
+    values = [row[key] for row in rows if row.get(key) is not None]
+    return sum(bool(predicate(value)) for value in values) / len(values) if values else None
 
 
 def summarize_accuracy(records: list[dict]) -> dict:
@@ -133,6 +158,10 @@ def summarize_accuracy(records: list[dict]) -> dict:
             "num_problems": len(arm_rows),
             "correct": correct,
             "total": len(rows),
+            # Share of candidates that hit max_new before EOS / produced no answer.
+            # Candidates from older result files without these fields are skipped.
+            "truncation_rate": _rate(rows, "finished", lambda value: not value),
+            "no_answer_rate": _rate(rows, "answer_source", lambda value: value == "none"),
             "mean_gen_len": sum(row["gen_len"] for row in rows) / len(rows) if rows else 0.0,
             "mean_final_cache_len": (
                 sum(row["final_cache_len"] for row in rows) / len(rows) if rows else 0.0

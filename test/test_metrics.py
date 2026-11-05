@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from kvbench.metrics import extract_answer, is_correct
+from kvbench.metrics import extract_answer, extract_answer_with_source, is_correct
 
 pytest.importorskip("math_verify")
 
@@ -25,10 +25,21 @@ pytest.importorskip("math_verify")
     (r"-2, 1", r"\boxed{1, -2}"),
     (r"3", r"\boxed{3.0}"),
     ("738", r"Therefore \boxed{738}."),
-    ("9", "The answer is 9."),
 ])
 def test_equivalent_answers_are_accepted(gold, text):
     assert is_correct(extract_answer(text), gold)
+
+
+def test_boxed_mode_ignores_unboxed_answers_lenient_keeps_them():
+    text = "The answer is 9."
+    assert extract_answer_with_source(text) == (None, "none")
+    assert extract_answer_with_source(text, "lenient")[0] == "9"
+    # A truncated chain of thought must not be graded on its intermediate numbers.
+    truncated = "Let me compute 7^2 = 49, so 49 mod 13 = 10, then"
+    assert extract_answer(truncated) is None
+    assert extract_answer(truncated, "lenient") is not None
+    with pytest.raises(ValueError):
+        extract_answer(text, "loose")
 
 
 @pytest.mark.parametrize("gold, text", [

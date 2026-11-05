@@ -10,6 +10,7 @@ def _candidate(*, ok: bool, seed: int, text_size: int = 0) -> dict:
     return {
         "text": "x" * text_size + f"\\boxed{{{answer}}}",
         "gen_ids": list(range(20)),
+        "finished": True,
         "seed": seed,
         "prompt_len": 16,
         "n_evict": 3,
