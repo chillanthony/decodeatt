@@ -444,6 +444,21 @@ def test_changed_config_refuses_to_resume_and_overwrite_starts_over(tmp_path):
     assert len(calls) == 4 and payload["run_config"]["seed"] == 1
 
 
+def test_resume_ignores_where_the_model_was_loaded_from(tmp_path):
+    out = tmp_path / "r.json"
+    _run(out, model_id="org/m")
+    payload = json.loads(out.read_text())
+    assert payload["run_config"]["model"] == "org/m" and payload["run_config"]["model_path"] == "fake"
+    payload["run_config"]["model_path"] = "/elsewhere/m"   # e.g. written on another machine
+    payload["complete"] = False
+    payload["records"] = payload["records"][:1]
+    out.write_text(json.dumps(payload))
+    calls = []
+    assert len(_run(out, calls=calls, model_id="org/m")["records"]) == 4 and len(calls) == 3
+    with pytest.raises(ResumeMismatch, match="model"):
+        _run(out, model_id="org/other")
+
+
 def test_resume_from_skips_problems_done_in_other_shards(tmp_path):
     other = tmp_path / "other.json"
     _run(other, only_ids={"p0", "p1", "p2", "p3"})

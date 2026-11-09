@@ -172,6 +172,7 @@ def run_generation_eval(
     answer_extraction: str = "boxed",
     sync_timing: bool = False,
     cache_impl: str = "growable",
+    model_id: str | None = None,
 ) -> dict:
     """Run every arm on every problem and write the result file.
 
@@ -209,7 +210,7 @@ def run_generation_eval(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     debug_dir = Path(debug_dir) if debug_dir else None
     run_config = run_fingerprint(
-        model, arms=arms, policy_params=policy_params, only_ids=only_ids,
+        model, arms=arms, policy_params=policy_params, only_ids=only_ids, model_id=model_id,
         dataset=dataset, n=n, max_new=max_new, recent=recent, sink=sink,
         evict_every=evict_every, obs_window=obs_window, obs_decay=obs_decay,
         do_sample=do_sample, temperature=temperature, top_p=top_p, seed=seed,

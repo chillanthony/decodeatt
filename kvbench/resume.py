@@ -24,8 +24,19 @@ def _jsonable(value: Any) -> Any:
     return json.loads(json.dumps(value, sort_keys=True, default=str))
 
 
-def run_fingerprint(model, *, arms, policy_params: dict | None, only_ids, **settings) -> dict:
-    """Everything that changes the generated records, in JSON-comparable form."""
+# Recorded for reference but not compared: the same model loaded from a local
+# directory on one machine and from the HF cache on another is the same run.
+_UNCOMPARED = ("model_path",)
+
+
+def run_fingerprint(
+    model, *, arms, policy_params: dict | None, only_ids, model_id: str | None = None, **settings
+) -> dict:
+    """Everything that changes the generated records, in JSON-comparable form.
+
+    ``model`` is identified by ``model_id`` (the HF id) when given; the path it
+    was actually loaded from is kept as ``model_path``.
+    """
     config = getattr(model, "config", None)
     try:
         dtype = str(next(model.parameters()).dtype)
@@ -37,7 +48,8 @@ def run_fingerprint(model, *, arms, policy_params: dict | None, only_ids, **sett
         entry["params"] = arm.params or (policy_params or {}).get(arm.backend, {})
         resolved_arms.append(entry)
     return _jsonable({
-        "model": getattr(config, "_name_or_path", None),
+        "model": model_id or getattr(config, "_name_or_path", None),
+        "model_path": getattr(config, "_name_or_path", None),
         "attn_implementation": getattr(config, "_attn_implementation", None),
         "dtype": dtype,
         "arms": resolved_arms,
@@ -66,8 +78,10 @@ def load_resumable(path: Path, fingerprint: dict) -> tuple[list[dict], dict | No
             f"{path} has no run_config (written before resume support or by another tool); "
             "pass --overwrite or choose another --out"
         )
-    if old != fingerprint:
-        changes = "; ".join(_diff(old, fingerprint))
+    old_cmp = {k: v for k, v in old.items() if k not in _UNCOMPARED}
+    new_cmp = {k: v for k, v in fingerprint.items() if k not in _UNCOMPARED}
+    if old_cmp != new_cmp:
+        changes = "; ".join(_diff(old_cmp, new_cmp))
         raise ResumeMismatch(
             f"{path} was written by a different configuration ({changes}); "
             "pass --overwrite or choose another --out"

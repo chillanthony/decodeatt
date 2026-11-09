@@ -7,6 +7,7 @@ precedence over YAML, which takes precedence over the defaults below.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,7 +26,7 @@ SCHEMA: dict[str, dict[str, tuple]] = {
     "model": {
         "name": (str,), "dtype": (str,), "device_map": (str, dict),
         "attn": (str,), "fast_attn": (str,), "fast_observe": (bool,),
-        "cache_impl": (str,),
+        "cache_impl": (str,), "local_dir": (str,),
     },
     "data": {
         "dataset": (str,), "n": (int,), "only_ids": (str, list),
@@ -257,6 +258,21 @@ def _section_value(cfg: dict, section: str, key: str):
     return DEFAULTS.get((section, key)) if value is None else value
 
 
+def resolve_model_path(name: str, local_dir: str | None) -> str:
+    """Where to load ``name`` from: ``local_dir`` if it exists, else the HF id.
+
+    ``local_dir`` may use environment variables (``${MODEL_ROOT}/...``) so one
+    model config serves every machine: where the variable is set and the
+    directory exists (e.g. a plain hfd download on A800) the model loads from
+    there; elsewhere it falls back to ``name`` in the HF cache.
+    """
+    if local_dir:
+        path = Path(os.path.expanduser(os.path.expandvars(local_dir)))
+        if "$" not in str(path) and path.is_dir():
+            return str(path)
+    return name
+
+
 def arm_attn_backend(
     policy: str, requested_attn: str, fast_attn: str, fast_observe: bool = False
 ) -> str:
@@ -283,6 +299,7 @@ class RunSettings:
 
     cfg: dict
     model_name: str
+    model_path: str
     arms: list[EvalArm]
     dtype: str
     device_map: object
@@ -315,7 +332,7 @@ class RunSettings:
                 **(cfg.get("experiment") or {}), "out": str(self.out_path), "log_mode": self.log_mode,
                 "sync_timing": kw["sync_timing"],
             },
-            "model": {**(cfg.get("model") or {}), "name": self.model_name},
+            "model": {**(cfg.get("model") or {}), "name": self.model_name, "load_from": self.model_path},
             "data": {
                 **(cfg.get("data") or {}), "dataset": kw["dataset"], "n": kw["n"],
                 "prompt_template": kw["prompt_template"],
@@ -361,6 +378,10 @@ def resolve_settings(cfg: dict, args) -> RunSettings:
     model_name = args.model or (cfg.get("model") or {}).get("name")
     if not model_name:
         raise ConfigError("missing --model or model.name in config")
+    # model.local_dir only describes the YAML model; --model replaces both.
+    model_path = model_name if args.model else resolve_model_path(
+        model_name, (cfg.get("model") or {}).get("local_dir")
+    )
 
     overrides = parse_policy_param_overrides(args.policy_param)
     for policy in overrides:
@@ -412,6 +433,7 @@ def resolve_settings(cfg: dict, args) -> RunSettings:
         log_mode=log_mode,
         sync_timing=bool(pick("sync_timing", "experiment")),
         cache_impl=pick("cache_impl", "model"),
+        model_id=model_name,
     )
     if eval_kwargs["cache_impl"] not in ("growable", "dynamic"):
         raise ConfigError(
@@ -423,6 +445,7 @@ def resolve_settings(cfg: dict, args) -> RunSettings:
     return RunSettings(
         cfg=cfg,
         model_name=model_name,
+        model_path=model_path,
         arms=arms,
         dtype=pick("dtype", "model"),
         device_map=pick("device_map", "model"),
@@ -436,7 +459,7 @@ def resolve_settings(cfg: dict, args) -> RunSettings:
 
 
 __all__ = [
-    "SCHEMA", "ARM_KEYS", "ConfigError", "RunSettings", "arm_attn_backend",
+    "SCHEMA", "ARM_KEYS", "ConfigError", "RunSettings", "arm_attn_backend", "resolve_model_path",
     "load_run_config", "merge_config", "parse_policy_param_overrides",
     "parse_scalar", "policy_defaults", "resolve_settings", "validate_config",
 ]

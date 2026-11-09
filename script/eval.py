@@ -136,6 +136,8 @@ def main():
     eval_kwargs = settings.eval_kwargs
     out_path, log_mode = settings.out_path, settings.log_mode
     eval_kwargs = {**eval_kwargs, "resume": not args.overwrite}
+    if settings.model_path != settings.model_name:
+        print(f"[model] {settings.model_name} -> {settings.model_path}", flush=True)
 
     env_world_size = int(os.environ.get("WORLD_SIZE", "1"))
     distributed = args.distributed or env_world_size > 1
@@ -209,7 +211,7 @@ def main():
                 flush=True,
             )
             model, tokenizer = load_causal_lm(
-                settings.model_name,
+                settings.model_path,
                 dtype=settings.dtype,
                 device_map=distributed_device_map,
                 attn_implementation=attn_backend,
@@ -251,7 +253,7 @@ def main():
             vllm_out = out_path.with_name(f"{out_path.stem}.vllm{out_path.suffix}")
         payloads.append(
             run_vllm_generation_eval(
-                model_name=settings.model_name,
+                model_name=settings.model_path,
                 dataset=eval_kwargs["dataset"],
                 n=eval_kwargs["n"],
                 arms=vllm_arms,
@@ -278,7 +280,7 @@ def main():
             flush=True,
         )
         model, tokenizer = load_causal_lm(
-            settings.model_name,
+            settings.model_path,
             dtype=settings.dtype,
             device_map=settings.device_map,
             attn_implementation=attn_backend,

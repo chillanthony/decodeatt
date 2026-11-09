@@ -1,5 +1,8 @@
 model:
   name: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+  # Loaded from here when the directory exists (plain hfd download, e.g. A800 with
+  # MODEL_ROOT set in config/runtime/a800.env); otherwise from the HF cache by name.
+  local_dir: ${MODEL_ROOT}/DeepSeek-R1-Distill-Llama-8B
   dtype: bfloat16
   device_map: cuda
   attn: auto

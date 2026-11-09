@@ -197,3 +197,25 @@ def test_anchor_arm_parsing_and_default_ids():
 def test_invalid_anchor_arms_are_rejected(item, message):
     with pytest.raises(ValueError, match=message):
         parse_arms([item])
+
+
+def test_local_dir_is_used_when_it_exists_else_the_hf_id(tmp_path, monkeypatch):
+    from kvbench.config import resolve_model_path
+
+    (tmp_path / "m").mkdir()
+    monkeypatch.setenv("MODEL_ROOT", str(tmp_path))
+    assert resolve_model_path("org/m", "${MODEL_ROOT}/m") == str(tmp_path / "m")
+    assert resolve_model_path("org/m", "${MODEL_ROOT}/missing") == "org/m"
+    assert resolve_model_path("org/m", None) == "org/m"
+    monkeypatch.delenv("MODEL_ROOT")
+    assert resolve_model_path("org/m", "${MODEL_ROOT}/m") == "org/m"   # unset variable
+
+    monkeypatch.setenv("MODEL_ROOT", str(tmp_path))
+    cfg = load_run_config(*_configs(tmp_path, model={"model": {"name": "org/m", "local_dir": "${MODEL_ROOT}/m"}}))
+    settings = resolve_settings(cfg, _args())
+    assert (settings.model_name, settings.model_path) == ("org/m", str(tmp_path / "m"))
+    assert settings.eval_kwargs["model_id"] == "org/m"
+    assert settings.resolved()["model"]["load_from"] == str(tmp_path / "m")
+    # --model replaces the YAML model, including its local_dir.
+    settings = resolve_settings(cfg, _args(model="other/x"))
+    assert (settings.model_name, settings.model_path) == ("other/x", "other/x")
