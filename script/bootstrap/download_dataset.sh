@@ -63,22 +63,23 @@ from __future__ import annotations
 
 import sys
 
-import requests
+import httpx
 from datasets import load_dataset
-from huggingface_hub import configure_http_backend
-from urllib3 import disable_warnings
-from urllib3.exceptions import InsecureRequestWarning
+from huggingface_hub import set_client_factory
 
+# huggingface_hub >= 1.0 uses httpx (configure_http_backend/requests were removed).
+# Keep the default client's settings and only disable SSL verification.
+try:
+    from huggingface_hub.utils._http import hf_request_event_hook
+    event_hooks = {"request": [hf_request_event_hook]}
+except ImportError:  # private helper; fall back to a plain client if it moves
+    event_hooks = {}
 
-def backend_factory() -> requests.Session:
-    session = requests.Session()
-    session.verify = False
-    return session
-
+set_client_factory(lambda: httpx.Client(
+    verify=False, event_hooks=event_hooks, follow_redirects=True, timeout=None,
+))
 
 repo, split, revision = sys.argv[1:]
-disable_warnings(InsecureRequestWarning)
-configure_http_backend(backend_factory=backend_factory)
 dataset = load_dataset(repo, split=split, revision=revision)
 print(f"[download-dataset] downloaded_rows={len(dataset)}")
 print(f"[download-dataset] columns={dataset.column_names}")
