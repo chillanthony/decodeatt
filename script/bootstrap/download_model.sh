@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ENV_FILE="${ENV_FILE:-$ROOT_DIR/config/runtime/4090.env}"
+ENV_FILE="${ENV_FILE:-$ROOT_DIR/config/runtime/a800.env}"
 source "$ENV_FILE"
 HFD_SCRIPT="$ROOT_DIR/script/bootstrap/hfd.sh"
 

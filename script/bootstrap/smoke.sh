@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source "${ENV_FILE:-$ROOT_DIR/config/runtime/4090.env}"
+source "${ENV_FILE:-$ROOT_DIR/config/runtime/a800.env}"
 require_python
 cd "$ROOT_DIR"
 
