@@ -1,0 +1,17 @@
+arms:
+  - id: streamingllm@1024
+    policy: streamingllm
+    budget: 1024
+
+policy_defaults:
+  streamingllm:
+    # Attention-sink tokens kept from the start of the sequence (StreamingLLM default 4);
+    # the rest of the budget is the most recent window.
+    first_tokens: 4
+
+eviction:
+  recent: 8
+  sink: 0
+  evict_every: 128
+  obs_window: 8
+  obs_decay: 0.9

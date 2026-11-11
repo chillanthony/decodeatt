@@ -481,3 +481,53 @@ def test_brief_partial_keeps_records_final_drops_them(tmp_path):
 def test_repeated_sample_problems_get_unique_ids():
     ids = [problem["id"] for problem in load_problems("sample", 5)]
     assert len(set(ids)) == 5
+
+
+def test_oom_splits_rows_and_keeps_results(monkeypatch, tiny_llama):
+    """A CUDA OOM halves the batch; every row still generates what it would unsplit."""
+    model, prompt = tiny_llama
+    prompts = torch.cat([prompt, prompt.flip(-1), prompt.roll(3, -1)])
+    arm = parse_arm("rkv@12")
+    gen = dict(
+        recent=2, sink=1, evict_every=4, obs_window=2, obs_decay=0.9, max_new=10,
+        do_sample=True, temperature=0.8, top_p=0.95, seed=3, seed_offset=0,
+        num_return_sequences=2, candidate_batch_size=2, policy_params={},
+        execution_backend=None, cache_manager=None, sync_timing=False, cache_impl="growable",
+    )
+    expected = evaluator._generate_arm(model, _Tokenizer(), prompts, arm, dict(gen))
+
+    real = evaluator.generate_token_evict_batch
+    sizes = []
+
+    def limited(*args, batch_size, **kwargs):
+        sizes.append(batch_size)
+        if batch_size > 2:
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+        return real(*args, batch_size=batch_size, **kwargs)
+
+    monkeypatch.setattr(evaluator, "generate_token_evict_batch", limited)
+    split_gen = dict(gen)
+    actual = evaluator._generate_arm(model, _Tokenizer(), prompts, arm, split_gen)
+
+    assert sizes == [6, 3, 2, 2, 2]
+    assert split_gen["row_caps"] == {arm.name: 2}
+    for want, got in zip(expected, actual):
+        assert [c["gen_ids"] for c in got] == [c["gen_ids"] for c in want]
+        assert [c["seed"] for c in got] == [c["seed"] for c in want]
+
+
+def test_oom_on_a_single_row_is_raised(monkeypatch, tiny_llama):
+    model, prompt = tiny_llama
+
+    def always_oom(*args, **kwargs):
+        raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+
+    monkeypatch.setattr(evaluator, "generate_token_evict_batch", always_oom)
+    gen = dict(
+        recent=2, sink=1, evict_every=4, obs_window=2, obs_decay=0.9, max_new=4,
+        do_sample=False, temperature=1.0, top_p=1.0, seed=0, seed_offset=0,
+        num_return_sequences=2, candidate_batch_size=2, policy_params={},
+        execution_backend=None, cache_manager=None, sync_timing=False, cache_impl="growable",
+    )
+    with pytest.raises(torch.cuda.OutOfMemoryError):
+        evaluator._generate_arm(model, _Tokenizer(), prompt, parse_arm("fullkv"), gen)

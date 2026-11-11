@@ -1,0 +1,14 @@
+arms:
+  - id: h2o@1024
+    policy: h2o
+    budget: 1024
+
+# H2O scores with the last token's attention (observation window fixed at 1)
+# and keeps that one token; it has no tunable policy parameters.
+
+eviction:
+  recent: 8
+  sink: 0
+  evict_every: 128
+  obs_window: 8
+  obs_decay: 0.9

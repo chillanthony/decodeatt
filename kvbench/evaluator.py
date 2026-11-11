@@ -112,25 +112,70 @@ def _generate_arm(
         return [[result]]
 
     per_prompt: list[list[dict]] = [[] for _ in range(num_prompts)]
+    row_caps = gen.setdefault("row_caps", {})
     start = 0
     while start < total:
         count = min(gen["candidate_batch_size"], total - start)
         seeds = [base_seed + start + j for _ in range(num_prompts) for j in range(count)]
-        result = generate_token_evict_batch(
+        candidates = _generate_rows(
             model,
             tokenizer,
             prompt_ids.repeat_interleave(count, dim=0),
-            batch_size=len(seeds),
-            input_attention_mask=(
-                None if prompt_mask is None else prompt_mask.repeat_interleave(count, dim=0)
-            ),
-            seeds=seeds,
-            **kwargs,
+            None if prompt_mask is None else prompt_mask.repeat_interleave(count, dim=0),
+            seeds,
+            kwargs,
+            row_caps,
+            arm.name,
         )
         for prompt_idx in range(num_prompts):
-            per_prompt[prompt_idx].extend(result["candidates"][prompt_idx * count:(prompt_idx + 1) * count])
+            per_prompt[prompt_idx].extend(candidates[prompt_idx * count:(prompt_idx + 1) * count])
         start += count
     return per_prompt
+
+
+def _generate_rows(model, tokenizer, row_ids, row_mask, seeds, kwargs, row_caps, arm_name) -> list[dict]:
+    """Generate one candidate per row, splitting the rows on CUDA out-of-memory.
+
+    Rows run in chunks of at most ``row_caps[arm_name]`` (unbounded at first).
+    When a chunk runs out of memory it is retried at half the size (rounded up) and the cap
+    is lowered for this arm, so later batches start at the size that fit.
+    Each row keeps its own seed and left padding, so splitting does not change
+    what a row generates (see ``test_batch_matches_single_request``).
+    """
+    import torch
+
+    rows = len(seeds)
+    candidates: list[dict] = []
+    start = 0
+    while start < rows:
+        size = min(row_caps.get(arm_name, rows), rows - start)
+        stop = start + size
+        try:
+            result = generate_token_evict_batch(
+                model,
+                tokenizer,
+                row_ids[start:stop],
+                batch_size=size,
+                input_attention_mask=None if row_mask is None else row_mask[start:stop],
+                seeds=seeds[start:stop],
+                **kwargs,
+            )
+        except torch.cuda.OutOfMemoryError:
+            if size == 1:
+                raise
+            result = None
+        if result is None:
+            # Retry outside the except block so the failed batch's tensors are released.
+            row_caps[arm_name] = (size + 1) // 2
+            torch.cuda.empty_cache()
+            print(
+                f"[oom] {arm_name}: {size} rows did not fit; retrying with at most {row_caps[arm_name]}",
+                flush=True,
+            )
+            continue
+        candidates.extend(result["candidates"])
+        start = stop
+    return candidates
 
 
 def run_generation_eval(
