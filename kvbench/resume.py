@@ -92,10 +92,20 @@ def load_resumable(path: Path, fingerprint: dict) -> tuple[list[dict], dict | No
 
 
 def atomic_write_json(path: Path, payload: dict) -> None:
-    """Write via a temp file + rename so readers never see a half-written file."""
+    """Write via a temp file + rename so readers never see a half-written file.
+
+    Object-storage mounts (e.g. an OBS bucket under ModelArts) can refuse the
+    rename with EPERM/ENOTSUP; there the file is written in place instead,
+    which loses atomicity but keeps the run going.
+    """
+    text = json.dumps(payload, ensure_ascii=False, indent=1)
     tmp = path.with_name(f".{path.name}.tmp{os.getpid()}")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=1))
-    os.replace(tmp, path)
+    tmp.write_text(text)
+    try:
+        os.replace(tmp, path)
+    except OSError:
+        path.write_text(text)
+        tmp.unlink(missing_ok=True)
 
 
 __all__ = ["ResumeMismatch", "atomic_write_json", "load_resumable", "run_fingerprint"]
