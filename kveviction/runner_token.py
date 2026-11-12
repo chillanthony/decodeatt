@@ -242,8 +242,8 @@ def generate_token_evict_batch(
             "finished": run["finished"][row],
             "seed": int(seeds[row]),
             "prompt_len": int(run["prompt_lengths"][row]),
-            "n_evict": n_evict,
-            "final_cache_len": run["n"],
+            "n_evict": len(row_events),
+            "final_cache_len": final_summaries[row]["max_effective_cache_len"],
             "elapsed_sec": amortized_elapsed,
             "tokens_per_sec": len(ids) / amortized_elapsed if amortized_elapsed > 0 else 0.0,
             "batch_elapsed_sec": elapsed,
@@ -318,6 +318,52 @@ def _synced_clock(device):
     return clock
 
 
+class _PhaseTimer:
+    """Per-phase durations for the decode loop (prefill, forward, observation, eviction).
+
+    With ``sync`` every boundary waits for the GPU (exact, slower).  Otherwise on
+    CUDA each phase is bracketed by CUDA events, which do not block: their GPU
+    timestamps are read once in ``resolve`` at the end.  A host timer around an
+    async forward would only measure the kernel launch and push the GPU time
+    into whichever later phase blocks.  On CPU plain ``perf_counter`` is exact.
+    """
+
+    def __init__(self, device, sync: bool):
+        self.use_events = device.type == "cuda" and not sync
+        self.clock = _synced_clock(device) if sync else time.perf_counter
+        self.totals = {"prefill": 0.0, "forward": 0.0, "observe": 0.0, "evict": 0.0}
+        self._pending = []
+
+    def start(self):
+        if self.use_events:
+            event = torch.cuda.Event(enable_timing=True)
+            event.record()
+            return event
+        return self.clock()
+
+    def stop(self, phase: str, start, records: list[dict] | None = None) -> None:
+        """Add the time since ``start`` to ``phase``; also set ``eviction_sec`` on ``records``."""
+        if self.use_events:
+            end = torch.cuda.Event(enable_timing=True)
+            end.record()
+            self._pending.append((phase, start, end, records))
+            return
+        self._add(phase, self.clock() - start, records)
+
+    def _add(self, phase, seconds, records):
+        self.totals[phase] += seconds
+        for record in records or ():
+            record["eviction_sec"] = seconds
+
+    def resolve(self) -> dict:
+        if self._pending:
+            self._pending[-1][2].synchronize()
+            for phase, start, end, records in self._pending:
+                self._add(phase, start.elapsed_time(end) / 1000.0, records)
+            self._pending = []
+        return self.totals
+
+
 def _decode(
     model, tokenizer, input_ids, *, batch_size, solo, budget, recent, sink, backend,
     anchor_mode, anchor_frac, evict_every, obs_window, obs_decay, max_new,
@@ -332,6 +378,7 @@ def _decode(
     input_ids = input_ids.to(device)
     B = batch_size
     clock = _synced_clock(device) if sync_timing else time.perf_counter
+    timer = _PhaseTimer(device, sync_timing)
 
     generators = []
     for seed in seeds:
@@ -399,6 +446,7 @@ def _decode(
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
     start_time = clock()
+    prefill_start = timer.start()
     prefill_cache = _new_cache(model, cache_impl)
     if solo:
         out = execution_backend.prefill(
@@ -413,7 +461,7 @@ def _decode(
             output_attentions=False,
             **prefill_cache,
         )
-    prefill_sec = clock() - start_time
+    timer.stop("prefill", prefill_start)
     cache = out.past_key_values
     logits = out.logits[:, -1]
     eos = tokenizer.eos_token_id
@@ -425,7 +473,6 @@ def _decode(
     evict_events = [[] for _ in range(B)]
     attn_history = []
     n_evict = 0
-    decode_forward_sec = attention_observation_sec = eviction_sec_total = 0.0
 
     if trace_hook is not None:
         trace_hook.prefill(_cache_view(cache), P)
@@ -466,7 +513,7 @@ def _decode(
         want_logits = want_observe and policy.needs_attn_history and use_attention_logits
         want_attn = want_observe and not want_logits
         position_ids = (prompt_lengths + step).unsqueeze(1)
-        decode_start = clock()
+        decode_start = timer.start()
         out = execution_backend.decode(
             next_tokens.unsqueeze(1),
             past_key_values=cache,
@@ -477,7 +524,7 @@ def _decode(
             position_ids=position_ids,
             cache_position=torch.tensor([n], device=device),
         )
-        decode_forward_sec += clock() - decode_start
+        timer.stop("forward", decode_start)
         cache = out.past_key_values
         logits = out.logits[:, -1]
         feats.append(n, pos=position_ids.squeeze(1), token=next_tokens,
@@ -487,11 +534,11 @@ def _decode(
         n += 1
 
         if want_logits:
-            obs_start = clock()
+            obs_start = timer.start()
             rows = logit_provider.observe(
                 out, cache=_cache_view(cache), n=n, position_ids=position_ids, model=model,
             )["history"]
-            attention_observation_sec += clock() - obs_start
+            timer.stop("observe", obs_start)
             if rows is None:
                 raise RuntimeError(
                     "attention-logit extraction failed; use a supported RoPE decoder "
@@ -500,7 +547,7 @@ def _decode(
             attn_history.append(rows)
             attn_history = attn_history[-active_obs_window:]
         if want_attn:                                 # 观察窗:全层注意力均值进 imp/cum/win
-            obs_start = clock()
+            obs_start = timer.start()
             observed = observation_provider.observe(
                 out, cache=_cache_view(cache), n=n, position_ids=position_ids, model=model,
             )
@@ -508,12 +555,12 @@ def _decode(
                 attn_history.append(observed["history"])
                 attn_history = attn_history[-active_obs_window:]
             feats.observe(n, observed["importance"], obs_decay)
-            attention_observation_sec += clock() - obs_start
+            timer.stop("observe", obs_start)
 
         if not eviction_due(policy, track=track, step=step, evict_every=evict_every,
                             cache_len=n, budget=budget, anchor_k=anchor_k):
             continue
-        evict_start = clock()
+        evict_start = timer.start()
         before_n = n
         selection_cache = _cache_view(cache)
         if solo:
@@ -546,14 +593,27 @@ def _decode(
         if policy.needs_attn_history:
             attn_history = []
         n_evict += 1
-        event_sec = clock() - evict_start
-        eviction_sec_total += event_sec
+        # Record the event only for rows still generating, each with its own
+        # cache length: in a batch the shared slot count ``n`` includes left
+        # padding and rows that already finished.
+        records = []
         for row in range(B):
-            evict_events[row].append(eviction_event(
-                step=step + 1, before_n=before_n, after_n=n,
-                before=before[row], after=after[row], eviction_sec=event_sec,
+            if solo:
+                row_before, row_after = before_n, n
+            elif host_finished[row]:
+                continue
+            else:
+                row_before = int(before[row]["max_effective_cache_len"])
+                row_after = int(after[row]["max_effective_cache_len"])
+            records.append(eviction_event(
+                step=step + 1, before_n=row_before, after_n=row_after,
+                before=before[row], after=after[row], eviction_sec=0.0,
             ))
+            evict_events[row].append(records[-1])
+        timer.stop("evict", evict_start, records)
 
+    elapsed = clock() - start_time
+    phase_sec = timer.resolve()
     return {
         "generated": generated,
         "forced_nll": torch.stack(forced_nll) if forced_nll else None,   # [steps, B]
@@ -565,11 +625,11 @@ def _decode(
         "cache": cache,
         "feats": feats,
         "prompt_lengths": prompt_lengths,
-        "prefill_sec": prefill_sec,
-        "decode_forward_sec": decode_forward_sec,
-        "attention_observation_sec": attention_observation_sec,
-        "eviction_sec_total": eviction_sec_total,
-        "elapsed": clock() - start_time,
+        "prefill_sec": phase_sec["prefill"],
+        "decode_forward_sec": phase_sec["forward"],
+        "attention_observation_sec": phase_sec["observe"],
+        "eviction_sec_total": phase_sec["evict"],
+        "elapsed": elapsed,
         "peak_memory": torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None,
         "debug": debug,
     }

@@ -199,3 +199,60 @@ def test_debug_token_samples_can_be_disabled():
         limit=0,
     )
     assert samples == []
+
+
+class _EosAfter(torch.nn.Module):
+    """Wraps a model so that row 0 emits EOS from the ``after``-th forward call on."""
+
+    def __init__(self, inner, eos, after):
+        super().__init__()
+        self.inner, self.config, self.eos, self.after, self.calls = inner, inner.config, eos, after, 0
+
+    def forward(self, *args, **kwargs):
+        out = self.inner(*args, **kwargs)
+        self.calls += 1
+        if self.calls > self.after:
+            out.logits[0, -1] = -1e4
+            out.logits[0, -1, self.eos] = 1e4
+        return out
+
+
+def test_batch_eviction_stats_are_per_row(tiny_llama):
+    """A row that finished early stops collecting eviction events, and lengths are its own."""
+    model, prompt = tiny_llama
+
+    class _EosTokenizer(_Tokenizer):
+        eos_token_id = 63
+
+    short = prompt[:, 6:]
+    ids, mask, _ = pad_input_ids(_EosTokenizer(), [short[0:1].reshape(1, -1), prompt], prompt.device)
+    result = generate_token_evict_batch(
+        _EosAfter(model, eos=63, after=12), _EosTokenizer(), ids, input_attention_mask=mask,
+        batch_size=2, backend="streamingllm", seeds=[0, 1],
+        **{**_E2E, "max_new": 30},
+    )
+    early, late = result["candidates"]
+    assert early["finished"] and len(early["gen_ids"]) < len(late["gen_ids"])
+    for cand in (early, late):
+        assert cand["n_evict"] == len(cand["evict_events"])
+        assert cand["final_cache_len"] <= _E2E["budget"] + _E2E["evict_every"]
+    assert 0 < early["n_evict"] < late["n_evict"]
+    # Row 0 is left padded by 6 slots: its own lengths are below the shared slot count.
+    pairs = zip(early["evict_events"], late["evict_events"])
+    assert any(e["cache_len_before"] < l["cache_len_before"] for e, l in pairs)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
+def test_cuda_phase_timings_fit_in_elapsed(tiny_llama):
+    """Without sync, CUDA-event phase timings are real GPU time and sum to at most the wall time."""
+    model, prompt = tiny_llama
+    model = model.cuda()
+    try:
+        result = generate_token_evict(model.cuda(), _Tokenizer(), prompt.cuda(), backend="rkv", seed=0, **_E2E)
+    finally:
+        model.cpu()
+    phases = (result["prefill_sec"] + result["decode_forward_sec"]
+              + result["attention_observation_sec"] + result["eviction_sec_total"])
+    assert result["decode_forward_sec"] > 0 and result["eviction_sec_total"] > 0
+    assert phases <= result["elapsed_sec"] * 1.01
+    assert all(event["eviction_sec"] > 0 for event in result["evict_events"])
