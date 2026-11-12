@@ -11,8 +11,8 @@ Per strategy:
 3. measure at that batch; on CUDA out-of-memory retry at 80% until it fits.
 ``--batch-sizes`` skips 1-2 and measures the given sizes instead.
 
-    python script/speedtest.py                                   # fullkv and rkv@1024, 4096 tokens per row
-    python script/speedtest.py --gen-len 8192 --budget 1536
+    python script/speedtest.py                                   # fullkv and rkv@1024, 8192 tokens per row
+    python script/speedtest.py --gen-len 4096 --budget 1536
 
 Strategy settings come from ``config/strategies/<name>.yaml`` as in ``script/eval.py``;
 ``--budget`` replaces the arm budget and the attention backend follows ``--attn auto``.
@@ -124,7 +124,7 @@ def main():
     parser.add_argument("--model", default=None, help="Override the model name/path.")
     parser.add_argument("--strategies", default="fullkv rkv")
     parser.add_argument("--budget", type=int, default=1024)
-    parser.add_argument("--gen-len", type=int, default=4096)
+    parser.add_argument("--gen-len", type=int, default=8192)
     parser.add_argument("--probe-batch", type=int, default=8)
     parser.add_argument("--mem-fraction", type=float, default=0.9, help="Share of GPU memory the estimate may fill.")
     parser.add_argument("--max-batch", type=int, default=1024, help="Upper bound on the estimated batch.")

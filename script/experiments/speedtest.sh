@@ -2,7 +2,7 @@
 # Single-GPU maximum throughput of FullKV vs R-KV (R-KV paper Table 1 protocol); see script/speedtest.py.
 #
 #   bash script/experiments/speedtest.sh
-#   GEN_LEN=8192 bash script/experiments/speedtest.sh          # paper's 8K setting (about twice as long)
+#   GEN_LEN=4096 bash script/experiments/speedtest.sh          # shorter run (about half the time)
 #   GPUS="2 3" bash script/experiments/speedtest.sh            # pick the GPUs
 #
 # With at least as many GPUs as strategies (GPUS, else CUDA_VISIBLE_DEVICES, else all visible), every strategy
@@ -22,7 +22,7 @@ export TOKENIZERS_PARALLELISM=false
 
 OUT="${OUT:-$RUNS_ROOT/speedtest/speedtest_$(date +%Y%m%d_%H%M%S).json}"
 read -r -a STRATEGY_LIST <<< "${STRATEGIES:-fullkv rkv}"
-COMMON=(--budget "${BUDGET:-1024}" --gen-len "${GEN_LEN:-4096}")
+COMMON=(--budget "${BUDGET:-1024}" --gen-len "${GEN_LEN:-8192}")
 
 if [[ -n "${GPUS:-}" ]]; then
   read -r -a GPU_LIST <<< "$GPUS"
