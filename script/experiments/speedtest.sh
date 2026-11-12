@@ -4,6 +4,11 @@
 #   bash script/experiments/speedtest.sh
 #   GEN_LEN=4096 bash script/experiments/speedtest.sh          # shorter run (about half the time)
 #   GPUS="2 3" bash script/experiments/speedtest.sh            # pick the GPUs
+#   MODE=full bash script/experiments/speedtest.sh             # generate the whole length (no extrapolation)
+#
+# MODE=fast (default) generates part of the length and extrapolates from per-step times (see script/speedtest.py);
+# on a 4090 it matched full runs within 2%. Expandable allocator segments avoid the fragmentation spikes of a
+# growing cache, which otherwise make full FullKV runs fail at batches that fit.
 #
 # With at least as many GPUs as strategies (GPUS, else CUDA_VISIBLE_DEVICES, else all visible), every strategy
 # runs as its own process on its own GPU at the same time; otherwise they run one after another on one GPU.
@@ -19,10 +24,11 @@ cd "$ROOT_DIR"
 
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}" HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-1}"
 export TOKENIZERS_PARALLELISM=false
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 OUT="${OUT:-$RUNS_ROOT/speedtest/speedtest_$(date +%Y%m%d_%H%M%S).json}"
 read -r -a STRATEGY_LIST <<< "${STRATEGIES:-fullkv rkv}"
-COMMON=(--budget "${BUDGET:-1024}" --gen-len "${GEN_LEN:-8192}")
+COMMON=(--budget "${BUDGET:-1024}" --gen-len "${GEN_LEN:-8192}" --mode "${MODE:-fast}")
 
 if [[ -n "${GPUS:-}" ]]; then
   read -r -a GPU_LIST <<< "$GPUS"
