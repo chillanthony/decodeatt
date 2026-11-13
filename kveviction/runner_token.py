@@ -1,13 +1,14 @@
 """Token-level KV eviction decoding loop (HuggingFace reference runner).
 
-后端:
-  snapkv —— 重要性(观察窗注意力 maxpool)top-B + recent window + sink。
-  rkv    —— 论文版 R-KV: observation attention importance + per-head key redundancy。
-  h2o    —— 累计注意力 top-B + recent window + sink。
-  window —— 观察窗注意力 top-B + recent window + sink。
-  random —— 随机中段 token + recent window + sink。
-锚点保护(anchor=高熵 forking token):在预算外额外钉 top-k 高熵 token;
-  对照 mode:none / anchor / random / lowent / sig。
+Backends:
+  snapkv -- importance (observation-window attention, maxpool) top-B + recent window + sink.
+  rkv    -- paper R-KV: observation attention importance + per-head key redundancy.
+  h2o    -- cumulative attention top-B + recent window + sink.
+  window -- observation-window attention top-B + recent window + sink.
+  random -- random middle tokens + recent window + sink.
+Anchor protection (anchor = high-entropy forking token): additionally pin the
+  top-k high-entropy tokens outside the budget; control modes: none / anchor /
+  random / lowent / sig.
 
 ``generate_token_evict`` (one request) and ``generate_token_evict_batch``
 (static batch) are thin wrappers over a single decoding loop, ``_decode``.
@@ -18,9 +19,10 @@ slots and pad finished/left-padded rows with masked filler.  Every request
 draws sampling and policy randomness from its own seeded generator, so a batch
 row seeded with ``s`` reproduces a solo run seeded with ``s``.
 
-辅助模块: ``sampling``(采样/熵)、``attention_logits``(R-KV logit 重算)、
-``selection``(淘汰调度与选槽)、``slot_features``(每槽特征缓冲)、
-``eviction_stats``(cache 统计与指标)、``trace_scoring``(teacher-forced NLL 诊断)。
+Helper modules: ``sampling`` (sampling/entropy), ``attention_logits`` (R-KV
+logit recomputation), ``selection`` (eviction scheduling and slot selection),
+``slot_features`` (per-slot feature buffers), ``eviction_stats`` (cache stats
+and metrics), ``trace_scoring`` (teacher-forced NLL diagnostics).
 """
 from __future__ import annotations
 
@@ -81,12 +83,14 @@ def generate_token_evict(
     sync_timing: bool = False,
     cache_impl: str = "growable",
 ):
-    """token 级淘汰生成(忠实 R-KV 架构 + 支持长生成)。
+    """Token-level eviction generation (faithful R-KV architecture, supports long generation).
 
-    速度/忠实兼顾:平时不取观测信号; cache-aware 官方 baseline 只在压缩前
-    observation window 内用 hidden states + q_proj + cache keys 重算 attention logits。
-    每槽特征缓冲(SlotFeatures)预分配,消掉逐步 torch.cat 的 O(n²),解锁 16k 长生成。
-    返回 dict(text, gen_ids, n_evict, final_cache_len, ...)。"""
+    Balances speed and fidelity: no observation signals are collected normally;
+    the cache-aware official baselines recompute attention logits from hidden
+    states + q_proj + cache keys only inside the observation window right before
+    a compression. Per-slot feature buffers (SlotFeatures) are preallocated,
+    removing the O(n^2) of per-step torch.cat and enabling 16k-token generation.
+    Returns dict(text, gen_ids, n_evict, final_cache_len, ...)."""
     if do_sample or backend == "random":
         # Kept for callers relying on the global RNG state after a call; the
         # loop itself draws from a generator seeded identically.
@@ -422,7 +426,7 @@ def _decode(
     uniforms = RowUniforms(generators)
 
     anchor_k = int(anchor_frac * budget)
-    use_sig = anchor_mode == "sig"                    # 完整 4 维签名锚点
+    use_sig = anchor_mode == "sig"                    # full 4-dim signature anchors
     sig_t = (torch.tensor(sig[0], device=device), float(sig[1])) if use_sig else None
     policy = with_anchors(get_policy(backend), anchor_mode, anchor_k, sig_t)
     policy_params = policy_params or {}
@@ -456,12 +460,12 @@ def _decode(
     prefill_position_ids = prompt_attention_mask.cumsum(-1) - 1
     prefill_position_ids.masked_fill_(prompt_attention_mask == 0, 0)
 
-    # 每槽特征缓冲预分配到 P + max_new;sig 锚点额外维护被访问注意力的 sum/cnt/max。
+    # Per-slot feature buffers are preallocated to P + max_new; sig anchors also keep sum/cnt/max of received attention.
     feats = SlotFeatures((B, P + max_new), device, track_sig=use_sig, track_valid=True)
     feats.slot_pos[:, :P] = prefill_position_ids
     feats.slot_ids[:, :P] = batched_input_ids
     feats.valid[:, :P] = prompt_attention_mask.bool()
-    n = P                                             # 当前缓存长度
+    n = P                                             # current cache length
 
     debug = {
         "config": {
@@ -581,7 +585,7 @@ def _decode(
             row_ids = [row_ids[row] for row in keep]
             host_finished = [host_finished[row] for row in keep]
 
-        # 只在下一次会真正触发压缩前的 observation window 内打开注意力观测。
+        # Only observe attention inside the observation window right before the next real compression.
         want_observe, active_obs_window = should_collect_observation(
             policy, track=track, policy_params=policy_params, obs_window=obs_window,
             evict_every=evict_every, step=step, cache_len=n, budget=budget,
@@ -623,7 +627,7 @@ def _decode(
                 )
             attn_history.append(rows)
             attn_history = attn_history[-active_obs_window:]
-        if want_attn:                                 # 观察窗:全层注意力均值进 imp/cum/win
+        if want_attn:                                 # observation window: all-layer mean attention into imp/cum/win
             obs_start = timer.start()
             observed = observation_provider.observe(
                 out, cache=_cache_view(cache), n=n, position_ids=position_ids, model=model,

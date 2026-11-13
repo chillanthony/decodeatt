@@ -1,15 +1,15 @@
-# CUDA 12.8 环境先从 SJTU cu128 索引安装 torch，再安装本文件：
+# On CUDA 12.8, install torch from the SJTU cu128 index first, then this file:
 #   pip install torch==2.11.0 --index-url https://mirror.sjtu.edu.cn/pytorch-wheels/cu128
 #   pip install --no-build-isolation -r requirements.txt
 
-# --- 核心模型依赖 ---
+# --- Core model dependencies ---
 torch==2.11.0
 transformers>=5.20,<6        # GrowableCache uses the v5 Cache/DynamicLayer API; tested on 5.20.0
 accelerate>=0.33
 vllm==0.22.1
 flash-attn>=2.6
 
-# --- 数据与评测 ---
+# --- Data and evaluation ---
 datasets>=2.20
 numpy>=2.2
 pandas>=2.2
@@ -20,5 +20,5 @@ pyyaml>=6.0
 tqdm>=4.66
 matplotlib>=3.8
 
-# --- 测试 ---
+# --- Tests ---
 pytest>=8

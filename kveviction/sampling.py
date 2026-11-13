@@ -5,7 +5,7 @@ import torch
 
 
 def sample(logits, do_sample, temperature, top_p):
-    """采样或贪心。logits: [1, vocab]，使用全局 RNG。"""
+    """Sample or greedy. logits: [1, vocab]; uses the global RNG."""
     if not do_sample:
         return int(logits.argmax(-1))
     lg = logits.float() / max(temperature, 1e-6)
