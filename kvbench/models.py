@@ -14,6 +14,9 @@ def load_causal_lm(model_name: str, dtype: str = "bfloat16", device_map: str | d
                    attn_implementation: str = "eager"):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
+    from kveviction import gqa_attention
+
+    gqa_attention.install()  # decode attention without repeat_kv copies of the cache
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(
         model_name,

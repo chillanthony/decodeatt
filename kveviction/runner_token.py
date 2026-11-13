@@ -51,7 +51,7 @@ from kveviction.observations import (
     AttentionLogitObservationProvider,
     AttentionObservationProvider,
 )
-from kveviction.sampling import entropy_batch, sample_batch
+from kveviction.sampling import RowUniforms, entropy_batch, sample_batch
 from kveviction.selection import (
     eviction_due,
     representative_indices,
@@ -397,6 +397,7 @@ def _decode(
         generator = torch.Generator(device=device)
         generator.manual_seed(int(seed))
         generators.append(generator)
+    uniforms = RowUniforms(generators)
 
     anchor_k = int(anchor_frac * budget)
     use_sig = anchor_mode == "sig"                    # 完整 4 维签名锚点
@@ -500,7 +501,7 @@ def _decode(
         # Slot entropy is only read by entropy-based anchors and debug dumps.
         token_entropy = entropy_batch(logits) if need_entropy else 0.0
         if forced_ids is None:
-            next_tokens = sample_batch(logits, do_sample, temperature, top_p, generators)
+            next_tokens = sample_batch(logits, do_sample, temperature, top_p, uniforms)
         else:
             # Teacher forcing: feed the given trace and record its NLL instead of sampling.
             next_tokens = forced_ids[:, step]

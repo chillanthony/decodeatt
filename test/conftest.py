@@ -8,6 +8,9 @@ import torch
 @pytest.fixture(scope="session")
 def tiny_llama():
     transformers = pytest.importorskip("transformers")
+    from kveviction import gqa_attention
+
+    gqa_attention.install()
     torch.manual_seed(0)
     cfg = transformers.LlamaConfig(
         vocab_size=64, hidden_size=32, intermediate_size=64, num_hidden_layers=2,

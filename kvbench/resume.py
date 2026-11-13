@@ -29,6 +29,10 @@ def _jsonable(value: Any) -> Any:
 _UNCOMPARED = ("model_path",)
 
 
+# 2: grouped decode attention (no repeat_kv) and inverse-CDF sampling from per-row uniform blocks.
+DECODE_VERSION = 2
+
+
 def run_fingerprint(
     model, *, arms, policy_params: dict | None, only_ids, model_id: str | None = None, **settings
 ) -> dict:
@@ -51,6 +55,9 @@ def run_fingerprint(
         "model": model_id or getattr(config, "_name_or_path", None),
         "model_path": getattr(config, "_name_or_path", None),
         "attn_implementation": getattr(config, "_attn_implementation", None),
+        # Bumped when decoding numerics or the sampling RNG stream change, so a
+        # file written before cannot be resumed with incomparable records.
+        "decode_version": DECODE_VERSION,
         "dtype": dtype,
         "arms": resolved_arms,
         "only_ids": sorted(only_ids) if only_ids else None,
