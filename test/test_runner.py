@@ -202,7 +202,10 @@ def test_debug_token_samples_can_be_disabled():
 
 
 class _EosAfter(torch.nn.Module):
-    """Wraps a model so that row 0 emits EOS from the ``after``-th forward call on."""
+    """Wraps a model so that row 0 emits EOS from the ``after``-th forward call on.
+
+    Only while the batch still has more than one row: once the finished row is
+    dropped, position 0 belongs to another request."""
 
     def __init__(self, inner, eos, after):
         super().__init__()
@@ -211,7 +214,7 @@ class _EosAfter(torch.nn.Module):
     def forward(self, *args, **kwargs):
         out = self.inner(*args, **kwargs)
         self.calls += 1
-        if self.calls > self.after:
+        if self.calls > self.after and out.logits.shape[0] > 1:
             out.logits[0, -1] = -1e4
             out.logits[0, -1, self.eos] = 1e4
         return out
@@ -270,3 +273,50 @@ def test_single_padded_row_matches_solo(tiny_llama, backend):
     solo = generate_token_evict(model, _Tokenizer(), prompt, seed=5, backend=backend, **_E2E)
     assert batch["gen_ids"] == solo["gen_ids"]
     assert batch["prompt_len"] == prompt.shape[1]
+
+
+class _StopAtPosition(torch.nn.Module):
+    """Forces EOS for a row once its own position id passes a row-specific stop
+    (``stop_every`` multiples above ``start``), so rows finish at different steps
+    regardless of which batch slot they occupy."""
+
+    def __init__(self, inner, eos, start=28, stop_every=5):
+        super().__init__()
+        self.inner, self.config, self.eos, self.start, self.stop_every = inner, inner.config, eos, start, stop_every
+
+    def forward(self, *args, position_ids=None, **kwargs):
+        out = self.inner(*args, position_ids=position_ids, **kwargs)
+        if position_ids is not None and position_ids.shape[-1] == 1:
+            pos = position_ids[:, -1]
+            stop = (pos > self.start) & (pos % self.stop_every == 0)
+            out.logits[stop, -1] = -1e4
+            out.logits[stop, -1, self.eos] = 1e4
+        return out
+
+
+@pytest.mark.parametrize("backend", ["rkv", "snapkv", "h2o", "streamingllm", "fullkv"])
+def test_dropping_finished_rows_keeps_every_row(monkeypatch, tiny_llama, backend):
+    import kveviction.runner_token as runner
+
+    model, prompt = tiny_llama
+
+    class _EosTokenizer(_Tokenizer):
+        eos_token_id = 63
+
+    rows = [prompt[:, :20], prompt[:, 3:], prompt[:, 7:], prompt[:, 1:]]
+    ids, mask, _ = pad_input_ids(_EosTokenizer(), [r.reshape(1, -1) for r in rows], prompt.device)
+    wrapped = _StopAtPosition(model, eos=63)
+    kwargs = dict(input_attention_mask=mask, batch_size=4, backend=backend, seeds=[0, 1, 2, 3],
+                  **{**_E2E, "max_new": 40, "do_sample": True})
+
+    monkeypatch.setattr(runner, "_DROP_FRACTION", 10.0)            # never drop
+    kept = generate_token_evict_batch(wrapped, _EosTokenizer(), ids, **kwargs)["candidates"]
+    monkeypatch.setattr(runner, "_DROP_FRACTION", 0.0)             # drop as soon as any row finishes
+    dropped = generate_token_evict_batch(wrapped, _EosTokenizer(), ids, **kwargs)["candidates"]
+
+    assert len({len(c["gen_ids"]) for c in kept}) > 1               # rows really finish at different steps
+    for a, b in zip(kept, dropped):
+        assert a["gen_ids"] == b["gen_ids"]
+        assert (a["finished"], a["n_evict"], a["prompt_len"]) == (b["finished"], b["n_evict"], b["prompt_len"])
+        # final_cache_len differs by design: a finished row that stays in the batch keeps being
+        # compacted by later evictions; a dropped row reports its cache as it was when it finished.

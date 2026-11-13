@@ -236,7 +236,7 @@ def generate_token_evict_batch(
     generated = run["generated"]
     batch_total_tokens = sum(len(ids) for ids in generated)
     amortized_elapsed = elapsed / batch_size
-    final_summaries = batch_cache_length_summaries(run["cache"], run["feats"].valid[:, :run["n"]])
+    final_summaries = run["final_summaries"]
     candidates = []
     for row, ids in enumerate(generated):
         row_events = run["evict_events"][row]
@@ -321,6 +321,28 @@ def _synced_clock(device):
         return time.perf_counter()
 
     return clock
+
+
+# Drop finished rows once they make up this share of the live batch (batched to
+# avoid copying the cache after every single row).
+_DROP_FRACTION = 0.25
+
+
+def _select_cache_rows(cache, keep: torch.Tensor):
+    """Keep only batch rows ``keep`` of every cache layer."""
+    if cache is None:
+        return cache
+    for layer in _cache_view(cache).layers:
+        if getattr(layer, "_kbuf", None) is not None:
+            # GrowableLayer: slice the buffers themselves so their spare capacity
+            # survives (assigning ``keys`` would reallocate at the exact length
+            # and force another copy on the next append).
+            layer._kbuf = layer._kbuf.index_select(0, keep)
+            layer._vbuf = layer._vbuf.index_select(0, keep)
+        else:
+            layer.keys = layer.keys.index_select(0, keep)
+            layer.values = layer.values.index_select(0, keep)
+    return cache
 
 
 def _accepts_logits_to_keep(model) -> bool:
@@ -430,6 +452,7 @@ def _decode(
             )
         prompt_attention_mask = input_attention_mask
     prompt_lengths = prompt_attention_mask.sum(-1).long()
+    request_prompt_lengths = prompt_lengths            # per original row; prompt_lengths follows live rows
     prefill_position_ids = prompt_attention_mask.cumsum(-1) - 1
     prefill_position_ids.masked_fill_(prompt_attention_mask == 0, 0)
 
@@ -488,6 +511,11 @@ def _decode(
     finished = torch.zeros(B, dtype=torch.bool, device=device)
     generated = [[] for _ in range(B)]
     evict_events = [[] for _ in range(B)]
+    # Live batch rows -> original request rows.  Finished rows leave the batch
+    # (see _DROP_FRACTION), so later steps only compute the rows still decoding.
+    row_ids = list(range(B))
+    final_finished = [False] * B
+    final_summaries: list[dict | None] = [None] * B
     attn_history = []
     n_evict = 0
 
@@ -517,9 +545,41 @@ def _decode(
         ).tolist()
         for row, (token, is_active) in enumerate(zip(host_tokens, host_active)):
             if is_active:
-                generated[row].append(token)
+                generated[row_ids[row]].append(token)
         if all(host_finished):
             break
+        # Rows that finished in an earlier step (their EOS is already in the
+        # cache) stop costing compute: drop them from every per-row buffer.  The
+        # shared slot count ``n`` and the step-based schedule are untouched, so
+        # the remaining rows decode exactly as before.
+        done = len(host_active) - sum(host_active)
+        if not solo and len(row_ids) > 2 and done and done >= _DROP_FRACTION * len(row_ids):
+            summaries = batch_cache_length_summaries(cache, feats.valid[:, :n])
+            keep = [row for row, live in enumerate(host_active) if live]
+            if len(keep) < 2:
+                # Batched selectors treat a single row as unbatched: keep one finished row as padding.
+                keep = sorted(keep + [next(row for row, live in enumerate(host_active) if not live)])
+            for row, live in enumerate(host_active):
+                if not live and row not in keep:
+                    final_finished[row_ids[row]] = True
+                    final_summaries[row_ids[row]] = summaries[row]
+            keep_t = torch.tensor(keep, device=device)
+            old_rows = len(row_ids)
+            cache = _select_cache_rows(cache, keep_t)
+            feats.select_rows(keep_t)
+            finished = finished.index_select(0, keep_t)
+            next_tokens = next_tokens.index_select(0, keep_t)
+            step_valid = step_valid.index_select(0, keep_t)
+            prompt_lengths = prompt_lengths.index_select(0, keep_t)
+            generators = [generators[row] for row in keep]
+            uniforms.select(keep)
+            attn_history = [
+                [t.index_select(0, keep_t) if torch.is_tensor(t) and t.shape[0] == old_rows else t
+                 for t in step_rows]
+                for step_rows in attn_history
+            ]
+            row_ids = [row_ids[row] for row in keep]
+            host_finished = [host_finished[row] for row in keep]
 
         # 只在下一次会真正触发压缩前的 observation window 内打开注意力观测。
         want_observe, active_obs_window = should_collect_observation(
@@ -614,7 +674,7 @@ def _decode(
         # cache length: in a batch the shared slot count ``n`` includes left
         # padding and rows that already finished.
         records = []
-        for row in range(B):
+        for row in range(len(row_ids)):
             if solo:
                 row_before, row_after = before_n, n
             elif host_finished[row]:
@@ -626,22 +686,28 @@ def _decode(
                 step=step + 1, before_n=row_before, after_n=row_after,
                 before=before[row], after=after[row], eviction_sec=0.0,
             ))
-            evict_events[row].append(records[-1])
+            evict_events[row_ids[row]].append(records[-1])
         timer.stop("evict", evict_start, records)
 
     elapsed = clock() - start_time
     phase_sec = timer.resolve()
+    if not solo:
+        summaries = batch_cache_length_summaries(cache, feats.valid[:, :n])
+        for row, original in enumerate(row_ids):
+            final_finished[original] = bool(finished[row])
+            final_summaries[original] = summaries[row]
     return {
         "generated": generated,
         "forced_nll": torch.stack(forced_nll) if forced_nll else None,   # [steps, B]
         # True when the request ended with EOS, False when it hit max_new.
-        "finished": [bool(x) for x in finished.tolist()],
+        "finished": [bool(x) for x in finished.tolist()] if solo else final_finished,
+        "final_summaries": final_summaries,
         "evict_events": evict_events,
         "n_evict": n_evict,
         "n": n,
         "cache": cache,
         "feats": feats,
-        "prompt_lengths": prompt_lengths,
+        "prompt_lengths": request_prompt_lengths,
         "prefill_sec": phase_sec["prefill"],
         "decode_forward_sec": phase_sec["forward"],
         "attention_observation_sec": phase_sec["observe"],

@@ -32,6 +32,12 @@ class RowUniforms:
         self.generators, self.block = generators, block
         self.buffer, self.pos = None, block
 
+    def select(self, keep: list[int]) -> None:
+        """Keep only rows ``keep`` (their generators and the unused draws)."""
+        self.generators = [self.generators[row] for row in keep]
+        if self.buffer is not None:
+            self.buffer = self.buffer[:, torch.tensor(keep, device=self.buffer.device)]
+
     def next(self) -> torch.Tensor:
         if self.pos == self.block:
             self.buffer = torch.stack([

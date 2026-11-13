@@ -8,10 +8,15 @@
 #   NUM_RETURN_SEQUENCES  samples per problem (default 4)
 #   BUDGETS               space-separated budgets (default per dataset below)
 #   GRID_STRATEGIES       space-separated eviction strategies (default "snapkv rkv")
-#   BATCH_SIZE / FULLKV_BATCH_SIZE / PROBLEM_BATCH_SIZE / LOG_MODE / NPROC_PER_NODE
-#   FULLKV_PROBLEM_BATCH_SIZE  problems per batch for fullkv only (default: PROBLEM_BATCH_SIZE;
-#                         aime24 defaults to one problem per batch). Its cache is not bounded by a budget,
-#                         so it usually needs a smaller value than the eviction arms.
+#   BATCH_SIZE / FULLKV_BATCH_SIZE  candidates per problem in one batch (default 4 / per dataset below)
+#   ROWS_PER_BATCH        target rows (problems x candidates) per GPU batch for eviction arms
+#                         (default 256 * 1024 / max(budget, 1024): 256 rows up to budget 1024, 128 at 2048)
+#   FULLKV_ROWS_PER_BATCH same for fullkv, whose cache is not bounded by a budget (default 16 math500, 8 aime24)
+#   PROBLEM_BATCH_SIZE / FULLKV_PROBLEM_BATCH_SIZE  set problems per batch directly (override the row targets)
+#                         Defaults derive from the row targets, capped at ceil(problems / GPUs) so the
+#                         dynamic problem claiming keeps every GPU busy. A batch that runs out of memory is
+#                         split in half automatically, so the targets can be generous.
+#   LOG_MODE / NPROC_PER_NODE
 #   PYTORCH_CUDA_ALLOC_CONF  default expandable_segments:True (a growing cache otherwise fragments memory
 #                         and OOMs at batches that fit)
 #   OVERWRITE=1           start every arm over instead of resuming its result file
@@ -28,13 +33,14 @@ case "$DATASET" in
   aime24)
     DEFAULT_BUDGETS="1024 1536 2048 2560"
     DEFAULT_FULLKV_BATCH_SIZE=8
-    # fullkv has an unbounded cache; keep it to one problem per batch.
-    FULLKV_SINGLE_PROBLEM=1
+    DEFAULT_FULLKV_ROWS=8
+    NUM_PROBLEMS=30
     ;;
   math500)
     DEFAULT_BUDGETS="128 256 512 768 1024 1536 2048"
     DEFAULT_FULLKV_BATCH_SIZE=4
-    FULLKV_SINGLE_PROBLEM=0
+    DEFAULT_FULLKV_ROWS=16
+    NUM_PROBLEMS=500
     ;;
   *)
     echo "unknown dataset $DATASET; expected aime24 or math500" >&2
@@ -100,11 +106,12 @@ for index in "${!STRATEGIES[@]}"; do
     export ARMS="${strategy}${budget:+@$budget}"
     if [[ "$strategy" == "fullkv" ]]; then
       export BATCH_SIZE="${FULLKV_BATCH_SIZE:-$DEFAULT_FULLKV_BATCH_SIZE}"
-      if [[ -n "${FULLKV_PROBLEM_BATCH_SIZE:-}" ]]; then
-        export PROBLEM_BATCH_SIZE="$FULLKV_PROBLEM_BATCH_SIZE"
-      elif [[ "$FULLKV_SINGLE_PROBLEM" == "1" ]]; then
-        unset PROBLEM_BATCH_SIZE
-      fi
+      ARM_ROWS="${FULLKV_ROWS_PER_BATCH:-$DEFAULT_FULLKV_ROWS}"
+      ARM_PROBLEM_BATCH_SIZE="${FULLKV_PROBLEM_BATCH_SIZE:-}"
+    else
+      export BATCH_SIZE="${BATCH_SIZE:-4}"
+      ARM_ROWS="${ROWS_PER_BATCH:-$(( 256 * 1024 / (budget > 1024 ? budget : 1024) ))}"
+      ARM_PROBLEM_BATCH_SIZE="${PROBLEM_BATCH_SIZE:-}"
     fi
     if [[ "${DRY_RUN:-0}" == "1" ]]; then
       echo "run_name=$RUN_NAME dataset=$DATASET strategy=$ARMS model_config=$MODEL_CONFIG data_config=$DATA_CONFIG strategy_config=$STRATEGY_CONFIG"
@@ -114,12 +121,19 @@ for index in "${!STRATEGIES[@]}"; do
 
     RUN_DIR="$RUNS_ROOT/$RUN_NAME"
     OUT="$RUN_DIR/$RUN_NAME.json"
-    BATCH_SIZE="${BATCH_SIZE:-4}"
-    PROBLEM_BATCH_SIZE="${PROBLEM_BATCH_SIZE:-1}"
     LOG_MODE="${LOG_MODE:-brief}"
     mkdir -p "$RUN_DIR"
     CUDA_COUNT="$("$PYTHON_BIN" -c 'import torch; print(torch.cuda.device_count())')"
     NPROC_PER_NODE="${NPROC_PER_NODE:-$CUDA_COUNT}"
+    if [[ -n "$ARM_PROBLEM_BATCH_SIZE" ]]; then
+      PROBLEM_BATCH_SIZE="$ARM_PROBLEM_BATCH_SIZE"
+    else
+      CANDIDATES=$(( BATCH_SIZE < SAMPLES ? BATCH_SIZE : SAMPLES ))
+      PER_GPU=$(( (NUM_PROBLEMS + NPROC_PER_NODE - 1) / NPROC_PER_NODE ))
+      PROBLEM_BATCH_SIZE=$(( ARM_ROWS / CANDIDATES ))
+      PROBLEM_BATCH_SIZE=$(( PROBLEM_BATCH_SIZE < PER_GPU ? PROBLEM_BATCH_SIZE : PER_GPU ))
+      PROBLEM_BATCH_SIZE=$(( PROBLEM_BATCH_SIZE > 1 ? PROBLEM_BATCH_SIZE : 1 ))
+    fi
     MASTER_PORT="${MASTER_PORT:-29500}"
     TIMEOUT_MINUTES="${TIMEOUT_MINUTES:-720}"
     if (( NPROC_PER_NODE < 1 || NPROC_PER_NODE > CUDA_COUNT )); then

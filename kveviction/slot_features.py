@@ -62,6 +62,11 @@ class SlotFeatures:
             self.att_cnt[..., :n] += 1.0
             self.att_max[..., :n] = torch.maximum(self.att_max[..., :n], row)
 
+    def select_rows(self, keep: torch.Tensor) -> None:
+        """Keep only batch rows ``keep`` (``[B, capacity]`` buffers)."""
+        for name in self._names:
+            setattr(self, name, getattr(self, name).index_select(0, keep))
+
     def compact(self, idx: torch.Tensor, before_n: int) -> int:
         """Keep slots ``idx`` (``[k]`` or ``[B, k]``) at the front of every buffer."""
         k = int(idx.shape[-1])
