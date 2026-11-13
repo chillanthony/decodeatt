@@ -7,7 +7,8 @@
 # Environment overrides:
 #   NUM_RETURN_SEQUENCES  samples per problem (default 4)
 #   BUDGETS               space-separated budgets (default per dataset below)
-#   GRID_STRATEGIES       space-separated eviction strategies (default "snapkv rkv")
+#   GRID_STRATEGIES       space-separated eviction strategies (default "snapkv rkv"; set but empty = none)
+#   RUN_FULLKV=0          skip the FullKV arm
 #   BATCH_SIZE / FULLKV_BATCH_SIZE  candidates per problem in one batch (default 4 / per dataset below)
 #   ROWS_PER_BATCH        target rows (problems x candidates) per GPU batch for eviction arms
 #                         (default 256 * 1024 / max(budget, 1024): 256 rows up to budget 1024, 128 at 2048)
@@ -53,10 +54,14 @@ GRID_NAME="${DATASET}_llama8b_main_grid_s${SAMPLES}"
 MODEL_CONFIG="config/models/deepseek_r1_distill_llama8b.yaml"
 DATA_CONFIG="config/datasets/${DATASET}.yaml"
 read -r -a BUDGET_LIST <<< "${BUDGETS:-$DEFAULT_BUDGETS}"
-read -r -a STRATEGY_LIST <<< "${GRID_STRATEGIES:-snapkv rkv}"
+read -r -a STRATEGY_LIST <<< "${GRID_STRATEGIES-snapkv rkv}"
 
-STRATEGIES=(fullkv)
-ARM_BUDGETS=("")
+STRATEGIES=()
+ARM_BUDGETS=()
+if [[ "${RUN_FULLKV:-1}" == "1" ]]; then
+  STRATEGIES+=(fullkv)
+  ARM_BUDGETS+=("")
+fi
 for strategy in "${STRATEGY_LIST[@]}"; do
   for budget in "${BUDGET_LIST[@]}"; do
     STRATEGIES+=("$strategy")

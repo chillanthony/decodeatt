@@ -1,0 +1,14 @@
+arms:
+  - id: random@1024
+    policy: random
+    budget: 1024
+
+# Lower-bound reference: keeps a random subset of the middle tokens (sink + recent window always kept),
+# seeded per request; no tunable policy parameters.
+
+eviction:
+  recent: 8
+  sink: 0
+  evict_every: 128
+  obs_window: 8
+  obs_decay: 0.9
