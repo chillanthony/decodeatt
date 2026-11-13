@@ -9,6 +9,11 @@
 #   BUDGETS               space-separated budgets (default per dataset below)
 #   GRID_STRATEGIES       space-separated eviction strategies (default "snapkv rkv")
 #   BATCH_SIZE / FULLKV_BATCH_SIZE / PROBLEM_BATCH_SIZE / LOG_MODE / NPROC_PER_NODE
+#   FULLKV_PROBLEM_BATCH_SIZE  problems per batch for fullkv only (default: PROBLEM_BATCH_SIZE;
+#                         aime24 defaults to one problem per batch). Its cache is not bounded by a budget,
+#                         so it usually needs a smaller value than the eviction arms.
+#   PYTORCH_CUDA_ALLOC_CONF  default expandable_segments:True (a growing cache otherwise fragments memory
+#                         and OOMs at batches that fit)
 #   OVERWRITE=1           start every arm over instead of resuming its result file
 #   DRY_RUN=1             print the planned runs only
 set -euo pipefail
@@ -59,6 +64,7 @@ export PYTHONPATH HF_HOME HF_ENDPOINT
 export HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 if [[ "${DRY_RUN:-0}" != "1" ]]; then
   # Fail before any GPU job if the offline dataset cache is incomplete.
@@ -94,7 +100,9 @@ for index in "${!STRATEGIES[@]}"; do
     export ARMS="${strategy}${budget:+@$budget}"
     if [[ "$strategy" == "fullkv" ]]; then
       export BATCH_SIZE="${FULLKV_BATCH_SIZE:-$DEFAULT_FULLKV_BATCH_SIZE}"
-      if [[ "$FULLKV_SINGLE_PROBLEM" == "1" ]]; then
+      if [[ -n "${FULLKV_PROBLEM_BATCH_SIZE:-}" ]]; then
+        export PROBLEM_BATCH_SIZE="$FULLKV_PROBLEM_BATCH_SIZE"
+      elif [[ "$FULLKV_SINGLE_PROBLEM" == "1" ]]; then
         unset PROBLEM_BATCH_SIZE
       fi
     fi

@@ -61,11 +61,11 @@ def main():
     parser.add_argument("--fast-attn", default=None, help="Fast backend used by --attn auto, default sdpa")
     parser.add_argument(
         "--fast-observe",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=None,
-        help="With --attn auto, run cache-aware policies (rkv/snapkv/h2o) on the fast backend: "
-        "their attention is recomputed from hidden states, so eager is not needed. "
-        "Faster, but bf16 greedy text differs from eager runs.",
+        help="With --attn auto, run cache-aware policies (rkv/snapkv/h2o) on the fast backend "
+        "(default on): their attention is recomputed from hidden states, so eager is not needed. "
+        "--no-fast-observe keeps them on eager, as runs before 2026-11-13 did.",
     )
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--top-p", type=float, default=None)

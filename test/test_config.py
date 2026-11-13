@@ -92,7 +92,7 @@ def test_cli_overrides_yaml_and_defaults_fill_gaps(tmp_path):
     assert settings.arms[0].params == {"alpha": 4, "lambda": 0.1}
     assert settings.out_path == Path("result/eval.json")
     groups, vllm_arms = settings.attn_groups()
-    assert list(groups) == ["eager"] and not vllm_arms
+    assert list(groups) == ["sdpa"] and not vllm_arms        # rkv on sdpa: fast_observe is on by default
 
 
 def test_vllm_section_is_accepted_in_model_config(tmp_path):
@@ -119,12 +119,11 @@ def test_split_runs_require_exactly_one_arm(tmp_path):
 def test_auto_attention_backend_selection():
     for policy in ("fullkv", "streamingllm", "random"):
         assert arm_attn_backend(policy, "auto", "sdpa") == "sdpa"
-    for policy in ("window", "snapkv", "h2o", "rkv"):
-        assert arm_attn_backend(policy, "auto", "sdpa") == "eager"
-    # fast_observe moves only the cache-aware policies (attention recomputed from hidden states).
+    # fast_observe (default) moves only the cache-aware policies (attention recomputed from hidden states).
     for policy in ("rkv", "snapkv", "h2o"):
-        assert arm_attn_backend(policy, "auto", "sdpa", fast_observe=True) == "sdpa"
-    assert arm_attn_backend("window", "auto", "sdpa", fast_observe=True) == "eager"
+        assert arm_attn_backend(policy, "auto", "sdpa") == "sdpa"
+        assert arm_attn_backend(policy, "auto", "sdpa", fast_observe=False) == "eager"
+    assert arm_attn_backend("window", "auto", "sdpa") == "eager"
     assert arm_attn_backend("rkv", "eager", "sdpa", fast_observe=True) == "eager"
 
 

@@ -66,7 +66,7 @@ DEFAULTS = {
     ("eviction", "recent"): 64, ("eviction", "sink"): 8, ("eviction", "evict_every"): 128,
     ("eviction", "obs_window"): 16, ("eviction", "obs_decay"): 0.9,
     ("model", "dtype"): "bfloat16", ("model", "device_map"): "cuda",
-    ("model", "attn"): "auto", ("model", "fast_attn"): "sdpa", ("model", "fast_observe"): False,
+    ("model", "attn"): "auto", ("model", "fast_attn"): "sdpa", ("model", "fast_observe"): True,
     ("model", "cache_impl"): "growable",
     ("experiment", "out"): "result/eval.json", ("experiment", "log_mode"): "full",
     ("experiment", "sync_timing"): False,
@@ -274,15 +274,15 @@ def resolve_model_path(name: str, local_dir: str | None) -> str:
 
 
 def arm_attn_backend(
-    policy: str, requested_attn: str, fast_attn: str, fast_observe: bool = False
+    policy: str, requested_attn: str, fast_attn: str, fast_observe: bool = True
 ) -> str:
     """Pick the attention backend for ``--attn auto``.
 
     Policies that never read attention use ``fast_attn``.  Cache-aware
     policies (``needs_attn_history``: rkv/snapkv/h2o) recompute their attention
-    rows from hidden states, so with ``fast_observe`` they also use
-    ``fast_attn``; by default they stay on eager so results match earlier
-    eager baselines bit for bit.  Policies that read softmax probabilities
+    rows from hidden states, so with ``fast_observe`` (the default since
+    2026-11-13) they also use ``fast_attn``; ``fast_observe=False`` keeps them
+    on eager, as runs before that date did.  Policies that read softmax probabilities
     from the forward pass (window and its anchors) always need eager.
     """
     if requested_attn != "auto":
