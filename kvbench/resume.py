@@ -30,7 +30,8 @@ _UNCOMPARED = ("model_path",)
 
 
 # 2: grouped decode attention (no repeat_kv) and inverse-CDF sampling from per-row uniform blocks.
-DECODE_VERSION = 2
+# 3: observation scores fold the query groups instead of broadcasting K (GEMM shapes change).
+DECODE_VERSION = 3
 
 
 def run_fingerprint(

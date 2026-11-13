@@ -18,9 +18,11 @@ def compute_attention_scores(query_states: torch.Tensor, key_states: torch.Tenso
     if query_group_size == 1:
         return torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(head_dim)
 
-    query_states = query_states.view(batch_size, kv_heads, query_group_size, q_len, head_dim)
-    key_states = key_states.unsqueeze(2)
-    attn_weights = torch.matmul(query_states, key_states.transpose(3, 4)) / math.sqrt(head_dim)
+    # Fold the query heads of each KV group into one matmul against the shared
+    # keys; a broadcast [.., g, q, d] @ [.., 1, d, n] matmul would copy K g times.
+    folded = query_states.reshape(batch_size, kv_heads, query_group_size * q_len, head_dim)
+    attn_weights = torch.matmul(folded, key_states.transpose(2, 3)) / math.sqrt(head_dim)
+    attn_weights = attn_weights.view(batch_size, kv_heads, query_group_size, q_len, -1)
     if pooling == "mean":
         return attn_weights.mean(dim=2)
     if pooling == "max":

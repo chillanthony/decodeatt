@@ -86,3 +86,66 @@ def test_each_row_samples_the_same_alone_or_in_a_batch():
         together = sample_batch(logits, True, 0.6, 0.95, batch)
         single = [sample_batch(logits[i:i + 1], True, 0.6, 0.95, alone[i]).item() for i in range(3)]
         assert together.tolist() == single
+
+
+def _redundancy_reference(keys, threshold, retain_ratio, retain_direction, eps, chunk_size, valid_mask=None):
+    """The R-KV redundancy as written before 2026-11-13 (one pass, int64 index matrix)."""
+    prefix, n_cand = keys.shape[:-2], keys.shape[-2]
+    keys = keys.reshape(-1, n_cand, keys.shape[-1])
+    flat_heads = keys.shape[0]
+    keys = keys.float() / (keys.float().norm(dim=-1, keepdim=True) + eps)
+    flat_valid = None
+    if valid_mask is not None:
+        flat_valid = valid_mask.bool().unsqueeze(1).expand(prefix[0], prefix[1], n_cand).reshape(flat_heads, n_cand)
+    col_ids = torch.arange(n_cand).view(1, 1, n_cand)
+    col_sum = torch.zeros(flat_heads, n_cand)
+    for start in range(0, n_cand, chunk_size):
+        end = min(start + chunk_size, n_cand)
+        sim = keys[:, start:end] @ keys.transpose(1, 2)
+        sim[:, torch.arange(end - start), torch.arange(start, end)] = 0.0
+        if flat_valid is not None:
+            sim = sim * flat_valid[:, start:end].unsqueeze(-1)
+            sim = sim * flat_valid.unsqueeze(1)
+        indices = torch.where(sim > threshold, col_ids, torch.zeros_like(sim, dtype=torch.long))
+        k = max(1, int(n_cand * retain_ratio))
+        retain = {
+            "last": lambda: indices.max(-1).values,
+            "first": lambda: indices.min(-1).values,
+            "last_percent": lambda: indices.topk(k, dim=-1).values[:, :, 0],
+            "first_percent": lambda: indices.topk(k, dim=-1, largest=False).values[:, :, -1],
+        }[retain_direction]()
+        sim.scatter_(-1, retain.unsqueeze(-1), 0)
+        col_sum += sim.sum(dim=1)
+    denominator = flat_valid.sum(-1, keepdim=True).clamp_min(1) if flat_valid is not None else n_cand
+    redundancy = col_sum / denominator
+    if flat_valid is not None:
+        redundancy = redundancy.masked_fill(~flat_valid, torch.finfo(redundancy.dtype).min)
+    return torch.softmax(redundancy, dim=-1).reshape(*prefix, n_cand)
+
+
+@pytest.mark.parametrize("direction", ["last", "first", "last_percent", "first_percent"])
+@pytest.mark.parametrize("padded", [False, True])
+def test_grouped_redundancy_matches_reference(monkeypatch, direction, padded):
+    from kveviction.strategies import rkv_official
+
+    g = torch.Generator().manual_seed(4)
+    base = torch.randn(3, 2, 6, 8, generator=g)
+    keys = torch.cat([base, base + 0.05 * torch.randn(3, 2, 6, 8, generator=g)], dim=2)   # near-duplicates
+    valid = torch.ones(3, 12, dtype=torch.bool)
+    if padded:
+        valid[0, :4] = False
+    mask = valid if padded else None
+    want = _redundancy_reference(keys, 0.5, 0.1, direction, 1e-8, 5, mask)
+    monkeypatch.setattr(rkv_official, "_GROUP_BYTES", 1)            # one head per group
+    got = rkv_official.rkv_redundancy(keys, 0.5, 0.1, direction, 1e-8, 5, valid_mask=mask)
+    assert torch.equal(got, want)
+
+
+def test_folded_observation_scores_match_broadcast():
+    from kveviction.strategies.attention_utils import compute_attention_scores
+
+    q, k, _ = _qkv(q_len=3)
+    grouped = q.view(3, 2, 4, 3, 16)
+    want = torch.matmul(grouped, k.unsqueeze(2).transpose(3, 4)) / 4.0
+    torch.testing.assert_close(compute_attention_scores(q, k), want.max(dim=2).values)
+    torch.testing.assert_close(compute_attention_scores(q, k, pooling="mean"), want.mean(dim=2))

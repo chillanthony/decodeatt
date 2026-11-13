@@ -21,6 +21,9 @@ from .attention_utils import (  # noqa: F401  (re-exported for compatibility)
 # R-KV's importance term is the shared observation-window importance.
 rkv_importance = observation_importance
 
+# Target size of the per-head-group similarity temporaries in ``rkv_redundancy``.
+_GROUP_BYTES = 256 * 2 ** 20
+
 
 def rkv_redundancy(
     keys: torch.Tensor,
@@ -45,7 +48,6 @@ def rkv_redundancy(
     flat_heads = keys.shape[0]
     if n_cand == 0:
         return torch.empty(*prefix, 0, dtype=torch.float32, device=keys.device)
-    keys = keys.float() / (keys.float().norm(dim=-1, keepdim=True) + eps)
     flat_valid = None
     if valid_mask is not None:
         valid_mask = valid_mask.to(device=keys.device, dtype=torch.bool)
@@ -57,33 +59,51 @@ def rkv_redundancy(
             )
         else:
             flat_valid = valid_mask.reshape(1, n_cand).expand(flat_heads, -1)
+    if retain_direction not in {"last", "first", "last_percent", "first_percent"}:
+        raise ValueError("retain_direction not supported")
     col_ids = torch.arange(n_cand, device=keys.device).view(1, 1, n_cand)
     col_sum = torch.zeros(flat_heads, n_cand, dtype=torch.float32, device=keys.device)
-    for start in range(0, n_cand, chunk_size):
-        end = min(start + chunk_size, n_cand)
-        sim = keys[:, start:end] @ keys.transpose(1, 2)
-        local_rows = torch.arange(end - start, device=keys.device)
-        global_rows = torch.arange(start, end, device=keys.device)
-        sim[:, local_rows, global_rows] = 0.0
-        if flat_valid is not None:
-            sim = sim * flat_valid[:, start:end].unsqueeze(-1)
-            sim = sim * flat_valid.unsqueeze(1)
+    k = max(1, int(n_cand * retain_ratio))
+    rows = min(chunk_size, n_cand)
+    # Heads are independent: process them in groups so the [heads, rows, n]
+    # temporaries stay near _GROUP_BYTES however large the batch is.
+    group = max(1, _GROUP_BYTES // (rows * n_cand * 4))
+    for h0 in range(0, flat_heads, group):
+        h1 = min(h0 + group, flat_heads)
+        raw = keys[h0:h1].float()
+        normed = raw / (raw.norm(dim=-1, keepdim=True) + eps)
+        del raw
+        valid = None if flat_valid is None else flat_valid[h0:h1]
+        for start in range(0, n_cand, chunk_size):
+            end = min(start + chunk_size, n_cand)
+            sim = normed[:, start:end] @ normed.transpose(1, 2)
+            local_rows = torch.arange(end - start, device=keys.device)
+            global_rows = torch.arange(start, end, device=keys.device)
+            sim[:, local_rows, global_rows] = 0.0
+            if valid is not None:
+                sim.mul_(valid[:, start:end].unsqueeze(-1))   # exact: multiplies by 0 or 1
+                sim.mul_(valid.unsqueeze(1))
 
-        mask = sim > threshold
-        indices = torch.where(mask, col_ids, torch.zeros_like(mask, dtype=torch.long))
-        k = max(1, int(n_cand * retain_ratio))
-        if retain_direction == "last":
-            retain = torch.max(indices, dim=-1).values
-        elif retain_direction == "first":
-            retain = torch.min(indices, dim=-1).values
-        elif retain_direction == "last_percent":
-            retain = torch.topk(indices, k=k, dim=-1).values[:, :, 0]
-        elif retain_direction == "first_percent":
-            retain = torch.topk(indices, k=k, dim=-1, largest=False).values[:, :, -1]
-        else:
-            raise ValueError("retain_direction not supported")
-        sim.scatter_(-1, retain.unsqueeze(-1), 0)
-        col_sum += sim.sum(dim=1)
+            mask = sim > threshold
+            if retain_direction == "last":
+                # Largest column above the threshold, else 0 (as max over where(mask, col, 0)),
+                # without materializing an int64 index matrix.
+                last = (n_cand - 1) - mask.flip(-1).to(torch.uint8).argmax(dim=-1)
+                retain = torch.where(mask.any(dim=-1), last, torch.zeros_like(last))
+            else:
+                indices = torch.where(mask, col_ids, torch.zeros_like(mask, dtype=torch.long))
+                if retain_direction == "first":
+                    retain = torch.min(indices, dim=-1).values
+                elif retain_direction == "last_percent":
+                    retain = torch.topk(indices, k=k, dim=-1).values[:, :, 0]
+                else:
+                    retain = torch.topk(indices, k=k, dim=-1, largest=False).values[:, :, -1]
+                del indices
+            del mask
+            sim.scatter_(-1, retain.unsqueeze(-1), 0)
+            col_sum[h0:h1] += sim.sum(dim=1)
+            del sim
+        del normed
     denominator = (
         flat_valid.sum(-1, keepdim=True).clamp_min(1)
         if flat_valid is not None
