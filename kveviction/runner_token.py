@@ -204,7 +204,12 @@ def generate_token_evict_batch(
         policy_params=policy_params, execution_backend=execution_backend,
         cache_manager=cache_manager, sync_timing=sync_timing, cache_impl=cache_impl,
     )
-    if batch_size == 1 and input_ids.shape[0] == 1 and input_attention_mask is None:
+    if batch_size == 1 and input_ids.shape[0] == 1:
+        # A single row runs on the solo path; drop its left padding first (the
+        # batched selectors treat one row as unbatched and mis-shape the mask).
+        if input_attention_mask is not None:
+            keep = input_attention_mask[0].to(input_ids.device).bool()
+            input_ids = input_ids[:, keep]
         seed = int((seeds or [0])[0])
         return {"candidates": [generate_token_evict(
             model, tokenizer, input_ids, seed=seed, **common,
@@ -316,6 +321,13 @@ def _synced_clock(device):
         return time.perf_counter()
 
     return clock
+
+
+def _accepts_logits_to_keep(model) -> bool:
+    import inspect
+
+    params = inspect.signature(model.forward).parameters
+    return "logits_to_keep" in params
 
 
 class _PhaseTimer:
@@ -448,9 +460,12 @@ def _decode(
     start_time = clock()
     prefill_start = timer.start()
     prefill_cache = _new_cache(model, cache_impl)
+    # Only the last position's logits are used; without this HF materializes
+    # [batch, prompt, vocab] logits, the largest per-row memory spike in prefill.
+    last_logits = {"logits_to_keep": 1} if _accepts_logits_to_keep(model) else {}
     if solo:
         out = execution_backend.prefill(
-            input_ids, use_cache=True, output_attentions=False, **prefill_cache
+            input_ids, use_cache=True, output_attentions=False, **prefill_cache, **last_logits
         )
     else:
         out = execution_backend.prefill(
@@ -460,6 +475,7 @@ def _decode(
             use_cache=True,
             output_attentions=False,
             **prefill_cache,
+            **last_logits,
         )
     timer.stop("prefill", prefill_start)
     cache = out.past_key_values

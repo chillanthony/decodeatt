@@ -256,3 +256,17 @@ def test_cuda_phase_timings_fit_in_elapsed(tiny_llama):
     assert result["decode_forward_sec"] > 0 and result["eviction_sec_total"] > 0
     assert phases <= result["elapsed_sec"] * 1.01
     assert all(event["eviction_sec"] > 0 for event in result["evict_events"])
+
+
+@pytest.mark.parametrize("backend", ["rkv", "snapkv", "h2o", "streamingllm"])
+def test_single_padded_row_matches_solo(tiny_llama, backend):
+    """One left-padded row (last cross-problem group, or an OOM split down to one row) runs like a solo request."""
+    model, prompt = tiny_llama
+    padded = torch.cat([torch.zeros((1, 3), dtype=prompt.dtype), prompt], dim=1)
+    mask = torch.cat([torch.zeros((1, 3), dtype=torch.long), torch.ones_like(prompt)], dim=1)
+    batch = generate_token_evict_batch(
+        model, _Tokenizer(), padded, batch_size=1, input_attention_mask=mask, seeds=[5], backend=backend, **_E2E,
+    )["candidates"][0]
+    solo = generate_token_evict(model, _Tokenizer(), prompt, seed=5, backend=backend, **_E2E)
+    assert batch["gen_ids"] == solo["gen_ids"]
+    assert batch["prompt_len"] == prompt.shape[1]
